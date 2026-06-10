@@ -17,14 +17,15 @@ import {
   RotateCw,
   Save,
   Signal,
+  Sparkles,
   Trash2,
   Unlock
 } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
-import type { FloorTable, OpeningHours, TableBlockReason, TableZone } from "@/lib/domain";
+import type { DetectedGlbTable, FloorTable, OpeningHours, TableBlockReason, TableZone } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
 import { useFloorPlanStore } from "@/stores/floor-plan-store";
 import { useRealtimeStore } from "@/stores/realtime-store";
@@ -115,7 +116,9 @@ export function AdminDashboard() {
   });
   const [restaurantFormError, setRestaurantFormError] = useState<string>();
   const [selectedTableDraft, setSelectedTableDraft] = useState<TableDraft | null>(null);
+  const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
   const lastSavedTableDraftRef = useRef("");
+  const detectedGlbTablesSignatureRef = useRef("");
   const { selectedTableId, setSelectedTableId } = useFloorPlanStore();
   const realtime = useRealtimeStore();
   const { t } = useI18n();
@@ -202,6 +205,55 @@ export function AdminDashboard() {
       if (data?.table.id) {
         setSelectedTableId(data.table.id);
       }
+    }
+  });
+
+  const syncGlbTablesMutation = useMutation({
+    mutationFn: async () => {
+      if (!restaurant) {
+        throw new Error(t("admin.createRestaurant"));
+      }
+
+      const orderedTables = [...tables].sort((first, second) => {
+        const row = first.positionY - second.positionY;
+        return Math.abs(row) > 24 ? row : first.positionX - second.positionX || first.label.localeCompare(second.label);
+      });
+
+      for (const [index, detectedTable] of detectedGlbTables.entries()) {
+        const payload = {
+          capacity: detectedTable.capacity,
+          positionX: detectedTable.positionX,
+          positionY: detectedTable.positionY,
+          rotation: detectedTable.rotation,
+          zone: detectedTable.zone,
+          active: true
+        };
+        const existingTable = orderedTables[index];
+
+        if (existingTable) {
+          await apiFetch<{ table: FloorTable }>(`/api/tables/${existingTable.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload)
+          });
+        } else {
+          await apiFetch<{ table: FloorTable }>(`/api/restaurants/${restaurant.id}/tables`, {
+            method: "POST",
+            body: JSON.stringify({
+              ...payload,
+              label: detectedTable.label
+            })
+          });
+        }
+      }
+
+      return {
+        count: detectedGlbTables.length
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tables", restaurant?.id] });
+      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics", restaurant?.id] });
     }
   });
 
@@ -455,6 +507,22 @@ export function AdminDashboard() {
 
     return () => window.clearTimeout(timeout);
   }, [selectedTableDraft, selectedTableId]);
+
+  const handleDetectedGlbTablesChange = useCallback((nextTables: DetectedGlbTable[]) => {
+    const signature = nextTables
+      .map(
+        (table) =>
+          `${table.id}:${table.capacity}:${table.zone}:${table.positionX}:${table.positionY}:${table.rotation}`
+      )
+      .join("|");
+
+    if (signature === detectedGlbTablesSignatureRef.current) {
+      return;
+    }
+
+    detectedGlbTablesSignatureRef.current = signature;
+    setDetectedGlbTables(nextTables);
+  }, []);
 
   function updateSelectedTableDraft(data: Partial<TableDraft>) {
     setSelectedTableDraft((current) => (current ? { ...current, ...data } : current));
@@ -781,18 +849,53 @@ export function AdminDashboard() {
                 </button>
               </div>
               {floorViewMode === "3d" ? (
-                <label className="text-sm font-semibold text-ink">
-                  {t("floor.zoom")}
-                  <input
-                    className="mt-2 w-full accent-moss"
-                    min={60}
-                    max={180}
-                    step={5}
-                    type="range"
-                    value={Math.round(floorZoom * 100)}
-                    onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
-                  />
-                </label>
+                <>
+                  <label className="text-sm font-semibold text-ink">
+                    {t("floor.zoom")}
+                    <input
+                      className="mt-2 w-full accent-moss"
+                      min={60}
+                      max={180}
+                      step={5}
+                      type="range"
+                      value={Math.round(floorZoom * 100)}
+                      onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
+                    />
+                  </label>
+                  <div className="rounded-md border border-ink/10 bg-linen p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-2 text-sm font-bold text-ink">
+                        <Sparkles className="h-4 w-4 text-moss" />
+                        {t("admin.glbAi")}
+                      </span>
+                      <span className="rounded-md bg-white px-2 py-1 text-xs font-black text-ink">
+                        {t("admin.detectedTables", { count: detectedGlbTables.length })}
+                      </span>
+                    </div>
+                    <button
+                      className="secondary-button w-full"
+                      type="button"
+                      disabled={
+                        !restaurant ||
+                        restaurant.layoutLocked ||
+                        detectedGlbTables.length === 0 ||
+                        syncGlbTablesMutation.isPending
+                      }
+                      onClick={() => syncGlbTablesMutation.mutate()}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      {syncGlbTablesMutation.isPending ? t("admin.saving") : t("admin.applyGlbDetection")}
+                    </button>
+                    <p className="mt-2 text-xs font-medium text-ink/60">
+                      {detectedGlbTables.length > 0 ? t("admin.glbDetectedHint") : t("admin.noGlbTables")}
+                    </p>
+                    {syncGlbTablesMutation.error ? (
+                      <p className="mt-2 text-sm font-semibold text-red-700">
+                        {syncGlbTablesMutation.error.message}
+                      </p>
+                    ) : null}
+                  </div>
+                </>
               ) : null}
             </div>
           </div>
@@ -995,6 +1098,7 @@ export function AdminDashboard() {
                 data: position
               })
             }
+            onDetectedTablesChange={handleDetectedGlbTablesChange}
           />
 
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">

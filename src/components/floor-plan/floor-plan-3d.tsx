@@ -1,11 +1,11 @@
 "use client";
 
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
-import { Billboard, OrbitControls, PerspectiveCamera, Text } from "@react-three/drei";
-import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { Billboard, OrbitControls, PerspectiveCamera, Text, useGLTF } from "@react-three/drei";
+import { type MutableRefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { FloorTable } from "@/lib/domain";
+import type { DetectedGlbTable, FloorTable } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
 
 const PLAN_WIDTH = 960;
@@ -14,6 +14,7 @@ const SCALE = 36;
 const SCENE_WIDTH = PLAN_WIDTH / SCALE;
 const SCENE_DEPTH = PLAN_HEIGHT / SCALE;
 const WALL_HEIGHT = 3.1;
+const GLB_MODEL_PATH = "/models/plan.glb";
 
 type FloorPlan3DProps = {
   tables: FloorTable[];
@@ -24,6 +25,7 @@ type FloorPlan3DProps = {
   zoom: number;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
+  onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 };
 
 type RestaurantSceneProps = FloorPlan3DProps & {
@@ -48,6 +50,206 @@ function toPlanPosition(x: number, z: number) {
     positionX: Math.round(Math.max(12, Math.min(x * SCALE + PLAN_WIDTH / 2, PLAN_WIDTH - 96))),
     positionY: Math.round(Math.max(12, Math.min(z * SCALE + PLAN_HEIGHT / 2, PLAN_HEIGHT - 76)))
   };
+}
+
+type ModelFit = {
+  scale: number;
+  center: THREE.Vector3;
+  floorY: number;
+};
+
+type MeshInfo = {
+  object: THREE.Mesh;
+  box: THREE.Box3;
+  size: THREE.Vector3;
+  center: THREE.Vector3;
+  name: string;
+};
+
+function isMesh(object: THREE.Object3D): object is THREE.Mesh {
+  return (object as THREE.Mesh).isMesh === true;
+}
+
+function getModelFit(object: THREE.Object3D): ModelFit {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  const scale = Math.min(
+    (SCENE_WIDTH * 0.94) / Math.max(size.x, 1),
+    (SCENE_DEPTH * 0.94) / Math.max(size.z, 1)
+  );
+
+  return {
+    center,
+    floorY: Number.isFinite(box.min.y) ? box.min.y : 0,
+    scale: Number.isFinite(scale) && scale > 0 ? scale : 1
+  };
+}
+
+function fitPoint(point: THREE.Vector3, fit: ModelFit) {
+  return {
+    x: (point.x - fit.center.x) * fit.scale,
+    y: (point.y - fit.floorY) * fit.scale,
+    z: (point.z - fit.center.z) * fit.scale
+  };
+}
+
+function listMeshInfo(scene: THREE.Object3D) {
+  const meshes: MeshInfo[] = [];
+
+  scene.updateMatrixWorld(true);
+  scene.traverse((object) => {
+    if (!isMesh(object)) {
+      return;
+    }
+
+    const box = new THREE.Box3().setFromObject(object);
+
+    if (box.isEmpty() || !Number.isFinite(box.min.x)) {
+      return;
+    }
+
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    meshes.push({
+      object,
+      box,
+      center,
+      name: object.name || "mesh",
+      size
+    });
+  });
+
+  return meshes;
+}
+
+function isTableTopCandidate(info: MeshInfo, floorY: number) {
+  const minSide = Math.min(info.size.x, info.size.z);
+  const maxSide = Math.max(info.size.x, info.size.z);
+  const elevated = info.center.y > floorY + 0.35 && info.center.y < floorY + 2.4;
+
+  return (
+    elevated &&
+    info.size.y >= 0.015 &&
+    info.size.y <= 0.16 &&
+    minSide >= 0.65 &&
+    minSide <= 2.2 &&
+    maxSide >= 0.75 &&
+    maxSide <= 3.45
+  );
+}
+
+function isChairCandidate(info: MeshInfo, floorY: number) {
+  const minSide = Math.min(info.size.x, info.size.z);
+  const maxSide = Math.max(info.size.x, info.size.z);
+  const elevated = info.center.y > floorY + 0.2 && info.center.y < floorY + 2.3;
+
+  return elevated && info.size.y >= 0.45 && info.size.y <= 1.15 && minSide >= 0.35 && maxSide <= 1.25;
+}
+
+function horizontalDistance(first: THREE.Vector3, second: THREE.Vector3) {
+  return Math.hypot(first.x - second.x, first.z - second.z);
+}
+
+function clusterChairCenters(chairs: MeshInfo[]) {
+  const clusters: THREE.Vector3[] = [];
+
+  for (const chair of chairs) {
+    const existing = clusters.find((center) => horizontalDistance(center, chair.center) < 0.42);
+
+    if (existing) {
+      existing.add(chair.center).multiplyScalar(0.5);
+    } else {
+      clusters.push(chair.center.clone());
+    }
+  }
+
+  return clusters;
+}
+
+function inferCapacity(table: MeshInfo, chairCenters: THREE.Vector3[]) {
+  const radius = Math.max(table.size.x, table.size.z) * 0.72 + 1.0;
+  const nearbyChairs = chairCenters.filter((chair) => horizontalDistance(chair, table.center) <= radius).length;
+
+  if (nearbyChairs > 0) {
+    return Math.max(2, Math.min(12, nearbyChairs));
+  }
+
+  const area = table.size.x * table.size.z;
+
+  if (area >= 2.6) {
+    return 6;
+  }
+
+  if (area >= 1.4) {
+    return 4;
+  }
+
+  return 2;
+}
+
+function inferZone(position: { x: number; z: number }): FloorTable["zone"] {
+  if (position.x > SCENE_WIDTH * 0.22) {
+    return "VIP";
+  }
+
+  if (position.z > SCENE_DEPTH * 0.18) {
+    return "TERRACE";
+  }
+
+  return "INDOOR";
+}
+
+function detectTablesFromGlb(scene: THREE.Object3D, fit: ModelFit): DetectedGlbTable[] {
+  const meshes = listMeshInfo(scene);
+  const chairCenters = clusterChairCenters(meshes.filter((info) => isChairCandidate(info, fit.floorY)));
+  const tableTops = meshes
+    .filter((info) => isTableTopCandidate(info, fit.floorY))
+    .sort((first, second) => {
+      const row = first.center.z - second.center.z;
+      return Math.abs(row) > 0.35 ? row : first.center.x - second.center.x;
+    });
+  const uniqueTableTops: MeshInfo[] = [];
+
+  for (const table of tableTops) {
+    const duplicate = uniqueTableTops.some((existing) => horizontalDistance(existing.center, table.center) < 0.72);
+
+    if (!duplicate) {
+      uniqueTableTops.push(table);
+    }
+  }
+
+  return uniqueTableTops.map((table, index) => {
+    const fittedPosition = fitPoint(table.center, fit);
+    const position = toPlanPosition(fittedPosition.x, fittedPosition.z);
+    const capacity = inferCapacity(table, chairCenters);
+    const rotation = table.size.x >= table.size.z ? 0 : 90;
+    const fittedWidth = Math.max(0.56, table.size.x * fit.scale);
+    const fittedDepth = Math.max(0.56, table.size.z * fit.scale);
+
+    return {
+      id: `glb-table-${index + 1}`,
+      label: `IA ${String(index + 1).padStart(2, "0")}`,
+      capacity,
+      confidence: Math.min(0.96, 0.58 + Math.min(capacity, 8) * 0.045),
+      positionX: position.positionX,
+      positionY: position.positionY,
+      rotation,
+      scenePosition: fittedPosition,
+      sceneSize: {
+        depth: fittedDepth,
+        width: fittedWidth
+      },
+      sourceName: table.name,
+      zone: inferZone(fittedPosition)
+    };
+  });
 }
 
 function zoneTheme(zone: FloorTable["zone"]) {
@@ -621,6 +823,153 @@ function TableModel({
   );
 }
 
+function LoadedRestaurantModel({
+  onDetectedTablesChange
+}: {
+  onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
+}) {
+  const gltf = useGLTF(GLB_MODEL_PATH) as { scene: THREE.Group };
+  const { detectedTables, fit, scene } = useMemo(() => {
+    const clonedScene = gltf.scene.clone(true);
+
+    clonedScene.traverse((object) => {
+      if (!isMesh(object)) {
+        return;
+      }
+
+      object.castShadow = true;
+      object.receiveShadow = true;
+
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+
+      for (const material of materials) {
+        if (material) {
+          material.side = THREE.DoubleSide;
+        }
+      }
+    });
+
+    const modelFit = getModelFit(clonedScene);
+
+    return {
+      detectedTables: detectTablesFromGlb(clonedScene, modelFit),
+      fit: modelFit,
+      scene: clonedScene
+    };
+  }, [gltf.scene]);
+
+  useEffect(() => {
+    onDetectedTablesChange?.(detectedTables);
+  }, [detectedTables, onDetectedTablesChange]);
+
+  return (
+    <primitive
+      object={scene}
+      position={[-fit.center.x * fit.scale, -fit.floorY * fit.scale, -fit.center.z * fit.scale]}
+      scale={fit.scale}
+    />
+  );
+}
+
+function DetectedTableHotspots({
+  availableSet,
+  detectedTables,
+  mode,
+  selectedTableId,
+  tables,
+  onSelect
+}: {
+  availableSet?: Set<string>;
+  detectedTables: DetectedGlbTable[];
+  mode: "booking" | "admin";
+  selectedTableId?: string;
+  tables: FloorTable[];
+  onSelect?: (table: FloorTable) => void;
+}) {
+  const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+
+  function findMatchingTable(detectedTable: DetectedGlbTable) {
+    let nearestTable: FloorTable | undefined;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const table of tables) {
+      const distance = Math.hypot(table.positionX - detectedTable.positionX, table.positionY - detectedTable.positionY);
+
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestTable = table;
+      }
+    }
+
+    return nearestDistance <= 96 ? nearestTable : undefined;
+  }
+
+  return (
+    <group>
+      {detectedTables.map((detectedTable) => {
+        const matchingTable = findMatchingTable(detectedTable);
+        const selectable =
+          mode === "admin" || !matchingTable || !availableSet || availableSet.has(matchingTable.id);
+        const selected =
+          selectedDetectionId === detectedTable.id || Boolean(matchingTable && matchingTable.id === selectedTableId);
+        const color = selected ? "#d98257" : matchingTable ? "#4e8060" : "#2f6f86";
+        const opacity = selected ? 0.42 : 0.2;
+
+        return (
+          <group
+            key={detectedTable.id}
+            position={[
+              detectedTable.scenePosition.x,
+              Math.max(0.18, detectedTable.scenePosition.y + 0.08),
+              detectedTable.scenePosition.z
+            ]}
+            rotation-y={THREE.MathUtils.degToRad(-detectedTable.rotation)}
+          >
+            <mesh
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedDetectionId(detectedTable.id);
+
+                if (matchingTable && selectable) {
+                  onSelect?.(matchingTable);
+                }
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <boxGeometry
+                args={[
+                  Math.max(0.86, detectedTable.sceneSize.width + 0.28),
+                  0.12,
+                  Math.max(0.86, detectedTable.sceneSize.depth + 0.28)
+                ]}
+              />
+              <meshStandardMaterial color={color} opacity={opacity} transparent />
+            </mesh>
+            {mode === "admin" || selected ? (
+              <Billboard position={[0, 0.64, 0]}>
+                <mesh>
+                  <planeGeometry args={[1.82, 0.42]} />
+                  <meshBasicMaterial color="#ffffff" opacity={0.9} transparent />
+                </mesh>
+                <Text
+                  anchorX="center"
+                  anchorY="middle"
+                  color="#16201d"
+                  fontSize={0.16}
+                  maxWidth={1.58}
+                  position={[0, 0, 0.01]}
+                >
+                  {`${matchingTable?.label ?? detectedTable.label} · ${detectedTable.capacity}`}
+                </Text>
+              </Billboard>
+            ) : null}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 function RestaurantScene({
   draftTables,
   setDraftTables,
@@ -630,12 +979,14 @@ function RestaurantScene({
   layoutLocked = false,
   zoom,
   zoneLabels,
+  onDetectedTablesChange,
   onSelect,
   onMove
 }: RestaurantSceneProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const draggingTableIdRef = useRef<string | null>(null);
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
   const floorPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
   const dragPoint = useMemo(() => new THREE.Vector3(), []);
   const availableSet = useMemo(
@@ -643,6 +994,13 @@ function RestaurantScene({
     [availableTableIds]
   );
   const selectedTable = draftTables.find((table) => table.id === selectedTableId);
+  const handleDetectedTablesChange = useCallback(
+    (tables: DetectedGlbTable[]) => {
+      setDetectedGlbTables(tables);
+      onDetectedTablesChange?.(tables);
+    },
+    [onDetectedTablesChange]
+  );
 
   function moveDraggedTable(event: ThreeEvent<PointerEvent>) {
     const tableId = draggingTableIdRef.current;
@@ -732,7 +1090,9 @@ function RestaurantScene({
       <color attach="background" args={["#2f302f"]} />
       <fog attach="fog" args={["#2f302f", 32, 58]} />
 
-      <ArchitecturalShell zoneLabels={zoneLabels} />
+      <Suspense fallback={<ArchitecturalShell zoneLabels={zoneLabels} />}>
+        <LoadedRestaurantModel onDetectedTablesChange={handleDetectedTablesChange} />
+      </Suspense>
 
       <mesh
         position={[0, 0.04, 0]}
@@ -744,6 +1104,15 @@ function RestaurantScene({
         <planeGeometry args={[SCENE_WIDTH, SCENE_DEPTH]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
+
+      <DetectedTableHotspots
+        availableSet={availableSet}
+        detectedTables={detectedGlbTables}
+        mode={mode}
+        selectedTableId={selectedTableId}
+        tables={draftTables}
+        onSelect={onSelect}
+      />
 
       {draftTables.map((table) => {
         const disabled =
@@ -772,6 +1141,7 @@ export function FloorPlan3D({
   availableTableIds,
   layoutLocked = false,
   zoom,
+  onDetectedTablesChange,
   onSelect,
   onMove
 }: FloorPlan3DProps) {
@@ -821,6 +1191,7 @@ export function FloorPlan3D({
           tables={tables}
           zoneLabels={zoneLabels}
           zoom={zoom}
+          onDetectedTablesChange={onDetectedTablesChange}
           onMove={onMove}
           onSelect={onSelect}
         />
@@ -828,3 +1199,5 @@ export function FloorPlan3D({
     </div>
   );
 }
+
+useGLTF.preload(GLB_MODEL_PATH);

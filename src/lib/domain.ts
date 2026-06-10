@@ -23,6 +23,27 @@ export type FloorTable = {
   active: boolean;
 };
 
+export type DetectedGlbTable = {
+  id: string;
+  label: string;
+  capacity: number;
+  zone: TableZone;
+  positionX: number;
+  positionY: number;
+  rotation: number;
+  confidence: number;
+  sourceName: string;
+  scenePosition: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  sceneSize: {
+    width: number;
+    depth: number;
+  };
+};
+
 export type AvailabilityRequest = {
   date: string;
   startTime: string;

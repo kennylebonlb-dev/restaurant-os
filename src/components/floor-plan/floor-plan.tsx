@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { Armchair, Lock } from "lucide-react";
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { FloorPlan3D } from "@/components/floor-plan/floor-plan-3d";
-import type { FloorTable } from "@/lib/domain";
+import type { DetectedGlbTable, FloorTable } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
 
 const PLAN_WIDTH = 960;
@@ -20,6 +20,7 @@ type FloorPlanProps = {
   layoutLocked?: boolean;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
+  onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 };
 
 type DragState = {
@@ -37,7 +38,8 @@ export function FloorPlan({
   availableTableIds,
   layoutLocked = false,
   onSelect,
-  onMove
+  onMove,
+  onDetectedTablesChange
 }: FloorPlanProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -145,6 +147,7 @@ export function FloorPlan({
           zoom={zoom}
           onSelect={onSelect}
           onMove={onMove}
+          onDetectedTablesChange={onDetectedTablesChange}
         />
       ) : (
         <div className="overflow-auto rounded-md border border-ink/10 bg-white">
