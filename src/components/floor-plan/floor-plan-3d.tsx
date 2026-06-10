@@ -2,7 +2,7 @@
 
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { Billboard, OrbitControls, PerspectiveCamera, Text } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { FloorTable } from "@/lib/domain";
@@ -97,15 +97,19 @@ function CameraRig({
 }: {
   zoom: number;
   selectedTable?: FloorTable;
-  controlsRef: React.MutableRefObject<OrbitControlsImpl | null>;
+  controlsRef: MutableRefObject<OrbitControlsImpl | null>;
 }) {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
 
   useEffect(() => {
-    camera.position.set(0, Math.max(7, 16 / zoom), Math.max(10, 20 / zoom));
+    const aspectBoost = size.width > 0 && size.height > 0 ? Math.max(1, 1.25 / (size.width / size.height)) : 1;
+    const baseDistance = 22 * aspectBoost;
+    const cameraDistance = baseDistance / Math.max(0.75, zoom);
+
+    camera.position.set(0, Math.max(8, cameraDistance * 0.72), Math.max(12, cameraDistance));
     camera.lookAt(0, 0, 0);
     controlsRef.current?.update();
-  }, [camera, controlsRef, zoom]);
+  }, [camera, controlsRef, size.height, size.width, zoom]);
 
   useEffect(() => {
     if (!selectedTable || !controlsRef.current) {
@@ -469,14 +473,23 @@ export function FloorPlan3D({
   }, [tables]);
 
   return (
-    <div className="relative min-h-[560px] overflow-hidden rounded-md border border-ink/10 bg-linen">
+    <div
+      className="relative w-full overflow-hidden rounded-md border border-ink/10 bg-linen"
+      style={{
+        height: mode === "admin" ? "clamp(560px, 72vh, 760px)" : "clamp(500px, 64vh, 680px)"
+      }}
+    >
       <Canvas
         aria-label={t("floor.title")}
-        className="absolute inset-0"
+        className="absolute inset-0 h-full w-full"
         dpr={[1, 2]}
         gl={{
           antialias: true,
           powerPreference: "high-performance"
+        }}
+        style={{
+          height: "100%",
+          width: "100%"
         }}
         shadows
       >
