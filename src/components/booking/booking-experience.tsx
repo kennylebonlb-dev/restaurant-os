@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, CheckCircle2, Clock, Search, Users } from "lucide-react";
+import { Box, CalendarDays, CheckCircle2, Clock, LayoutGrid, Search, Users } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -47,6 +47,8 @@ export function BookingExperience() {
   const [restaurantId, setRestaurantId] = useState<string>();
   const [searched, setSearched] = useState(false);
   const [message, setMessage] = useState<string>();
+  const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("3d");
+  const [floorZoom, setFloorZoom] = useState(1);
   const booking = useBookingStore();
   const { t } = useI18n();
 
@@ -282,9 +284,47 @@ export function BookingExperience() {
       </section>
 
       <section>
+        <div className="mb-3 grid gap-3 rounded-lg border border-ink/10 bg-white p-3 shadow-soft sm:grid-cols-[220px_1fr] sm:items-center">
+          <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1">
+            <button
+              className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
+                floorViewMode === "2d" ? "bg-white shadow-sm" : "text-ink/65"
+              }`}
+              type="button"
+              onClick={() => setFloorViewMode("2d")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              {t("floor.view2d")}
+            </button>
+            <button
+              className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
+                floorViewMode === "3d" ? "bg-white shadow-sm" : "text-ink/65"
+              }`}
+              type="button"
+              onClick={() => setFloorViewMode("3d")}
+            >
+              <Box className="h-4 w-4" />
+              {t("floor.view3d")}
+            </button>
+          </div>
+          <label className="text-sm font-semibold text-ink">
+            {t("floor.zoom")}
+            <input
+              className="mt-2 w-full accent-moss"
+              min={60}
+              max={180}
+              step={5}
+              type="range"
+              value={Math.round(floorZoom * 100)}
+              onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
+            />
+          </label>
+        </div>
         <FloorPlan
           mode="booking"
           tables={restaurant?.tables ?? []}
+          viewMode={floorViewMode}
+          zoom={floorZoom}
           selectedTableId={booking.selectedTableId}
           availableTableIds={searched ? availableIds : undefined}
           onSelect={(table) => {
