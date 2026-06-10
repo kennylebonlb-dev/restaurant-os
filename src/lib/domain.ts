@@ -26,6 +26,16 @@ export type FloorTable = {
 export type AvailabilityRequest = {
   date: string;
   startTime: string;
-  endTime: string;
+  endTime?: string;
   numberOfGuests: number;
+};
+
+export type AvailabilitySlot = {
+  startTime: string;
+  endTime: string;
+  availableTables: number;
+  totalTables: number;
+  selectable: boolean;
+  status: "GREEN" | "ORANGE" | "RED" | "CLOSED";
+  reason?: "TOO_SOON" | "CLOSED" | "NO_TABLE_CAPACITY" | "FULL";
 };

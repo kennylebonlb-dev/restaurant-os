@@ -49,6 +49,10 @@ type Reservation = {
   numberOfGuests: number;
   status: "PENDING" | "CONFIRMED" | "CANCELLED";
   notes: string | null;
+  guestFirstName: string | null;
+  guestLastName: string | null;
+  guestEmail: string | null;
+  guestPhone: string | null;
   table: {
     id: string;
     label: string;
@@ -57,6 +61,8 @@ type Reservation = {
     id: string;
     name: string | null;
     email: string;
+    contactEmail?: string | null;
+    phone?: string | null;
   };
 };
 
@@ -354,6 +360,15 @@ export function AdminDashboard() {
   const reservations = reservationsQuery.data?.reservations ?? [];
   const analytics = analyticsQuery.data?.analytics;
   const blocks = blocksQuery.data?.blocks ?? [];
+  const parsedRestaurantSettings = useMemo(() => {
+    try {
+      return JSON.parse(restaurantForm.settings) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }, [restaurantForm.settings]);
+  const oneReservationPerTablePerService =
+    parsedRestaurantSettings.oneReservationPerTablePerService === true;
   const visualTables = useMemo(() => {
     if (!selectedTableId || !selectedTableDraft) {
       return tables;
@@ -443,6 +458,30 @@ export function AdminDashboard() {
 
   function updateSelectedTableDraft(data: Partial<TableDraft>) {
     setSelectedTableDraft((current) => (current ? { ...current, ...data } : current));
+  }
+
+  function updateRestaurantSetting(key: string, value: unknown) {
+    setRestaurantForm((current) => {
+      let settings: Record<string, unknown> = {};
+
+      try {
+        settings = JSON.parse(current.settings) as Record<string, unknown>;
+      } catch {
+        settings = {};
+      }
+
+      return {
+        ...current,
+        settings: JSON.stringify(
+          {
+            ...settings,
+            [key]: value
+          },
+          null,
+          2
+        )
+      };
+    });
   }
 
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
@@ -599,6 +638,20 @@ export function AdminDashboard() {
                   }
                 />
               </label>
+              <div className="rounded-md border border-ink/10 bg-linen p-3">
+                <p className="mb-2 text-sm font-bold text-ink">{t("admin.bookingRules")}</p>
+                <label className="flex items-start justify-between gap-3 text-sm font-semibold text-ink">
+                  <span>{t("admin.oneReservationPerService")}</span>
+                  <input
+                    className="h-5 w-5 shrink-0 accent-moss"
+                    type="checkbox"
+                    checked={oneReservationPerTablePerService}
+                    onChange={(event) =>
+                      updateRestaurantSetting("oneReservationPerTablePerService", event.target.checked)
+                    }
+                  />
+                </label>
+              </div>
               {restaurantFormError || saveRestaurantMutation.error ? (
                 <p className="text-sm font-semibold text-red-700">
                   {restaurantFormError ?? saveRestaurantMutation.error?.message}
@@ -727,18 +780,20 @@ export function AdminDashboard() {
                   {t("floor.view3d")}
                 </button>
               </div>
-              <label className="text-sm font-semibold text-ink">
-                {t("floor.zoom")}
-                <input
-                  className="mt-2 w-full accent-moss"
-                  min={60}
-                  max={180}
-                  step={5}
-                  type="range"
-                  value={Math.round(floorZoom * 100)}
-                  onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
-                />
-              </label>
+              {floorViewMode === "3d" ? (
+                <label className="text-sm font-semibold text-ink">
+                  {t("floor.zoom")}
+                  <input
+                    className="mt-2 w-full accent-moss"
+                    min={60}
+                    max={180}
+                    step={5}
+                    type="range"
+                    value={Math.round(floorZoom * 100)}
+                    onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
+                  />
+                </label>
+              ) : null}
             </div>
           </div>
 
@@ -1139,17 +1194,28 @@ function ReservationRow({
   onCancel: () => void;
 }) {
   const { t } = useI18n();
+  const guestName =
+    [reservation.guestFirstName, reservation.guestLastName].filter(Boolean).join(" ") ||
+    reservation.user.name ||
+    reservation.user.email;
+  const guestEmail = reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email;
+  const guestPhone = reservation.guestPhone ?? reservation.user.phone;
 
   return (
     <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p className="text-sm font-bold text-ink">
-          {reservation.startTime}-{reservation.endTime} · {reservation.user.name ?? reservation.user.email}
+          {reservation.startTime}-{reservation.endTime} · {guestName}
         </p>
         <p className="text-sm text-ink/65">
           {reservation.numberOfGuests} {t("common.guests")} ·{" "}
           {reservation.table?.label ?? t("admin.noTable")} · {t(`status.${reservation.status}`)}
         </p>
+        <p className="mt-1 text-xs font-semibold text-ink/50">
+          {guestEmail}
+          {guestPhone ? ` · ${guestPhone}` : ""}
+        </p>
+        {reservation.notes ? <p className="mt-1 text-xs text-ink/60">{reservation.notes}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">
         {reservation.status !== "CONFIRMED" ? (

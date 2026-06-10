@@ -53,17 +53,29 @@ export const updateTableSchema = createTableSchema.partial();
 export const availabilitySchema = z.object({
   date: dateStringSchema,
   startTime: timeStringSchema,
-  endTime: timeStringSchema,
+  endTime: timeStringSchema.optional(),
   numberOfGuests: z.coerce.number().int().min(1).max(40)
 });
 
 export const createReservationSchema = availabilitySchema.extend({
   tableId: z.string().cuid().optional(),
-  notes: z.string().max(1000).optional()
+  autoAssignTable: z.boolean().default(false),
+  firstName: z.string().trim().min(1, "First name is required.").max(80),
+  lastName: z.string().trim().min(1, "Last name is required.").max(80),
+  email: z.string().email().transform((email) => email.toLowerCase().trim()),
+  phone: z.string().trim().min(6, "Phone is required.").max(32),
+  notes: z.string().trim().max(1000).optional()
 });
 
-export const createAdminReservationSchema = createReservationSchema.extend({
+export const createAdminReservationSchema = availabilitySchema.extend({
   userId: z.string().cuid(),
+  tableId: z.string().cuid().optional(),
+  autoAssignTable: z.boolean().default(false),
+  firstName: z.string().trim().max(80).optional(),
+  lastName: z.string().trim().max(80).optional(),
+  email: z.string().email().transform((email) => email.toLowerCase().trim()).optional(),
+  phone: z.string().trim().max(32).optional(),
+  notes: z.string().trim().max(1000).optional(),
   status: z.enum(["PENDING", "CONFIRMED"]).default("CONFIRMED")
 });
 
@@ -84,4 +96,11 @@ export const registerSchema = z.object({
   name: z.string().min(2).max(80),
   email: z.string().email().transform((email) => email.toLowerCase().trim()),
   password: z.string().min(8).max(128)
+});
+
+export const updateProfileSchema = z.object({
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  email: z.string().email().transform((email) => email.toLowerCase().trim()),
+  phone: z.string().trim().min(6).max(32)
 });

@@ -18,10 +18,12 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@restaurant-os.local" },
-    update: { passwordHash, role: "ADMIN", name: "Admin" },
+    update: { passwordHash, role: "ADMIN", name: "Admin", firstName: "Admin", contactEmail: "admin@restaurant-os.local" },
     create: {
       email: "admin@restaurant-os.local",
       name: "Admin",
+      firstName: "Admin",
+      contactEmail: "admin@restaurant-os.local",
       passwordHash,
       role: "ADMIN"
     }
@@ -29,10 +31,22 @@ async function main() {
 
   const client = await prisma.user.upsert({
     where: { email: "client@restaurant-os.local" },
-    update: { passwordHash, role: "CLIENT", name: "Client" },
+    update: {
+      passwordHash,
+      role: "CLIENT",
+      name: "Client Demo",
+      firstName: "Client",
+      lastName: "Demo",
+      contactEmail: "client@restaurant-os.local",
+      phone: "+33 6 00 00 00 00"
+    },
     create: {
       email: "client@restaurant-os.local",
-      name: "Client",
+      name: "Client Demo",
+      firstName: "Client",
+      lastName: "Demo",
+      contactEmail: "client@restaurant-os.local",
+      phone: "+33 6 00 00 00 00",
       passwordHash,
       role: "CLIENT"
     }
@@ -56,6 +70,7 @@ async function main() {
       openingHours,
       settings: {
         reservationDurationMinutes: 120,
+        oneReservationPerTablePerService: false,
         layoutGridSize: 32
       },
       menu: [
@@ -95,6 +110,10 @@ async function main() {
         endTime: "21:00",
         numberOfGuests: 2,
         status: "CONFIRMED",
+        guestFirstName: "Client",
+        guestLastName: "Demo",
+        guestEmail: "client@restaurant-os.local",
+        guestPhone: "+33 6 00 00 00 00",
         notes: "Window seat preferred."
       }
     });

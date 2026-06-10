@@ -34,7 +34,11 @@ enum TableBlockReason {
 model User {
   id            String        @id @default(cuid())
   name          String?
+  firstName     String?
+  lastName      String?
   email         String        @unique
+  contactEmail  String?
+  phone         String?
   emailVerified DateTime?
   image         String?
   passwordHash  String?
@@ -140,6 +144,10 @@ model Reservation {
   user           User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   tableId        String?
   table          Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  guestFirstName String?
+  guestLastName  String?
+  guestEmail     String?
+  guestPhone     String?
   date           DateTime          @db.Date
   startTime      String            @db.VarChar(5)
   endTime        String            @db.VarChar(5)

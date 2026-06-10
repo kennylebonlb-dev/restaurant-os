@@ -16,8 +16,14 @@ export function noContent() {
 
 export function apiError(error: unknown) {
   if (error instanceof ZodError) {
+    const firstIssue = error.issues[0];
+    const field = firstIssue?.path.join(".");
+    const message = firstIssue
+      ? `${field ? `${field}: ` : ""}${firstIssue.message}`
+      : "Validation failed.";
+
     return NextResponse.json(
-      { message: "Validation failed.", issues: error.flatten() },
+      { message, issues: error.flatten() },
       { status: 422 }
     );
   }

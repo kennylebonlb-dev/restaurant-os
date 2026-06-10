@@ -42,6 +42,11 @@ export async function POST(request: Request, context: Context) {
         endTime: data.endTime,
         numberOfGuests: data.numberOfGuests,
         tableId: data.tableId,
+        autoAssignTable: data.autoAssignTable,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
         notes: data.notes,
         status: data.status
       });
@@ -60,6 +65,11 @@ export async function POST(request: Request, context: Context) {
       endTime: data.endTime,
       numberOfGuests: data.numberOfGuests,
       tableId: data.tableId,
+      autoAssignTable: data.autoAssignTable,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone,
       notes: data.notes
     });
 

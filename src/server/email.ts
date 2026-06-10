@@ -9,6 +9,7 @@ type ReservationEmailData = {
   user: {
     email: string;
     name: string | null;
+    contactEmail?: string | null;
   };
   table: {
     label: string;
@@ -17,6 +18,7 @@ type ReservationEmailData = {
   startTime: string;
   endTime: string;
   numberOfGuests: number;
+  guestEmail?: string | null;
 };
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -68,7 +70,7 @@ async function sendEmail(to: string, subject: string, html: string) {
 
 export async function sendReservationConfirmation(reservation: ReservationEmailData) {
   await sendEmail(
-    reservation.user.email,
+    reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
     `Reservation confirmed at ${reservation.restaurant.name}`,
     reservationHtml(reservation, "Reservation confirmed")
   );
@@ -76,7 +78,7 @@ export async function sendReservationConfirmation(reservation: ReservationEmailD
 
 export async function sendReservationCancellation(reservation: ReservationEmailData) {
   await sendEmail(
-    reservation.user.email,
+    reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
     `Reservation cancelled at ${reservation.restaurant.name}`,
     reservationHtml(reservation, "Reservation cancelled")
   );

@@ -25,6 +25,23 @@ export function parseTimeToMinutes(time: string) {
   return hours * 60 + minutes;
 }
 
+export function minutesToTime(totalMinutes: number) {
+  const minutesInDay = 24 * 60;
+  const normalized = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+export function addMinutes(time: string, minutes: number) {
+  return minutesToTime(parseTimeToMinutes(time) + minutes);
+}
+
+export function isQuarterHour(time: string) {
+  return parseTimeToMinutes(time) % 15 === 0;
+}
+
 export function assertValidTimeRange(startTime: string, endTime: string) {
   const start = parseTimeToMinutes(startTime);
   const end = parseTimeToMinutes(endTime);
@@ -44,4 +61,34 @@ export function overlaps(
   assertValidTimeRange(nextStart, nextEnd);
 
   return existingStart < nextEnd && existingEnd > nextStart;
+}
+
+export function getDayKey(date: string) {
+  const day = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    timeZone: "UTC"
+  })
+    .format(new Date(`${date}T12:00:00.000Z`))
+    .toLowerCase();
+
+  return day as "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+}
+
+export function getZonedDateTimeParts(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(new Date());
+
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+
+  return {
+    date: `${value("year")}-${value("month")}-${value("day")}`,
+    minutes: Number(value("hour")) * 60 + Number(value("minute"))
+  };
 }
