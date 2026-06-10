@@ -9,3 +9,4 @@ prisma/dev.db
 .DS_Store
 *.tsbuildinfo
 work
+.vercel
