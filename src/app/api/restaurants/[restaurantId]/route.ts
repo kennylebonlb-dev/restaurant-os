@@ -1,0 +1,49 @@
+import { updateRestaurantSchema } from "@/lib/validators";
+import { requireRole } from "@/server/auth/guards";
+import { apiError, noContent, ok, parseJson } from "@/server/http";
+import {
+  deleteRestaurant,
+  getRestaurant,
+  updateRestaurant
+} from "@/server/services/restaurant-service";
+
+type Context = {
+  params: Promise<{
+    restaurantId: string;
+  }>;
+};
+
+export async function GET(_: Request, context: Context) {
+  try {
+    const { restaurantId } = await context.params;
+    const restaurant = await getRestaurant(restaurantId);
+    return ok({ restaurant });
+  } catch (error) {
+    return apiError(error);
+  }
+}
+
+export async function PATCH(request: Request, context: Context) {
+  try {
+    await requireRole(["ADMIN"]);
+    const { restaurantId } = await context.params;
+    const data = await parseJson(request, updateRestaurantSchema);
+    const restaurant = await updateRestaurant(restaurantId, data);
+
+    return ok({ restaurant });
+  } catch (error) {
+    return apiError(error);
+  }
+}
+
+export async function DELETE(_: Request, context: Context) {
+  try {
+    await requireRole(["ADMIN"]);
+    const { restaurantId } = await context.params;
+    await deleteRestaurant(restaurantId);
+
+    return noContent();
+  } catch (error) {
+    return apiError(error);
+  }
+}
