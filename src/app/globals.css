@@ -47,6 +47,16 @@ textarea {
   color: rgb(22 32 29 / 0.45);
 }
 
+.restaurant-floor-canvas,
+.restaurant-floor-canvas canvas {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.restaurant-floor-canvas canvas {
+  display: block;
+}
+
 .icon-button {
   @apply inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink/15 bg-white text-ink shadow-sm transition hover:bg-sage/60 focus-ring disabled:cursor-not-allowed disabled:opacity-45;
 }

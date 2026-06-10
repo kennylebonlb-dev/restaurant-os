@@ -481,7 +481,7 @@ export function FloorPlan3D({
     >
       <Canvas
         aria-label={t("floor.title")}
-        className="absolute inset-0 h-full w-full"
+        className="restaurant-floor-canvas absolute inset-0 h-full w-full"
         dpr={[1, 2]}
         gl={{
           antialias: true,
