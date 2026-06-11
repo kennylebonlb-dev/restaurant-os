@@ -45,6 +45,7 @@ import {
 } from "@/lib/domain";
 import {
   applyFloorPlanSettings,
+  floorPlan2dImageUrlFromSettings,
   floorPlanModelUrlFromSettings,
   isTableShape,
   tableFeaturesFromSettings,
@@ -431,6 +432,24 @@ export function AdminDashboard() {
     }
   });
 
+  const upload2dPlanMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        throw new Error(t("admin.invalid2dPlan"));
+      }
+
+      const dataUrl = await readFileAsDataUrl(file);
+      return patchRestaurantSettings({
+        ...getRestaurantSettingsFromForm(),
+        floorPlan2dImageDataUrl: dataUrl
+      });
+    },
+    onSuccess: () => {
+      setFloorViewMode("2d");
+      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+    }
+  });
+
   const saveRestaurantMutation = useMutation({
     mutationFn: async () => {
       setRestaurantFormError(undefined);
@@ -609,6 +628,10 @@ export function AdminDashboard() {
   );
   const floorPlanModelUrl = useMemo(
     () => floorPlanModelUrlFromSettings(parsedRestaurantSettings),
+    [parsedRestaurantSettings]
+  );
+  const floorPlan2dImageUrl = useMemo(
+    () => floorPlan2dImageUrlFromSettings(parsedRestaurantSettings),
     [parsedRestaurantSettings]
   );
   const selectedTable = tables.find((table) => table.id === selectedTableId);
@@ -998,15 +1021,18 @@ export function AdminDashboard() {
           label={t("admin.availableTables")}
           value={availableTablesTotal}
           detail={
-            <span className="grid grid-cols-3 gap-1.5 text-[10px] leading-tight sm:text-xs">
-              <span className="min-w-0 truncate rounded bg-sage/70 px-2 py-0.5 text-center">
-                {t("admin.availableTwoTop")} : {availableTableCapacityCounts.two}
+            <span className="flex flex-nowrap items-center gap-1.5 text-[10px] leading-tight sm:text-xs">
+              <span className="inline-flex shrink-0 items-center justify-center gap-1 rounded bg-sage/70 px-1.5 py-0.5">
+                <span className="whitespace-nowrap">{t("admin.availableTwoTop")}</span>
+                <strong className="font-black text-ink">{availableTableCapacityCounts.two}</strong>
               </span>
-              <span className="min-w-0 truncate rounded bg-sage/70 px-2 py-0.5 text-center">
-                {t("admin.availableFourTop")} : {availableTableCapacityCounts.four}
+              <span className="inline-flex shrink-0 items-center justify-center gap-1 rounded bg-sage/70 px-1.5 py-0.5">
+                <span className="whitespace-nowrap">{t("admin.availableFourTop")}</span>
+                <strong className="font-black text-ink">{availableTableCapacityCounts.four}</strong>
               </span>
-              <span className="min-w-0 truncate rounded bg-sage/70 px-2 py-0.5 text-center">
-                {t("admin.availableSixPlus")} : {availableTableCapacityCounts.sixPlus}
+              <span className="inline-flex shrink-0 items-center justify-center gap-1 rounded bg-sage/70 px-1.5 py-0.5">
+                <span className="whitespace-nowrap">{t("admin.availableSixPlus")}</span>
+                <strong className="font-black text-ink">{availableTableCapacityCounts.sixPlus}</strong>
               </span>
             </span>
           }
@@ -1837,6 +1863,40 @@ export function AdminDashboard() {
                 ) : null}
               </div>
             </div>
+            {floorViewMode === "2d" ? (
+              <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <label
+                    className={`secondary-button cursor-pointer ${
+                      !restaurant || upload2dPlanMutation.isPending ? "opacity-60" : ""
+                    }`}
+                  >
+                    <Upload className="h-4 w-4" />
+                    {upload2dPlanMutation.isPending ? t("admin.uploading2dPlan") : t("admin.upload2dPlan")}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={!restaurant || upload2dPlanMutation.isPending}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+
+                        if (file) {
+                          upload2dPlanMutation.mutate(file);
+                          event.currentTarget.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+                  <p className="text-xs font-medium text-ink/60">{t("admin.upload2dPlanHint")}</p>
+                </div>
+                {upload2dPlanMutation.error ? (
+                  <p className="mt-2 text-sm font-semibold text-red-700">
+                    {upload2dPlanMutation.error.message}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {floorViewMode === "3d" ? (
               <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1912,6 +1972,7 @@ export function AdminDashboard() {
             layoutLocked={restaurant?.layoutLocked}
             deleteMode={deleteMode}
             modelUrl={floorPlanModelUrl}
+            backgroundImageUrl={floorPlan2dImageUrl}
             onSelect={(table) => setSelectedTableId(table.id)}
             onMove={(tableId, position) =>
               updateTableMutation.mutate({

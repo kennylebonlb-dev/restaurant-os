@@ -20,6 +20,7 @@ type FloorPlanProps = {
   layoutLocked?: boolean;
   deleteMode?: boolean;
   modelUrl?: string;
+  backgroundImageUrl?: string;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
   onDelete?: (tableId: string) => void;
@@ -58,6 +59,7 @@ export function FloorPlan({
   layoutLocked = false,
   deleteMode = false,
   modelUrl,
+  backgroundImageUrl,
   onSelect,
   onMove,
   onDelete,
@@ -238,24 +240,35 @@ export function FloorPlan({
               transformOrigin: "top left"
             }}
           >
-          <div className="absolute left-[76px] top-[52px] h-[454px] w-[800px] rounded-sm bg-[#f4f1e9] shadow-[0_0_0_10px_rgba(255,255,255,0.88)]" />
-          <div className="absolute left-[142px] top-[70px] h-[56px] w-[520px] rounded-sm bg-[#8a674d]" />
-          <div className="absolute left-[150px] top-[78px] h-[40px] w-[504px] bg-[repeating-linear-gradient(90deg,#7a5843_0_22px,#957159_22px_44px)] opacity-90" />
-          <div className="absolute left-[106px] top-[132px] h-[256px] w-[176px] rounded-sm bg-[#e9f0ee]" />
-          <div className="absolute left-[306px] top-[134px] h-[196px] w-[184px] rounded-sm bg-[#f5f8f7]" />
-          <div className="absolute left-[522px] top-[116px] h-[180px] w-[204px] rounded-sm bg-[#f1ece1]" />
-          <div className="absolute left-[542px] top-[132px] h-[62px] w-[164px] rounded-sm bg-[repeating-linear-gradient(45deg,#c78d5e_0_10px,#e6c198_10px_20px)]" />
-          <div className="absolute left-[220px] top-[360px] h-[112px] w-[196px] rounded-sm bg-[repeating-linear-gradient(90deg,#d8bd98_0_8px,#e9d2ad_8px_16px)]" />
-          <div className="absolute left-[468px] top-[358px] h-[120px] w-[222px] rounded-sm bg-[repeating-linear-gradient(90deg,#d8bd98_0_8px,#e9d2ad_8px_16px)]" />
-          <div className="absolute left-[656px] top-[76px] h-[392px] w-[12px] rounded-full bg-[#1f2624]" />
-          <div className="absolute left-[694px] top-[92px] h-[330px] w-[132px] rounded-sm border border-[#d5ece7] bg-[#dff4ef]/45" />
-          <div className="absolute left-[126px] top-[242px] h-[28px] w-[146px] rounded-sm bg-[#1d2322]" />
-          <div className="absolute left-[312px] top-[210px] h-[40px] w-[166px] rounded-sm bg-[#1d2322]" />
-          <div className="absolute left-[280px] top-[390px] h-[54px] w-[118px] rounded-sm bg-[#f8f5ee]" />
-          <div className="absolute left-[424px] top-[392px] h-[54px] w-[182px] rounded-sm bg-[#f8f5ee]" />
-          <div className="absolute left-[420px] top-[276px] h-[58px] w-[94px] rounded-sm bg-[#f8f5ee]" />
-          <div className="absolute left-[452px] top-[288px] h-[34px] w-[30px] rounded-full bg-[#cf473d]" />
-          <div className="absolute bottom-6 left-[76px] h-[12px] w-[800px] bg-[#d5ece7]/75" />
+          {backgroundImageUrl ? (
+            <img
+              alt=""
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-fill"
+              draggable={false}
+              src={backgroundImageUrl}
+            />
+          ) : (
+            <>
+              <div className="absolute left-[76px] top-[52px] h-[454px] w-[800px] rounded-sm bg-[#f4f1e9] shadow-[0_0_0_10px_rgba(255,255,255,0.88)]" />
+              <div className="absolute left-[142px] top-[70px] h-[56px] w-[520px] rounded-sm bg-[#8a674d]" />
+              <div className="absolute left-[150px] top-[78px] h-[40px] w-[504px] bg-[repeating-linear-gradient(90deg,#7a5843_0_22px,#957159_22px_44px)] opacity-90" />
+              <div className="absolute left-[106px] top-[132px] h-[256px] w-[176px] rounded-sm bg-[#e9f0ee]" />
+              <div className="absolute left-[306px] top-[134px] h-[196px] w-[184px] rounded-sm bg-[#f5f8f7]" />
+              <div className="absolute left-[522px] top-[116px] h-[180px] w-[204px] rounded-sm bg-[#f1ece1]" />
+              <div className="absolute left-[542px] top-[132px] h-[62px] w-[164px] rounded-sm bg-[repeating-linear-gradient(45deg,#c78d5e_0_10px,#e6c198_10px_20px)]" />
+              <div className="absolute left-[220px] top-[360px] h-[112px] w-[196px] rounded-sm bg-[repeating-linear-gradient(90deg,#d8bd98_0_8px,#e9d2ad_8px_16px)]" />
+              <div className="absolute left-[468px] top-[358px] h-[120px] w-[222px] rounded-sm bg-[repeating-linear-gradient(90deg,#d8bd98_0_8px,#e9d2ad_8px_16px)]" />
+              <div className="absolute left-[656px] top-[76px] h-[392px] w-[12px] rounded-full bg-[#1f2624]" />
+              <div className="absolute left-[694px] top-[92px] h-[330px] w-[132px] rounded-sm border border-[#d5ece7] bg-[#dff4ef]/45" />
+              <div className="absolute left-[126px] top-[242px] h-[28px] w-[146px] rounded-sm bg-[#1d2322]" />
+              <div className="absolute left-[312px] top-[210px] h-[40px] w-[166px] rounded-sm bg-[#1d2322]" />
+              <div className="absolute left-[280px] top-[390px] h-[54px] w-[118px] rounded-sm bg-[#f8f5ee]" />
+              <div className="absolute left-[424px] top-[392px] h-[54px] w-[182px] rounded-sm bg-[#f8f5ee]" />
+              <div className="absolute left-[420px] top-[276px] h-[58px] w-[94px] rounded-sm bg-[#f8f5ee]" />
+              <div className="absolute left-[452px] top-[288px] h-[34px] w-[30px] rounded-full bg-[#cf473d]" />
+              <div className="absolute bottom-6 left-[76px] h-[12px] w-[800px] bg-[#d5ece7]/75" />
+            </>
+          )}
           {draftTables.map((table) => {
             const disabled =
               mode === "booking" ? (availableSet ? !availableSet.has(table.id) : !table.active) : false;

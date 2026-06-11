@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain";
 import {
   applyFloorPlanSettings,
+  floorPlan2dImageUrlFromSettings,
   floorPlanModelUrlFromSettings
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
@@ -249,6 +250,10 @@ export function BookingExperience() {
   );
   const floorPlanModelUrl = useMemo(
     () => floorPlanModelUrlFromSettings(restaurant?.settings),
+    [restaurant?.settings]
+  );
+  const floorPlan2dImageUrl = useMemo(
+    () => floorPlan2dImageUrlFromSettings(restaurant?.settings),
     [restaurant?.settings]
   );
   const availableTables = availabilityQuery.data?.tables ?? [];
@@ -730,6 +735,7 @@ export function BookingExperience() {
           selectedTableId={booking.selectedTableId}
           availableTableIds={selectedSlot?.selectable ? availableIds : []}
           modelUrl={floorPlanModelUrl}
+          backgroundImageUrl={floorPlan2dImageUrl}
           onSelect={(table) => {
             if (!booking.autoAssignTable && availableIds.includes(table.id)) {
               booking.setBookingField("selectedTableId", table.id);

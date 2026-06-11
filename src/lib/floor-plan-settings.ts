@@ -1,5 +1,7 @@
 import { tableFeatures, type FloorTable, type TableFeature, type TableShape } from "@/lib/domain";
 
+const DEFAULT_2D_PLAN_IMAGE = "/floor-plans/restaurant-2d.png";
+
 export function isTableShape(value: unknown): value is TableShape {
   return value === "ROUND" || value === "SQUARE" || value === "RECTANGLE";
 }
@@ -94,4 +96,12 @@ export function floorPlanModelUrlFromSettings(settings?: Record<string, unknown>
   return typeof modelUrl === "string" && modelUrl.startsWith("data:")
     ? modelUrl
     : undefined;
+}
+
+export function floorPlan2dImageUrlFromSettings(settings?: Record<string, unknown> | null) {
+  const imageUrl = settings?.floorPlan2dImageDataUrl;
+
+  return typeof imageUrl === "string" && imageUrl.startsWith("data:")
+    ? imageUrl
+    : DEFAULT_2D_PLAN_IMAGE;
 }
