@@ -504,7 +504,7 @@ export function BookingExperience() {
                       checked={booking.tablePreferences.includes(feature)}
                       onChange={() => toggleTablePreference(feature)}
                     />
-                    {t(`feature.${feature}`)}
+                    <span className="whitespace-pre-line leading-snug">{t(`feature.${feature}`)}</span>
                   </label>
                 ))}
               </div>

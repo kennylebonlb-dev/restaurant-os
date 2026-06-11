@@ -36,6 +36,7 @@ type Profile = {
   email: string;
   contactEmail: string | null;
   phone: string | null;
+  birthDate: string | null;
   createdAt: string;
 };
 
@@ -67,7 +68,8 @@ export default function MyReservationsPage() {
     firstName: "",
     lastName: "",
     email: "",
-    phone: ""
+    phone: "",
+    birthDate: ""
   });
   const [profileSaved, setProfileSaved] = useState(false);
 
@@ -93,7 +95,8 @@ export default function MyReservationsPage() {
       firstName: profile.firstName ?? fallback.firstName,
       lastName: profile.lastName ?? fallback.lastName,
       email: profile.contactEmail ?? profile.email,
-      phone: profile.phone ?? ""
+      phone: profile.phone ?? "",
+      birthDate: profile.birthDate ? dateOnly(profile.birthDate) : ""
     });
   }, [profileQuery.data?.profile?.id]);
 
@@ -201,6 +204,20 @@ export default function MyReservationsPage() {
                     value={profileForm.phone}
                     onChange={(event) =>
                       setProfileForm((current) => ({ ...current, phone: event.target.value }))
+                    }
+                  />
+                </div>
+              </label>
+              <label className="text-sm font-semibold text-ink">
+                {t("my.birthDate")}
+                <div className="relative mt-1">
+                  <CalendarDays className="field-icon" />
+                  <input
+                    className="control with-leading-icon w-full"
+                    type="date"
+                    value={profileForm.birthDate}
+                    onChange={(event) =>
+                      setProfileForm((current) => ({ ...current, birthDate: event.target.value }))
                     }
                   />
                 </div>

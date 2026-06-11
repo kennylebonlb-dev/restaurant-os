@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Baby,
   Ban,
   CalendarDays,
   CakeSlice,
@@ -15,7 +16,6 @@ import {
   LayoutGrid,
   List,
   Lock,
-  Milk,
   Minus,
   Plus,
   RefreshCw,
@@ -679,6 +679,8 @@ export function AdminDashboard() {
       sixPlus: availableTablesForDay.filter((table) => table.capacity >= 6).length
     };
   }, [activeTables, occupiedTableIds]);
+  const availableTablesTotal =
+    availableTableCapacityCounts.two + availableTableCapacityCounts.four + availableTableCapacityCounts.sixPlus;
   const timelineReservations = useMemo(
     () =>
       [...activeReservations].sort((first, second) =>
@@ -978,7 +980,7 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mb-6 grid gap-3 lg:grid-cols-3">
         <DashboardMetric
           icon={<CalendarDays className="h-5 w-5" />}
           label={t("admin.todayReservations")}
@@ -993,21 +995,21 @@ export function AdminDashboard() {
         />
         <DashboardMetric
           icon={<Users className="h-5 w-5" />}
-          label={t("admin.availableTwoTop")}
-          value={availableTableCapacityCounts.two}
-          detail={t("admin.availableTablesDetail")}
-        />
-        <DashboardMetric
-          icon={<Users className="h-5 w-5" />}
-          label={t("admin.availableFourTop")}
-          value={availableTableCapacityCounts.four}
-          detail={t("admin.availableTablesDetail")}
-        />
-        <DashboardMetric
-          icon={<Users className="h-5 w-5" />}
-          label={t("admin.availableSixPlus")}
-          value={availableTableCapacityCounts.sixPlus}
-          detail={t("admin.availableTablesDetail")}
+          label={t("admin.availableTables")}
+          value={availableTablesTotal}
+          detail={
+            <span className="flex flex-wrap gap-1.5">
+              <span className="rounded bg-sage/70 px-2 py-0.5">
+                {t("admin.availableTwoTop")} : {availableTableCapacityCounts.two}
+              </span>
+              <span className="rounded bg-sage/70 px-2 py-0.5">
+                {t("admin.availableFourTop")} : {availableTableCapacityCounts.four}
+              </span>
+              <span className="rounded bg-sage/70 px-2 py-0.5">
+                {t("admin.availableSixPlus")} : {availableTableCapacityCounts.sixPlus}
+              </span>
+            </span>
+          }
         />
       </div>
 
@@ -1526,7 +1528,7 @@ export function AdminDashboard() {
                         key={feature}
                         className="flex items-start justify-between gap-3 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink"
                       >
-                        <span>{t(`feature.${feature}`)}</span>
+                        <span className="whitespace-pre-line leading-snug">{t(`feature.${feature}`)}</span>
                         <input
                           className="h-5 w-5 shrink-0 accent-moss"
                           type="checkbox"
@@ -1965,8 +1967,6 @@ export function AdminDashboard() {
                 </button>
               </div>
             </div>
-            <SpecialRequestsLegend />
-
             {view === "calendar" ? (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {Object.entries(groupedReservations).map(([time, items]) => (
@@ -2052,6 +2052,7 @@ export function AdminDashboard() {
                 ) : null}
               </div>
             )}
+            <SpecialRequestsLegend />
           </div>
         </section>
       </div>
@@ -2101,7 +2102,7 @@ function DashboardMetric({
   icon: ReactNode;
   label: string;
   value: string | number;
-  detail: string;
+  detail: ReactNode;
 }) {
   return (
     <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
@@ -2109,7 +2110,7 @@ function DashboardMetric({
         <div>
           <p className="text-xs font-bold uppercase text-ink/55">{label}</p>
           <p className="mt-2 text-3xl font-black text-ink">{value}</p>
-          <p className="mt-1 truncate text-sm font-semibold text-ink/55">{detail}</p>
+          <div className="mt-1 text-sm font-semibold text-ink/55">{detail}</div>
         </div>
         <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-sage text-moss">
           {icon}
@@ -2123,16 +2124,16 @@ function SpecialRequestsLegend() {
   const { t } = useI18n();
 
   return (
-    <div className="mb-4 flex flex-wrap gap-2 rounded-md bg-linen p-2 text-xs font-bold text-ink/65">
-      <span className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1">
-        <Milk className="h-3.5 w-3.5 text-moss" />
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink/10 pt-3 text-[11px] font-semibold text-ink/50">
+      <span className="inline-flex items-center gap-1.5">
+        <Baby className="h-3.5 w-3.5 text-moss" />
         {t("request.highChair")}
       </span>
-      <span className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1">
+      <span className="inline-flex items-center gap-1.5">
         <CakeSlice className="h-3.5 w-3.5 text-clay" />
         {t("request.birthday")}
       </span>
-      <span className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1">
+      <span className="inline-flex items-center gap-1.5">
         <Heart className="h-3.5 w-3.5 text-red-600" />
         {t("request.romanticDinner")}
       </span>
@@ -2162,7 +2163,7 @@ function ReservationRow({
     {
       active: reservation.highChair,
       label: t("request.highChair"),
-      icon: <Milk className="h-3.5 w-3.5" />,
+      icon: <Baby className="h-3.5 w-3.5" />,
       className: "bg-moss/10 text-moss"
     },
     {

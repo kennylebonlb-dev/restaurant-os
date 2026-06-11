@@ -39,6 +39,7 @@ model User {
   email         String        @unique
   contactEmail  String?
   phone         String?
+  birthDate     DateTime?     @db.Date
   emailVerified DateTime?
   image         String?
   passwordHash  String?

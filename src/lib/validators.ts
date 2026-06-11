@@ -120,5 +120,6 @@ export const updateProfileSchema = z.object({
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   email: z.string().email().transform((email) => email.toLowerCase().trim()),
-  phone: z.string().trim().min(6).max(32)
+  phone: z.string().trim().min(6).max(32),
+  birthDate: z.union([dateStringSchema, z.literal("")]).optional()
 });

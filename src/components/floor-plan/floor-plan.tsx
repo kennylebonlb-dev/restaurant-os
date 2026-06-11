@@ -64,12 +64,32 @@ export function FloorPlan({
   onDetectedTablesChange
 }: FloorPlanProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
+  const [twoDScale, setTwoDScale] = useState(1);
   const availableSet = availableTableIds ? new Set(availableTableIds) : undefined;
-  const twoDZoom = 1;
   const { t } = useI18n();
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+
+    if (!viewport) {
+      return;
+    }
+
+    function updateScale() {
+      const width = viewport?.clientWidth ?? PLAN_WIDTH;
+      setTwoDScale(Math.min(1, width / PLAN_WIDTH));
+    }
+
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(viewport);
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const nextTables = tables.map((table) => {
@@ -111,8 +131,8 @@ export function FloorPlan({
     const rect = container.getBoundingClientRect();
     dragRef.current = {
       tableId: table.id,
-      offsetX: (event.clientX - rect.left) / twoDZoom - table.positionX,
-      offsetY: (event.clientY - rect.top) / twoDZoom - table.positionY
+      offsetX: (event.clientX - rect.left) / twoDScale - table.positionX,
+      offsetY: (event.clientY - rect.top) / twoDScale - table.positionY
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -128,11 +148,11 @@ export function FloorPlan({
     const rect = container.getBoundingClientRect();
     const positionX = Math.max(
       12,
-      Math.min((event.clientX - rect.left) / twoDZoom - drag.offsetX, PLAN_WIDTH - 96)
+      Math.min((event.clientX - rect.left) / twoDScale - drag.offsetX, PLAN_WIDTH - 96)
     );
     const positionY = Math.max(
       12,
-      Math.min((event.clientY - rect.top) / twoDZoom - drag.offsetY, PLAN_HEIGHT - 76)
+      Math.min((event.clientY - rect.top) / twoDScale - drag.offsetY, PLAN_HEIGHT - 76)
     );
 
     setDraftTables((current) =>
@@ -201,23 +221,22 @@ export function FloorPlan({
         />
       ) : (
         <div
-          className="overflow-auto rounded-md border border-ink/10 bg-[#30302f]"
+          ref={viewportRef}
+          className="relative w-full max-w-full overflow-hidden rounded-md border border-ink/10 bg-[#30302f]"
           style={{ height: PLAN_HEIGHT }}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
         >
           <div
             ref={containerRef}
-            className="relative overflow-hidden bg-[#30302f]"
+            className="absolute left-0 top-0 overflow-hidden bg-[#30302f]"
             style={{
               width: PLAN_WIDTH,
               height: PLAN_HEIGHT,
-              transform: `scale(${twoDZoom})`,
-              transformOrigin: "top left",
-              marginRight: PLAN_WIDTH * (twoDZoom - 1),
-              marginBottom: PLAN_HEIGHT * (twoDZoom - 1)
+              transform: `scale(${twoDScale})`,
+              transformOrigin: "top left"
             }}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
           >
           <div className="absolute left-[76px] top-[52px] h-[454px] w-[800px] rounded-sm bg-[#f4f1e9] shadow-[0_0_0_10px_rgba(255,255,255,0.88)]" />
           <div className="absolute left-[142px] top-[70px] h-[56px] w-[520px] rounded-sm bg-[#8a674d]" />

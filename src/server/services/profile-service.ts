@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { toDateOnly } from "@/lib/time";
 import { NotFoundError } from "@/server/errors";
 
 export async function getUserProfile(userId: string) {
@@ -14,6 +15,7 @@ export async function getUserProfile(userId: string) {
       email: true,
       contactEmail: true,
       phone: true,
+      birthDate: true,
       role: true,
       createdAt: true
     }
@@ -33,6 +35,7 @@ export async function updateUserProfile(
     lastName: string;
     email: string;
     phone: string;
+    birthDate?: string;
   }
 ) {
   const user = await prisma.user.update({
@@ -44,6 +47,7 @@ export async function updateUserProfile(
       lastName: data.lastName,
       contactEmail: data.email,
       phone: data.phone,
+      birthDate: data.birthDate ? toDateOnly(data.birthDate) : null,
       name: `${data.firstName} ${data.lastName}`.trim()
     },
     select: {
@@ -54,6 +58,7 @@ export async function updateUserProfile(
       email: true,
       contactEmail: true,
       phone: true,
+      birthDate: true,
       role: true,
       createdAt: true
     }
