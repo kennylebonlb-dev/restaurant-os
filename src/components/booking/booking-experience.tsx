@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   FileText,
   LayoutGrid,
@@ -22,6 +24,7 @@ import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
 import type { AvailabilitySlot, FloorTable, OpeningHours } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
+import { addDaysToDateString } from "@/lib/time";
 import { useBookingStore } from "@/stores/booking-store";
 
 type Restaurant = {
@@ -262,6 +265,16 @@ export function BookingExperience() {
     setSearched(false);
   }
 
+  function updateDate(date: string) {
+    booking.setBookingField("date", date);
+    booking.resetTable();
+    setSearched(false);
+  }
+
+  function shiftBookingDate(days: number) {
+    updateDate(addDaysToDateString(booking.date, days));
+  }
+
   const menu = restaurant?.menu ?? [];
 
   return (
@@ -297,18 +310,32 @@ export function BookingExperience() {
           <div className="grid gap-3">
             <label className="text-sm font-semibold text-ink">
               {t("booking.date")}
-              <div className="relative mt-1">
-                <CalendarDays className="field-icon" />
-                <input
-                  className="control with-leading-icon w-full"
-                  type="date"
-                  value={booking.date}
-                  onChange={(event) => {
-                    booking.setBookingField("date", event.target.value);
-                    booking.resetTable();
-                    setSearched(false);
-                  }}
-                />
+              <div className="mt-1 flex items-center gap-1">
+                <button
+                  className="icon-button h-10 w-10"
+                  title={t("admin.previousDay")}
+                  type="button"
+                  onClick={() => shiftBookingDate(-1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="relative flex-1">
+                  <CalendarDays className="field-icon" />
+                  <input
+                    className="control with-leading-icon w-full"
+                    type="date"
+                    value={booking.date}
+                    onChange={(event) => updateDate(event.target.value)}
+                  />
+                </div>
+                <button
+                  className="icon-button h-10 w-10"
+                  title={t("admin.nextDay")}
+                  type="button"
+                  onClick={() => shiftBookingDate(1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
               </div>
             </label>
             <label className="text-sm font-semibold text-ink">
@@ -331,7 +358,6 @@ export function BookingExperience() {
             <div>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-ink">{t("booking.selectTime")}</p>
-                <span className="text-xs font-semibold text-ink/55">{t("booking.durationHint")}</span>
               </div>
               <div className="grid max-h-52 grid-cols-3 gap-2 overflow-auto rounded-md border border-ink/10 bg-linen p-2">
                 {slots.map((slot) => (

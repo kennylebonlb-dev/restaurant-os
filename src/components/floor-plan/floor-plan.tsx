@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Armchair, Lock } from "lucide-react";
+import { Armchair, Lock, X } from "lucide-react";
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { FloorPlan3D } from "@/components/floor-plan/floor-plan-3d";
 import type { DetectedGlbTable, FloorTable } from "@/lib/domain";
@@ -18,8 +18,10 @@ type FloorPlanProps = {
   selectedTableId?: string;
   availableTableIds?: string[];
   layoutLocked?: boolean;
+  deleteMode?: boolean;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
+  onDelete?: (tableId: string) => void;
   onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 };
 
@@ -37,8 +39,10 @@ export function FloorPlan({
   selectedTableId,
   availableTableIds,
   layoutLocked = false,
+  deleteMode = false,
   onSelect,
   onMove,
+  onDelete,
   onDetectedTablesChange
 }: FloorPlanProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -54,7 +58,7 @@ export function FloorPlan({
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>, table: FloorTable) {
     onSelect?.(table);
 
-    if (mode !== "admin" || layoutLocked) {
+    if (mode !== "admin" || layoutLocked || deleteMode) {
       return;
     }
 
@@ -144,16 +148,18 @@ export function FloorPlan({
           selectedTableId={selectedTableId}
           availableTableIds={availableTableIds}
           layoutLocked={layoutLocked}
+          deleteMode={deleteMode}
           zoom={zoom}
           onSelect={onSelect}
           onMove={onMove}
+          onDelete={onDelete}
           onDetectedTablesChange={onDetectedTablesChange}
         />
       ) : (
-        <div className="overflow-auto rounded-md border border-ink/10 bg-white">
+        <div className="overflow-auto rounded-md border border-ink/10 bg-[#30302f]">
           <div
             ref={containerRef}
-            className="relative bg-[linear-gradient(90deg,rgba(22,32,29,0.05)_1px,transparent_1px),linear-gradient(rgba(22,32,29,0.05)_1px,transparent_1px)] bg-[size:32px_32px]"
+            className="relative overflow-hidden bg-[#30302f]"
             style={{
               width: PLAN_WIDTH,
               height: PLAN_HEIGHT,
@@ -166,9 +172,24 @@ export function FloorPlan({
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
           >
-          <div className="absolute inset-y-0 left-0 w-1/3 bg-sage/35" />
-          <div className="absolute inset-y-0 left-1/3 w-1/3 bg-linen/75" />
-          <div className="absolute inset-y-0 right-0 w-1/3 bg-clay/10" />
+          <div className="absolute left-[76px] top-[52px] h-[454px] w-[800px] rounded-sm bg-[#f4f1e9] shadow-[0_0_0_10px_rgba(255,255,255,0.88)]" />
+          <div className="absolute left-[142px] top-[70px] h-[56px] w-[520px] rounded-sm bg-[#8a674d]" />
+          <div className="absolute left-[150px] top-[78px] h-[40px] w-[504px] bg-[repeating-linear-gradient(90deg,#7a5843_0_22px,#957159_22px_44px)] opacity-90" />
+          <div className="absolute left-[106px] top-[132px] h-[256px] w-[176px] rounded-sm bg-[#e9f0ee]" />
+          <div className="absolute left-[306px] top-[134px] h-[196px] w-[184px] rounded-sm bg-[#f5f8f7]" />
+          <div className="absolute left-[522px] top-[116px] h-[180px] w-[204px] rounded-sm bg-[#f1ece1]" />
+          <div className="absolute left-[542px] top-[132px] h-[62px] w-[164px] rounded-sm bg-[repeating-linear-gradient(45deg,#c78d5e_0_10px,#e6c198_10px_20px)]" />
+          <div className="absolute left-[220px] top-[360px] h-[112px] w-[196px] rounded-sm bg-[repeating-linear-gradient(90deg,#d8bd98_0_8px,#e9d2ad_8px_16px)]" />
+          <div className="absolute left-[468px] top-[358px] h-[120px] w-[222px] rounded-sm bg-[repeating-linear-gradient(90deg,#d8bd98_0_8px,#e9d2ad_8px_16px)]" />
+          <div className="absolute left-[656px] top-[76px] h-[392px] w-[12px] rounded-full bg-[#1f2624]" />
+          <div className="absolute left-[694px] top-[92px] h-[330px] w-[132px] rounded-sm border border-[#d5ece7] bg-[#dff4ef]/45" />
+          <div className="absolute left-[126px] top-[242px] h-[28px] w-[146px] rounded-sm bg-[#1d2322]" />
+          <div className="absolute left-[312px] top-[210px] h-[40px] w-[166px] rounded-sm bg-[#1d2322]" />
+          <div className="absolute left-[280px] top-[390px] h-[54px] w-[118px] rounded-sm bg-[#f8f5ee]" />
+          <div className="absolute left-[424px] top-[392px] h-[54px] w-[182px] rounded-sm bg-[#f8f5ee]" />
+          <div className="absolute left-[420px] top-[276px] h-[58px] w-[94px] rounded-sm bg-[#f8f5ee]" />
+          <div className="absolute left-[452px] top-[288px] h-[34px] w-[30px] rounded-full bg-[#cf473d]" />
+          <div className="absolute bottom-6 left-[76px] h-[12px] w-[800px] bg-[#d5ece7]/75" />
           <div className="absolute left-4 top-4 rounded-md bg-white/85 px-2 py-1 text-xs font-bold text-ink/70">
             {t("floor.indoor")}
           </div>
@@ -183,35 +204,80 @@ export function FloorPlan({
             const disabled =
               mode === "booking" ? (availableSet ? !availableSet.has(table.id) : !table.active) : false;
             const selected = table.id === selectedTableId;
+            const footprint =
+              table.capacity >= 7
+                ? { width: 132, height: 54, rounded: "rounded-md" }
+                : table.capacity >= 4
+                  ? { width: 86, height: 70, rounded: "rounded-[999px]" }
+                  : { width: 72, height: 58, rounded: "rounded-md" };
 
             return (
-              <button
+              <div
                 key={table.id}
-                type="button"
-                title={t("floor.tableTitle", { label: table.label, capacity: table.capacity })}
-                disabled={disabled}
-                className={clsx(
-                  "absolute flex h-16 w-24 touch-none select-none flex-col items-center justify-center gap-1 rounded-md border text-xs font-bold shadow-sm transition focus-ring",
-                  selected
-                    ? "border-clay bg-clay text-white"
-                    : "border-ink/15 bg-white text-ink hover:border-moss hover:bg-sage",
-                  !table.active && mode === "admin" && "border-dashed opacity-60",
-                  disabled && "cursor-not-allowed opacity-35 hover:border-ink/15 hover:bg-white"
-                )}
+                className="absolute"
                 style={{
                   left: table.positionX,
                   top: table.positionY,
                   transform: `rotate(${table.rotation}deg)`
                 }}
-                onClick={() => onSelect?.(table)}
-                onPointerDown={(event) => handlePointerDown(event, table)}
               >
-                <Armchair className="h-4 w-4" />
-                <span className="max-w-[5.25rem] truncate">{table.label}</span>
-                <span className="text-[10px] font-semibold opacity-75">
-                  {t("floor.seats", { count: table.capacity })}
-                </span>
-              </button>
+                {Array.from({ length: Math.min(table.capacity, 10) }, (_, index) => {
+                  const angle = (index / Math.min(table.capacity, 10)) * Math.PI * 2;
+                  const chairX = Math.cos(angle) * (footprint.width / 2 + 12) + footprint.width / 2 - 6;
+                  const chairY = Math.sin(angle) * (footprint.height / 2 + 12) + footprint.height / 2 - 6;
+
+                  return (
+                    <span
+                      key={index}
+                      className="absolute h-3 w-3 rounded-sm border border-ink/10 bg-[#f6f2e8] shadow-sm"
+                      style={{
+                        left: chairX,
+                        top: chairY
+                      }}
+                    />
+                  );
+                })}
+                <button
+                  type="button"
+                  title={t("floor.tableTitle", { label: table.label, capacity: table.capacity })}
+                  disabled={disabled}
+                  className={clsx(
+                    "relative z-10 flex touch-none select-none flex-col items-center justify-center gap-1 border text-xs font-bold shadow-sm transition focus-ring",
+                    footprint.rounded,
+                    selected
+                      ? "border-clay bg-clay text-white"
+                      : "border-ink/15 bg-white text-ink hover:border-moss hover:bg-sage",
+                    !table.active && mode === "admin" && "border-dashed opacity-60",
+                    disabled && "cursor-not-allowed opacity-35 hover:border-ink/15 hover:bg-white"
+                  )}
+                  style={{
+                    width: footprint.width,
+                    height: footprint.height
+                  }}
+                  onClick={() => onSelect?.(table)}
+                  onPointerDown={(event) => handlePointerDown(event, table)}
+                >
+                  <Armchair className="h-4 w-4" />
+                  <span className="max-w-[5.25rem] truncate">{table.label}</span>
+                  <span className="text-[10px] font-semibold opacity-75">
+                    {t("floor.seats", { count: table.capacity })}
+                  </span>
+                </button>
+                {mode === "admin" && deleteMode ? (
+                  <button
+                    className="absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-red-600 text-white shadow-md transition hover:bg-red-700"
+                    title={t("admin.deleteTable")}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDelete?.(table.id);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
             );
           })}
           </div>

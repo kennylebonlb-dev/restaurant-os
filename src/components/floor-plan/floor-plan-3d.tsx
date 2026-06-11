@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
-import { Billboard, OrbitControls, PerspectiveCamera, Text, useGLTF } from "@react-three/drei";
+import { Billboard, Html, OrbitControls, PerspectiveCamera, Text, useGLTF } from "@react-three/drei";
 import { type MutableRefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -22,9 +22,11 @@ type FloorPlan3DProps = {
   selectedTableId?: string;
   availableTableIds?: string[];
   layoutLocked?: boolean;
+  deleteMode?: boolean;
   zoom: number;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
+  onDelete?: (tableId: string) => void;
   onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 };
 
@@ -746,6 +748,8 @@ function TableModel({
   table,
   disabled,
   selected,
+  deleteMode,
+  onDelete,
   onPointerDown,
   onPointerMove,
   onPointerUp
@@ -753,6 +757,8 @@ function TableModel({
   table: FloorTable;
   disabled: boolean;
   selected: boolean;
+  deleteMode: boolean;
+  onDelete?: (tableId: string) => void;
   onPointerDown: (event: ThreeEvent<PointerEvent>, table: FloorTable) => void;
   onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
@@ -819,6 +825,22 @@ function TableModel({
           {`${table.label} · ${table.capacity}`}
         </Text>
       </Billboard>
+      {deleteMode ? (
+        <Html center position={[width / 2 + 0.44, 1.03, -depth / 2 - 0.24]}>
+          <button
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-red-600 text-sm font-black text-white shadow-lg transition hover:bg-red-700"
+            title="Supprimer"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete?.(table.id);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            ×
+          </button>
+        </Html>
+      ) : null}
     </group>
   );
 }
@@ -977,11 +999,13 @@ function RestaurantScene({
   selectedTableId,
   availableTableIds,
   layoutLocked = false,
+  deleteMode = false,
   zoom,
   zoneLabels,
   onDetectedTablesChange,
   onSelect,
-  onMove
+  onMove,
+  onDelete
 }: RestaurantSceneProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const draggingTableIdRef = useRef<string | null>(null);
@@ -1029,7 +1053,7 @@ function RestaurantScene({
     event.stopPropagation();
     onSelect?.(table);
 
-    if (mode !== "admin" || layoutLocked) {
+    if (mode !== "admin" || layoutLocked || deleteMode) {
       return;
     }
 
@@ -1121,7 +1145,9 @@ function RestaurantScene({
         return (
           <TableModel
             key={table.id}
+            deleteMode={mode === "admin" && deleteMode}
             disabled={disabled}
+            onDelete={onDelete}
             selected={table.id === selectedTableId || table.id === draggingTableId}
             table={table}
             onPointerDown={handleTablePointerDown}
@@ -1140,10 +1166,12 @@ export function FloorPlan3D({
   selectedTableId,
   availableTableIds,
   layoutLocked = false,
+  deleteMode = false,
   zoom,
   onDetectedTablesChange,
   onSelect,
-  onMove
+  onMove,
+  onDelete
 }: FloorPlan3DProps) {
   const [draftTables, setDraftTables] = useState(tables);
   const { t } = useI18n();
@@ -1184,6 +1212,7 @@ export function FloorPlan3D({
         <RestaurantScene
           availableTableIds={availableTableIds}
           draftTables={draftTables}
+          deleteMode={deleteMode}
           layoutLocked={layoutLocked}
           mode={mode}
           selectedTableId={selectedTableId}
@@ -1191,6 +1220,7 @@ export function FloorPlan3D({
           tables={tables}
           zoneLabels={zoneLabels}
           zoom={zoom}
+          onDelete={onDelete}
           onDetectedTablesChange={onDetectedTablesChange}
           onMove={onMove}
           onSelect={onSelect}

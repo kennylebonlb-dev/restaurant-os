@@ -70,7 +70,8 @@ async function main() {
       openingHours,
       settings: {
         reservationDurationMinutes: 120,
-        oneReservationPerTablePerService: false,
+        minimumLeadTimeEnabled: true,
+        oneReservationPerTablePerService: true,
         layoutGridSize: 32
       },
       menu: [

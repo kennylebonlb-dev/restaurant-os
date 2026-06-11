@@ -47,7 +47,8 @@ type RestaurantPolicy = {
   timezone: string;
   openingHours: OpeningHours;
   reservationDurationMinutes: number;
-  oneReservationPerTablePerService: boolean;
+  minimumLeadTimeMinutes: number;
+  releaseTableAfterDuration: boolean;
 };
 
 type AssertTableAvailableInput = Omit<AvailabilityInput, "endTime"> &
@@ -78,8 +79,16 @@ function reservationDurationFromSettings(settings: unknown) {
     : DEFAULT_RESERVATION_DURATION_MINUTES;
 }
 
-function oneReservationPerServiceFromSettings(settings: unknown) {
-  return isRecord(settings) && settings.oneReservationPerTablePerService === true;
+function minimumLeadTimeFromSettings(settings: unknown) {
+  if (!isRecord(settings)) {
+    return MIN_LEAD_TIME_MINUTES;
+  }
+
+  return settings.minimumLeadTimeEnabled === false ? 0 : MIN_LEAD_TIME_MINUTES;
+}
+
+function releaseTableAfterDurationFromSettings(settings: unknown) {
+  return !isRecord(settings) || settings.oneReservationPerTablePerService !== false;
 }
 
 async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<RestaurantPolicy> {
@@ -102,7 +111,8 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
     timezone: restaurant.timezone,
     openingHours: restaurant.openingHours as OpeningHours,
     reservationDurationMinutes: reservationDurationFromSettings(restaurant.settings),
-    oneReservationPerTablePerService: oneReservationPerServiceFromSettings(restaurant.settings)
+    minimumLeadTimeMinutes: minimumLeadTimeFromSettings(restaurant.settings),
+    releaseTableAfterDuration: releaseTableAfterDurationFromSettings(restaurant.settings)
   };
 }
 
@@ -120,50 +130,47 @@ function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy): 
   };
 }
 
-function assertLeadTime(date: string, startTime: string, timezone: string) {
+function assertLeadTime(date: string, startTime: string, timezone: string, minimumLeadTimeMinutes: number) {
   const now = getZonedDateTimeParts(timezone);
 
   if (date < now.date) {
     throw new BadRequestError("This date is no longer available.");
   }
 
-  if (date === now.date && parseTimeToMinutes(startTime) < now.minutes + MIN_LEAD_TIME_MINUTES) {
+  if (date === now.date && parseTimeToMinutes(startTime) < now.minutes) {
+    throw new BadRequestError("This time is no longer available.");
+  }
+
+  if (date === now.date && parseTimeToMinutes(startTime) < now.minutes + minimumLeadTimeMinutes) {
     throw new BadRequestError("Reservations must be made at least 2 hours in advance.");
   }
 }
 
-function slotIsBookable(date: string, startTime: string, timezone: string) {
+function slotIsBookable(date: string, startTime: string, timezone: string, minimumLeadTimeMinutes: number) {
   const now = getZonedDateTimeParts(timezone);
 
   if (date < now.date) {
     return false;
   }
 
-  return date !== now.date || parseTimeToMinutes(startTime) >= now.minutes + MIN_LEAD_TIME_MINUTES;
+  if (date !== now.date) {
+    return true;
+  }
+
+  const startMinutes = parseTimeToMinutes(startTime);
+  return startMinutes >= now.minutes && startMinutes >= now.minutes + minimumLeadTimeMinutes;
 }
 
 async function getUnavailableTableIds(
   db: DbClient,
   input: Omit<AvailabilityInput, "endTime"> & ReservationWindow,
   tableIds: string[],
-  oneReservationPerTablePerService: boolean,
+  releaseTableAfterDuration: boolean,
   ignoreReservationId?: string
 ) {
   const date = toDateOnly(input.date);
-  const reservationWhere = oneReservationPerTablePerService
+  const reservationWhere = releaseTableAfterDuration
     ? {
-        id: ignoreReservationId
-          ? {
-              not: ignoreReservationId
-            }
-          : undefined,
-        tableId: {
-          in: tableIds
-        },
-        date,
-        status: activeReservationWhere()
-      }
-    : {
         id: ignoreReservationId
           ? {
               not: ignoreReservationId
@@ -180,6 +187,18 @@ async function getUnavailableTableIds(
         endTime: {
           gt: input.startTime
         }
+      }
+    : {
+        id: ignoreReservationId
+          ? {
+              not: ignoreReservationId
+            }
+          : undefined,
+        tableId: {
+          in: tableIds
+        },
+        date,
+        status: activeReservationWhere()
       };
 
   const [overlappingReservations, overlappingBlocks] = await Promise.all([
@@ -226,7 +245,7 @@ async function getUnavailableTableIds(
 export async function getAvailableTables(db: DbClient, input: AvailabilityInput) {
   const policy = await getRestaurantPolicy(db, input.restaurantId);
   const window = reservationWindow(input, policy);
-  assertLeadTime(input.date, window.startTime, policy.timezone);
+  assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
 
   const candidateTables = await db.table.findMany({
     where: {
@@ -251,7 +270,7 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
       ...window
     },
     tableIds,
-    policy.oneReservationPerTablePerService
+    policy.releaseTableAfterDuration
   );
 
   return candidateTables.filter((table) => !unavailableTableIds.has(table.id));
@@ -323,11 +342,22 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
         ]);
 
   const slots: AvailabilitySlot[] = [];
+  const now = getZonedDateTimeParts(policy.timezone);
 
   for (let start = openMinutes; start <= latestStart; start += 15) {
     const startTime = minutesToTime(start);
     const endTime = minutesToTime(start + policy.reservationDurationMinutes);
-    const selectableByTime = slotIsBookable(input.date, startTime, policy.timezone);
+
+    if (input.date < now.date || (input.date === now.date && start < now.minutes)) {
+      continue;
+    }
+
+    const selectableByTime = slotIsBookable(
+      input.date,
+      startTime,
+      policy.timezone,
+      policy.minimumLeadTimeMinutes
+    );
 
     if (tableIds.length === 0) {
       slots.push({
@@ -347,7 +377,7 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
     for (const reservation of reservations) {
       if (
         reservation.tableId &&
-        (policy.oneReservationPerTablePerService ||
+        (!policy.releaseTableAfterDuration ||
           (reservation.startTime < endTime && reservation.endTime > startTime))
       ) {
         unavailableTableIds.add(reservation.tableId);
@@ -386,7 +416,7 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
 export async function assertTableAvailable(db: DbClient, input: AssertTableAvailableInput) {
   assertValidTimeRange(input.startTime, input.endTime);
   const policy = await getRestaurantPolicy(db, input.restaurantId);
-  assertLeadTime(input.date, input.startTime, policy.timezone);
+  assertLeadTime(input.date, input.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
 
   const table = await db.table.findFirst({
     where: {
@@ -407,7 +437,7 @@ export async function assertTableAvailable(db: DbClient, input: AssertTableAvail
     db,
     input,
     [input.tableId],
-    policy.oneReservationPerTablePerService,
+    policy.releaseTableAfterDuration,
     input.ignoreReservationId
   );
 
@@ -451,7 +481,7 @@ export async function createReservation(input: CreateReservationInput) {
           tableId
         });
       } else {
-        assertLeadTime(input.date, window.startTime, policy.timezone);
+        assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
       }
 
       if (input.firstName || input.lastName || input.email || input.phone) {

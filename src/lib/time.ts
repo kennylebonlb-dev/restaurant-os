@@ -38,6 +38,12 @@ export function addMinutes(time: string, minutes: number) {
   return minutesToTime(parseTimeToMinutes(time) + minutes);
 }
 
+export function addDaysToDateString(date: string, days: number) {
+  const nextDate = toDateOnly(date);
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
+  return nextDate.toISOString().slice(0, 10);
+}
+
 export function isQuarterHour(time: string) {
   return parseTimeToMinutes(time) % 15 === 0;
 }

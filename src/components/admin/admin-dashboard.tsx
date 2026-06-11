@@ -7,11 +7,14 @@ import {
   CalendarDays,
   Check,
   Box,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Gauge,
   LayoutGrid,
   List,
   Lock,
+  Minus,
   Plus,
   RefreshCw,
   RotateCw,
@@ -27,6 +30,7 @@ import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
 import type { DetectedGlbTable, FloorTable, OpeningHours, TableBlockReason, TableZone } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
+import { addDaysToDateString, minutesToTime } from "@/lib/time";
 import { useFloorPlanStore } from "@/stores/floor-plan-store";
 import { useRealtimeStore } from "@/stores/realtime-store";
 
@@ -84,9 +88,45 @@ type TableBlock = {
 };
 
 type TableDraft = Pick<FloorTable, "label" | "capacity" | "zone" | "rotation" | "active">;
+type DayKey = keyof OpeningHours;
+
+const dayKeys = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday"
+] as const satisfies DayKey[];
+
+const timeOptions = Array.from({ length: 24 * 4 }, (_, index) => minutesToTime(index * 15));
+const reservationDurationOptions = [60, 75, 90, 105, 120, 135, 150, 180, 210, 240];
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function settingNumber(settings: Record<string, unknown>, key: string, fallback: number) {
+  const value = settings[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function nextTableLabel(tables: FloorTable[]) {
+  const usedNumbers = new Set(
+    tables
+      .map((table) => /^T(\d+)$/i.exec(table.label)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map((value) => Number(value))
+  );
+
+  for (let number = 1; number <= tables.length + 20; number += 1) {
+    if (!usedNumbers.has(number)) {
+      return `T${number}`;
+    }
+  }
+
+  return `T${tables.length + 1}`;
 }
 
 export function AdminDashboard() {
@@ -96,6 +136,7 @@ export function AdminDashboard() {
   const [view, setView] = useState<"calendar" | "list" | "timeline">("calendar");
   const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("2d");
   const [floorZoom, setFloorZoom] = useState(1);
+  const [deleteMode, setDeleteMode] = useState(false);
   const [tableForm, setTableForm] = useState({
     label: "",
     capacity: 2,
@@ -185,7 +226,7 @@ export function AdminDashboard() {
   });
 
   const createTableMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (overrides?: Partial<TableDraft> & Partial<Pick<FloorTable, "positionX" | "positionY">>) =>
       apiFetch<{ table: FloorTable }>(`/api/restaurants/${restaurant?.id}/tables`, {
         method: "POST",
         body: JSON.stringify({
@@ -193,7 +234,8 @@ export function AdminDashboard() {
           positionX: 120,
           positionY: 120,
           rotation: 0,
-          active: true
+          active: true,
+          ...overrides
         })
       }),
     onSuccess: () => {
@@ -419,8 +461,20 @@ export function AdminDashboard() {
       return {};
     }
   }, [restaurantForm.settings]);
-  const oneReservationPerTablePerService =
-    parsedRestaurantSettings.oneReservationPerTablePerService === true;
+  const openingHoursDraft = useMemo(() => {
+    try {
+      return JSON.parse(restaurantForm.openingHours) as OpeningHours;
+    } catch {
+      return defaultOpeningHours();
+    }
+  }, [restaurantForm.openingHours]);
+  const reservationDurationMinutes = settingNumber(
+    parsedRestaurantSettings,
+    "reservationDurationMinutes",
+    120
+  );
+  const minimumLeadTimeEnabled = parsedRestaurantSettings.minimumLeadTimeEnabled !== false;
+  const releaseTableAfterDuration = parsedRestaurantSettings.oneReservationPerTablePerService !== false;
   const visualTables = useMemo(() => {
     if (!selectedTableId || !selectedTableDraft) {
       return tables;
@@ -552,9 +606,52 @@ export function AdminDashboard() {
     });
   }
 
+  function updateOpeningHour(day: DayKey, value: Partial<OpeningHours[string]>) {
+    setRestaurantForm((current) => {
+      let openingHours: OpeningHours;
+
+      try {
+        openingHours = JSON.parse(current.openingHours) as OpeningHours;
+      } catch {
+        openingHours = defaultOpeningHours();
+      }
+
+      return {
+        ...current,
+        openingHours: JSON.stringify(
+          {
+            ...openingHours,
+            [day]: {
+              ...openingHours[day],
+              ...value
+            }
+          },
+          null,
+          2
+        )
+      };
+    });
+  }
+
+  function shiftSelectedDate(days: number) {
+    setSelectedDate((current) => addDaysToDateString(current, days));
+  }
+
+  function handleQuickCreateTable() {
+    createTableMutation.mutate({
+      label: nextTableLabel(tables),
+      capacity: 2,
+      zone: "INDOOR",
+      positionX: 430,
+      positionY: 270,
+      rotation: 0,
+      active: true
+    });
+  }
+
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    createTableMutation.mutate();
+    createTableMutation.mutate({});
   }
 
   return (
@@ -584,15 +681,33 @@ export function AdminDashboard() {
               ))}
             </select>
           ) : null}
-          <label className="relative">
-            <CalendarDays className="field-icon" />
+          <div className="relative flex items-center gap-1">
+            <button
+              className="icon-button h-10 w-10"
+              title={t("admin.previousDay")}
+              type="button"
+              onClick={() => shiftSelectedDate(-1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="relative">
+              <CalendarDays className="field-icon" />
             <input
               className="control with-leading-icon"
               type="date"
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value)}
             />
-          </label>
+            </span>
+            <button
+              className="icon-button h-10 w-10"
+              title={t("admin.nextDay")}
+              type="button"
+              onClick={() => shiftSelectedDate(1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
           <button
             className="icon-button"
             title={t("admin.refresh")}
@@ -686,26 +801,84 @@ export function AdminDashboard() {
                   }
                 />
               </label>
-              <label className="text-sm font-semibold text-ink">
-                {t("admin.openingHours")}
-                <textarea
-                  className="control mt-1 min-h-28 w-full py-2 font-mono text-xs"
-                  value={restaurantForm.openingHours}
-                  onChange={(event) =>
-                    setRestaurantForm((current) => ({ ...current, openingHours: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="text-sm font-semibold text-ink">
-                {t("admin.settings")}
-                <textarea
-                  className="control mt-1 min-h-20 w-full py-2 font-mono text-xs"
-                  value={restaurantForm.settings}
-                  onChange={(event) =>
-                    setRestaurantForm((current) => ({ ...current, settings: event.target.value }))
-                  }
-                />
-              </label>
+              <div className="rounded-md border border-ink/10 bg-linen p-3">
+                <p className="mb-3 text-sm font-bold text-ink">{t("admin.openingHours")}</p>
+                <div className="grid gap-2">
+                  {dayKeys.map((day) => {
+                    const hours = openingHoursDraft[day] ?? defaultOpeningHours()[day];
+
+                    return (
+                      <div key={day} className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                        <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+                          <input
+                            className="h-4 w-4 accent-moss"
+                            type="checkbox"
+                            checked={!hours.closed}
+                            onChange={(event) => updateOpeningHour(day, { closed: !event.target.checked })}
+                          />
+                          {t(`day.${day}`)}
+                        </label>
+                        <select
+                          className="control h-10 min-w-24"
+                          disabled={hours.closed}
+                          value={hours.open}
+                          onChange={(event) => updateOpeningHour(day, { open: event.target.value })}
+                        >
+                          {timeOptions.map((time) => (
+                            <option key={`${day}-open-${time}`} value={time}>
+                              {time}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="control h-10 min-w-24"
+                          disabled={hours.closed}
+                          value={hours.close}
+                          onChange={(event) => updateOpeningHour(day, { close: event.target.value })}
+                        >
+                          {timeOptions.map((time) => (
+                            <option key={`${day}-close-${time}`} value={time}>
+                              {time}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rounded-md border border-ink/10 bg-linen p-3">
+                <p className="mb-3 text-sm font-bold text-ink">{t("admin.settings")}</p>
+                <div className="grid gap-3">
+                  <label className="text-sm font-semibold text-ink">
+                    {t("admin.reservationDuration")}
+                    <select
+                      className="control mt-1 w-full"
+                      value={reservationDurationMinutes}
+                      onChange={(event) =>
+                        updateRestaurantSetting("reservationDurationMinutes", Number(event.target.value))
+                      }
+                    >
+                      {reservationDurationOptions.map((minutes) => (
+                        <option key={minutes} value={minutes}>
+                          {t("admin.durationMinutes", { count: minutes })}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex items-start justify-between gap-3 text-sm font-semibold text-ink">
+                    <span>{t("admin.minimumLeadTime")}</span>
+                    <input
+                      className="h-5 w-5 shrink-0 accent-moss"
+                      type="checkbox"
+                      checked={minimumLeadTimeEnabled}
+                      onChange={(event) =>
+                        updateRestaurantSetting("minimumLeadTimeEnabled", event.target.checked)
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
               <div className="rounded-md border border-ink/10 bg-linen p-3">
                 <p className="mb-2 text-sm font-bold text-ink">{t("admin.bookingRules")}</p>
                 <label className="flex items-start justify-between gap-3 text-sm font-semibold text-ink">
@@ -713,7 +886,7 @@ export function AdminDashboard() {
                   <input
                     className="h-5 w-5 shrink-0 accent-moss"
                     type="checkbox"
-                    checked={oneReservationPerTablePerService}
+                    checked={releaseTableAfterDuration}
                     onChange={(event) =>
                       updateRestaurantSetting("oneReservationPerTablePerService", event.target.checked)
                     }
@@ -811,94 +984,6 @@ export function AdminDashboard() {
               </button>
             </div>
           </form>
-
-          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-base font-bold text-ink">{t("admin.layout")}</h2>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={!restaurant}
-                onClick={() => toggleLayoutMutation.mutate()}
-              >
-                {restaurant?.layoutLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-                {restaurant?.layoutLocked ? t("admin.unlock") : t("admin.lock")}
-              </button>
-            </div>
-            <div className="grid gap-3">
-              <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1">
-                <button
-                  className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
-                    floorViewMode === "2d" ? "bg-white shadow-sm" : "text-ink/65"
-                  }`}
-                  type="button"
-                  onClick={() => setFloorViewMode("2d")}
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                  {t("floor.view2d")}
-                </button>
-                <button
-                  className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
-                    floorViewMode === "3d" ? "bg-white shadow-sm" : "text-ink/65"
-                  }`}
-                  type="button"
-                  onClick={() => setFloorViewMode("3d")}
-                >
-                  <Box className="h-4 w-4" />
-                  {t("floor.view3d")}
-                </button>
-              </div>
-              {floorViewMode === "3d" ? (
-                <>
-                  <label className="text-sm font-semibold text-ink">
-                    {t("floor.zoom")}
-                    <input
-                      className="mt-2 w-full accent-moss"
-                      min={60}
-                      max={180}
-                      step={5}
-                      type="range"
-                      value={Math.round(floorZoom * 100)}
-                      onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
-                    />
-                  </label>
-                  <div className="rounded-md border border-ink/10 bg-linen p-3">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <span className="inline-flex items-center gap-2 text-sm font-bold text-ink">
-                        <Sparkles className="h-4 w-4 text-moss" />
-                        {t("admin.glbAi")}
-                      </span>
-                      <span className="rounded-md bg-white px-2 py-1 text-xs font-black text-ink">
-                        {t("admin.detectedTables", { count: detectedGlbTables.length })}
-                      </span>
-                    </div>
-                    <button
-                      className="secondary-button w-full"
-                      type="button"
-                      disabled={
-                        !restaurant ||
-                        restaurant.layoutLocked ||
-                        detectedGlbTables.length === 0 ||
-                        syncGlbTablesMutation.isPending
-                      }
-                      onClick={() => syncGlbTablesMutation.mutate()}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      {syncGlbTablesMutation.isPending ? t("admin.saving") : t("admin.applyGlbDetection")}
-                    </button>
-                    <p className="mt-2 text-xs font-medium text-ink/60">
-                      {detectedGlbTables.length > 0 ? t("admin.glbDetectedHint") : t("admin.noGlbTables")}
-                    </p>
-                    {syncGlbTablesMutation.error ? (
-                      <p className="mt-2 text-sm font-semibold text-red-700">
-                        {syncGlbTablesMutation.error.message}
-                      </p>
-                    ) : null}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </div>
 
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -1084,6 +1169,113 @@ export function AdminDashboard() {
         </aside>
 
         <section className="space-y-4">
+          <div className="rounded-lg border border-ink/10 bg-white p-3 shadow-soft">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1 sm:w-56">
+                <button
+                  className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
+                    floorViewMode === "2d" ? "bg-white shadow-sm" : "text-ink/65"
+                  }`}
+                  type="button"
+                  onClick={() => setFloorViewMode("2d")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  {t("floor.view2d")}
+                </button>
+                <button
+                  className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
+                    floorViewMode === "3d" ? "bg-white shadow-sm" : "text-ink/65"
+                  }`}
+                  type="button"
+                  onClick={() => setFloorViewMode("3d")}
+                >
+                  <Box className="h-4 w-4" />
+                  {t("floor.view3d")}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  className="icon-button"
+                  title={restaurant?.layoutLocked ? t("admin.unlock") : t("admin.lock")}
+                  type="button"
+                  disabled={!restaurant}
+                  onClick={() => toggleLayoutMutation.mutate()}
+                >
+                  {restaurant?.layoutLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                </button>
+                <button
+                  className="icon-button"
+                  title={t("admin.addTable")}
+                  type="button"
+                  disabled={!restaurant || restaurant.layoutLocked || createTableMutation.isPending}
+                  onClick={handleQuickCreateTable}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+                <button
+                  className={`icon-button ${deleteMode ? "border-red-200 bg-red-50 text-red-700" : ""}`}
+                  title={t("admin.deleteMode")}
+                  type="button"
+                  disabled={!restaurant || restaurant.layoutLocked}
+                  onClick={() => setDeleteMode((current) => !current)}
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                {floorViewMode === "3d" ? (
+                  <label className="ml-1 min-w-48 text-sm font-semibold text-ink">
+                    {t("floor.zoom")}
+                    <input
+                      className="mt-1 w-full accent-moss"
+                      min={60}
+                      max={180}
+                      step={5}
+                      type="range"
+                      value={Math.round(floorZoom * 100)}
+                      onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
+                    />
+                  </label>
+                ) : null}
+              </div>
+            </div>
+            {floorViewMode === "3d" ? (
+              <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-2 text-sm font-bold text-ink">
+                    <Sparkles className="h-4 w-4 text-moss" />
+                    {t("admin.glbAi")}
+                  </span>
+                  <span className="rounded-md bg-white px-2 py-1 text-xs font-black text-ink">
+                    {t("admin.detectedTables", { count: detectedGlbTables.length })}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={
+                      !restaurant ||
+                      restaurant.layoutLocked ||
+                      detectedGlbTables.length === 0 ||
+                      syncGlbTablesMutation.isPending
+                    }
+                    onClick={() => syncGlbTablesMutation.mutate()}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {syncGlbTablesMutation.isPending ? t("admin.saving") : t("admin.applyGlbDetection")}
+                  </button>
+                  <p className="text-xs font-medium text-ink/60">
+                    {detectedGlbTables.length > 0 ? t("admin.glbDetectedHint") : t("admin.noGlbTables")}
+                  </p>
+                </div>
+                {syncGlbTablesMutation.error ? (
+                  <p className="mt-2 text-sm font-semibold text-red-700">
+                    {syncGlbTablesMutation.error.message}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           <FloorPlan
             mode="admin"
             viewMode={floorViewMode}
@@ -1091,6 +1283,7 @@ export function AdminDashboard() {
             tables={visualTables}
             selectedTableId={selectedTableId}
             layoutLocked={restaurant?.layoutLocked}
+            deleteMode={deleteMode}
             onSelect={(table) => setSelectedTableId(table.id)}
             onMove={(tableId, position) =>
               updateTableMutation.mutate({
@@ -1098,6 +1291,7 @@ export function AdminDashboard() {
                 data: position
               })
             }
+            onDelete={(tableId) => deleteTableMutation.mutate(tableId)}
             onDetectedTablesChange={handleDetectedGlbTablesChange}
           />
 
@@ -1230,7 +1424,7 @@ export function AdminDashboard() {
   );
 }
 
-function defaultOpeningHours() {
+function defaultOpeningHours(): OpeningHours {
   return {
     monday: { open: "12:00", close: "22:00" },
     tuesday: { open: "12:00", close: "22:00" },
