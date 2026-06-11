@@ -36,6 +36,7 @@ export type FloorTable = {
   active: boolean;
   shape?: TableShape;
   features?: TableFeature[];
+  displayScale?: number;
 };
 
 export type DetectedGlbTable = {

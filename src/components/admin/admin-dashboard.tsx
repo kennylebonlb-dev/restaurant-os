@@ -50,6 +50,7 @@ import {
   isTableShape,
   tableFeaturesFromSettings,
   withTableFeatures,
+  withTableDisplayScale,
   withTableShape
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
@@ -247,8 +248,10 @@ export function AdminDashboard() {
   const [restaurantFormError, setRestaurantFormError] = useState<string>();
   const [restaurantSaved, setRestaurantSaved] = useState(false);
   const [selectedTableDraft, setSelectedTableDraft] = useState<TableDraft | null>(null);
+  const [selectedTableDisplayScaleDraft, setSelectedTableDisplayScaleDraft] = useState(1);
   const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
   const lastSavedTableDraftRef = useRef("");
+  const lastSavedTableDisplayScaleRef = useRef("");
   const detectedGlbTablesSignatureRef = useRef("");
   const { selectedTableId, setSelectedTableId } = useFloorPlanStore();
   const realtime = useRealtimeStore();
@@ -666,11 +669,12 @@ export function AdminDashboard() {
       table.id === selectedTableId
         ? {
             ...table,
-            ...selectedTableDraft
+            ...selectedTableDraft,
+            displayScale: selectedTableDisplayScaleDraft
           }
         : table
     );
-  }, [selectedTableDraft, selectedTableId, tables]);
+  }, [selectedTableDisplayScaleDraft, selectedTableDraft, selectedTableId, tables]);
 
   const groupedReservations = useMemo(() => {
     return reservations.reduce<Record<string, Reservation[]>>((groups, reservation) => {
@@ -715,7 +719,9 @@ export function AdminDashboard() {
   useEffect(() => {
     if (!selectedTable) {
       setSelectedTableDraft(null);
+      setSelectedTableDisplayScaleDraft(1);
       lastSavedTableDraftRef.current = "";
+      lastSavedTableDisplayScaleRef.current = "";
       return;
     }
 
@@ -728,7 +734,9 @@ export function AdminDashboard() {
     };
 
     setSelectedTableDraft(draft);
+    setSelectedTableDisplayScaleDraft(selectedTable.displayScale ?? 1);
     lastSavedTableDraftRef.current = JSON.stringify(draft);
+    lastSavedTableDisplayScaleRef.current = String(selectedTable.displayScale ?? 1);
   }, [selectedTable?.id]);
 
   useEffect(() => {
@@ -752,6 +760,28 @@ export function AdminDashboard() {
 
     return () => window.clearTimeout(timeout);
   }, [selectedTableDraft, selectedTableId]);
+
+  useEffect(() => {
+    if (!selectedTableId || !selectedTable) {
+      return;
+    }
+
+    const displayScale = Math.round(Math.min(1.8, Math.max(0.6, selectedTableDisplayScaleDraft)) * 100) / 100;
+    const serialized = String(displayScale);
+
+    if (serialized === lastSavedTableDisplayScaleRef.current) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      lastSavedTableDisplayScaleRef.current = serialized;
+      void persistTableDisplayScale(selectedTableId, displayScale).catch((error) => {
+        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+      });
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [selectedTableDisplayScaleDraft, selectedTableId]);
 
   const handleDetectedGlbTablesChange = useCallback((nextTables: DetectedGlbTable[]) => {
     const signature = nextTables
@@ -883,6 +913,12 @@ export function AdminDashboard() {
 
   async function persistTableFeatures(tableId: string, features: TableFeature[]) {
     const settings = withTableFeatures(getRestaurantSettingsFromForm(), tableId, features);
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistTableDisplayScale(tableId: string, displayScale: number) {
+    const settings = withTableDisplayScale(getRestaurantSettingsFromForm(), tableId, displayScale);
     await patchRestaurantSettings(settings);
     queryClient.invalidateQueries({ queryKey: ["restaurants"] });
   }
@@ -1588,6 +1624,24 @@ export function AdminDashboard() {
                     </span>
                   </div>
                 </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("admin.tableDisplaySize")}
+                  <div className="mt-2 flex items-center gap-3">
+                    <input
+                      className="w-full accent-moss"
+                      disabled={restaurant?.layoutLocked}
+                      min={60}
+                      max={180}
+                      step={5}
+                      type="range"
+                      value={Math.round(selectedTableDisplayScaleDraft * 100)}
+                      onChange={(event) => setSelectedTableDisplayScaleDraft(Number(event.target.value) / 100)}
+                    />
+                    <span className="w-12 text-right text-sm font-bold text-ink">
+                      {Math.round(selectedTableDisplayScaleDraft * 100)}%
+                    </span>
+                  </div>
+                </label>
                 <label className="flex items-center justify-between gap-3 rounded-md border border-ink/10 bg-linen px-3 py-2 text-sm font-semibold text-ink">
                   {selectedTableDraft?.active ? t("admin.active") : t("admin.inactive")}
                   <input
@@ -1847,20 +1901,18 @@ export function AdminDashboard() {
                 >
                   <Minus className="h-4 w-4" />
                 </button>
-                {floorViewMode === "3d" ? (
-                  <label className="ml-1 min-w-48 text-sm font-semibold text-ink">
-                    {t("floor.zoom")}
-                    <input
-                      className="mt-1 w-full accent-moss"
-                      min={60}
-                      max={180}
-                      step={5}
-                      type="range"
-                      value={Math.round(floorZoom * 100)}
-                      onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
-                    />
-                  </label>
-                ) : null}
+                <label className="ml-1 min-w-48 text-sm font-semibold text-ink">
+                  {t("floor.zoom")}
+                  <input
+                    className="mt-1 w-full accent-moss"
+                    min={60}
+                    max={180}
+                    step={5}
+                    type="range"
+                    value={Math.round(floorZoom * 100)}
+                    onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
+                  />
+                </label>
               </div>
             </div>
             {floorViewMode === "2d" ? (

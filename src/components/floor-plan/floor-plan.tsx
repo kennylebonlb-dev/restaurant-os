@@ -33,20 +33,42 @@ type DragState = {
   offsetY: number;
 };
 
-function tableFootprint(capacity: number, shape: TableShape = "ROUND") {
+type PanState = {
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+};
+
+function tableFootprint(capacity: number, shape: TableShape = "ROUND", displayScale = 1) {
+  const scale = Math.min(1.8, Math.max(0.6, displayScale));
+  const applyScale = (value: number) => Math.round(value * scale);
+
   if (shape === "RECTANGLE") {
-    return capacity >= 7
+    const base = capacity >= 7
       ? { width: 136, height: 58, rounded: "rounded-md" }
       : { width: 112, height: 58, rounded: "rounded-md" };
+
+    return {
+      ...base,
+      width: applyScale(base.width),
+      height: applyScale(base.height)
+    };
   }
 
   if (shape === "SQUARE") {
-    return { width: 78, height: 78, rounded: "rounded-md" };
+    return { width: applyScale(78), height: applyScale(78), rounded: "rounded-md" };
   }
 
-  return capacity >= 7
+  const base = capacity >= 7
     ? { width: 104, height: 104, rounded: "rounded-[999px]" }
     : { width: 82, height: 82, rounded: "rounded-[999px]" };
+
+  return {
+    ...base,
+    width: applyScale(base.width),
+    height: applyScale(base.height)
+  };
 }
 
 export function FloorPlan({
@@ -68,13 +90,21 @@ export function FloorPlan({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const panRef = useRef<PanState | null>(null);
   const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
   const [twoDScale, setTwoDScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const effectiveTwoDScale = twoDScale * zoom;
   const availableSet = availableTableIds ? new Set(availableTableIds) : undefined;
   const { t } = useI18n();
 
   useEffect(() => {
+    if (viewMode !== "2d") {
+      return;
+    }
+
     const viewport = viewportRef.current;
 
     if (!viewport) {
@@ -91,7 +121,18 @@ export function FloorPlan({
     observer.observe(viewport);
 
     return () => observer.disconnect();
-  }, []);
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "2d") {
+      return;
+    }
+
+    setPan((current) => {
+      const nextPan = clampPan(current);
+      return nextPan.x === current.x && nextPan.y === current.y ? current : nextPan;
+    });
+  }, [effectiveTwoDScale, viewMode]);
 
   useEffect(() => {
     const nextTables = tables.map((table) => {
@@ -118,7 +159,29 @@ export function FloorPlan({
     setDraftTables(nextTables);
   }, [tables]);
 
+  function clampPan(position: { x: number; y: number }) {
+    const viewport = viewportRef.current;
+    const viewportWidth = viewport?.clientWidth ?? PLAN_WIDTH;
+    const viewportHeight = viewport?.clientHeight ?? PLAN_HEIGHT;
+    const scaledWidth = PLAN_WIDTH * effectiveTwoDScale;
+    const scaledHeight = PLAN_HEIGHT * effectiveTwoDScale;
+
+    function clampAxis(value: number, viewportSize: number, scaledSize: number) {
+      if (scaledSize <= viewportSize) {
+        return (viewportSize - scaledSize) / 2;
+      }
+
+      return Math.max(viewportSize - scaledSize, Math.min(0, value));
+    }
+
+    return {
+      x: clampAxis(position.x, viewportWidth, scaledWidth),
+      y: clampAxis(position.y, viewportHeight, scaledHeight)
+    };
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>, table: FloorTable) {
+    event.stopPropagation();
     onSelect?.(table);
 
     if (mode !== "admin" || layoutLocked || deleteMode) {
@@ -133,9 +196,24 @@ export function FloorPlan({
     const rect = container.getBoundingClientRect();
     dragRef.current = {
       tableId: table.id,
-      offsetX: (event.clientX - rect.left) / twoDScale - table.positionX,
-      offsetY: (event.clientY - rect.top) / twoDScale - table.positionY
+      offsetX: (event.clientX - rect.left) / effectiveTwoDScale - table.positionX,
+      offsetY: (event.clientY - rect.top) / effectiveTwoDScale - table.positionY
     };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleViewportPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    panRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: pan.x,
+      originY: pan.y
+    };
+    setIsPanning(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -143,30 +221,42 @@ export function FloorPlan({
     const drag = dragRef.current;
     const container = containerRef.current;
 
-    if (!drag || !container) {
+    if (drag && container) {
+      const rect = container.getBoundingClientRect();
+      const positionX = Math.max(
+        12,
+        Math.min((event.clientX - rect.left) / effectiveTwoDScale - drag.offsetX, PLAN_WIDTH - 96)
+      );
+      const positionY = Math.max(
+        12,
+        Math.min((event.clientY - rect.top) / effectiveTwoDScale - drag.offsetY, PLAN_HEIGHT - 76)
+      );
+
+      setDraftTables((current) =>
+        current.map((table) =>
+          table.id === drag.tableId
+            ? {
+                ...table,
+                positionX,
+                positionY
+              }
+            : table
+        )
+      );
       return;
     }
 
-    const rect = container.getBoundingClientRect();
-    const positionX = Math.max(
-      12,
-      Math.min((event.clientX - rect.left) / twoDScale - drag.offsetX, PLAN_WIDTH - 96)
-    );
-    const positionY = Math.max(
-      12,
-      Math.min((event.clientY - rect.top) / twoDScale - drag.offsetY, PLAN_HEIGHT - 76)
-    );
+    const panState = panRef.current;
 
-    setDraftTables((current) =>
-      current.map((table) =>
-        table.id === drag.tableId
-          ? {
-              ...table,
-              positionX,
-              positionY
-            }
-          : table
-      )
+    if (!panState) {
+      return;
+    }
+
+    setPan(
+      clampPan({
+        x: panState.originX + event.clientX - panState.startX,
+        y: panState.originY + event.clientY - panState.startY
+      })
     );
   }
 
@@ -174,6 +264,8 @@ export function FloorPlan({
     const drag = dragRef.current;
 
     if (!drag) {
+      panRef.current = null;
+      setIsPanning(false);
       return;
     }
 
@@ -191,6 +283,9 @@ export function FloorPlan({
         positionY: nextPosition.positionY
       });
     }
+
+    panRef.current = null;
+    setIsPanning(false);
   }
 
   return (
@@ -224,8 +319,12 @@ export function FloorPlan({
       ) : (
         <div
           ref={viewportRef}
-          className="relative w-full max-w-full overflow-hidden rounded-md border border-ink/10 bg-[#30302f]"
+          className={clsx(
+            "relative w-full max-w-full touch-none overflow-hidden rounded-md border border-ink/10 bg-[#30302f]",
+            isPanning ? "cursor-grabbing" : "cursor-grab"
+          )}
           style={{ height: PLAN_HEIGHT }}
+          onPointerDown={handleViewportPointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
@@ -236,7 +335,7 @@ export function FloorPlan({
             style={{
               width: PLAN_WIDTH,
               height: PLAN_HEIGHT,
-              transform: `scale(${twoDScale})`,
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${effectiveTwoDScale})`,
               transformOrigin: "top left"
             }}
           >
@@ -273,7 +372,10 @@ export function FloorPlan({
             const disabled =
               mode === "booking" ? (availableSet ? !availableSet.has(table.id) : !table.active) : false;
             const selected = table.id === selectedTableId;
-            const footprint = tableFootprint(table.capacity, table.shape);
+            const displayScale = table.displayScale ?? 1;
+            const footprint = tableFootprint(table.capacity, table.shape, displayScale);
+            const chairSize = Math.max(8, Math.min(16, 12 * displayScale));
+            const chairGap = Math.max(8, 12 * displayScale);
 
             return (
               <div
@@ -287,16 +389,24 @@ export function FloorPlan({
               >
                 {Array.from({ length: Math.min(table.capacity, 10) }, (_, index) => {
                   const angle = (index / Math.min(table.capacity, 10)) * Math.PI * 2;
-                  const chairX = Math.cos(angle) * (footprint.width / 2 + 12) + footprint.width / 2 - 6;
-                  const chairY = Math.sin(angle) * (footprint.height / 2 + 12) + footprint.height / 2 - 6;
+                  const chairX =
+                    Math.cos(angle) * (footprint.width / 2 + chairGap) +
+                    footprint.width / 2 -
+                    chairSize / 2;
+                  const chairY =
+                    Math.sin(angle) * (footprint.height / 2 + chairGap) +
+                    footprint.height / 2 -
+                    chairSize / 2;
 
                   return (
                     <span
                       key={index}
-                      className="absolute h-3 w-3 rounded-sm border border-ink/10 bg-[#f6f2e8] shadow-sm"
+                      className="absolute rounded-sm border border-ink/10 bg-[#f6f2e8] shadow-sm"
                       style={{
                         left: chairX,
-                        top: chairY
+                        top: chairY,
+                        width: chairSize,
+                        height: chairSize
                       }}
                     />
                   );

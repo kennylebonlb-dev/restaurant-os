@@ -712,20 +712,18 @@ export function BookingExperience() {
               {t("floor.view3d")}
             </button>
           </div>
-          {floorViewMode === "3d" ? (
-            <label className="text-sm font-semibold text-ink">
-              {t("floor.zoom")}
-              <input
-                className="mt-2 w-full accent-moss"
-                min={60}
-                max={180}
-                step={5}
-                type="range"
-                value={Math.round(floorZoom * 100)}
-                onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
-              />
-            </label>
-          ) : null}
+          <label className="text-sm font-semibold text-ink">
+            {t("floor.zoom")}
+            <input
+              className="mt-2 w-full accent-moss"
+              min={60}
+              max={180}
+              step={5}
+              type="range"
+              value={Math.round(floorZoom * 100)}
+              onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
+            />
+          </label>
         </div>
         <FloorPlan
           mode="booking"
