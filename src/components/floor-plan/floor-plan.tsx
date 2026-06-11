@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { Armchair, Lock, X } from "lucide-react";
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { FloorPlan3D } from "@/components/floor-plan/floor-plan-3d";
-import type { DetectedGlbTable, FloorTable } from "@/lib/domain";
+import type { DetectedGlbTable, FloorTable, TableShape } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
 
 const PLAN_WIDTH = 960;
@@ -19,6 +19,7 @@ type FloorPlanProps = {
   availableTableIds?: string[];
   layoutLocked?: boolean;
   deleteMode?: boolean;
+  modelUrl?: string;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
   onDelete?: (tableId: string) => void;
@@ -31,6 +32,22 @@ type DragState = {
   offsetY: number;
 };
 
+function tableFootprint(capacity: number, shape: TableShape = "ROUND") {
+  if (shape === "RECTANGLE") {
+    return capacity >= 7
+      ? { width: 136, height: 58, rounded: "rounded-md" }
+      : { width: 112, height: 58, rounded: "rounded-md" };
+  }
+
+  if (shape === "SQUARE") {
+    return { width: 78, height: 78, rounded: "rounded-md" };
+  }
+
+  return capacity >= 7
+    ? { width: 104, height: 104, rounded: "rounded-[999px]" }
+    : { width: 82, height: 82, rounded: "rounded-[999px]" };
+}
+
 export function FloorPlan({
   tables,
   mode,
@@ -40,6 +57,7 @@ export function FloorPlan({
   availableTableIds,
   layoutLocked = false,
   deleteMode = false,
+  modelUrl,
   onSelect,
   onMove,
   onDelete,
@@ -47,12 +65,34 @@ export function FloorPlan({
 }: FloorPlanProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
   const availableSet = availableTableIds ? new Set(availableTableIds) : undefined;
   const { t } = useI18n();
 
   useEffect(() => {
-    setDraftTables(tables);
+    const nextTables = tables.map((table) => {
+      const optimisticPosition = optimisticPositionsRef.current[table.id];
+
+      if (!optimisticPosition) {
+        return table;
+      }
+
+      if (
+        Math.round(table.positionX) === optimisticPosition.positionX &&
+        Math.round(table.positionY) === optimisticPosition.positionY
+      ) {
+        delete optimisticPositionsRef.current[table.id];
+        return table;
+      }
+
+      return {
+        ...table,
+        ...optimisticPosition
+      };
+    });
+
+    setDraftTables(nextTables);
   }, [tables]);
 
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>, table: FloorTable) {
@@ -118,21 +158,23 @@ export function FloorPlan({
     dragRef.current = null;
 
     if (table) {
-      onMove?.(table.id, {
+      const nextPosition = {
         positionX: Math.round(table.positionX),
         positionY: Math.round(table.positionY)
+      };
+      optimisticPositionsRef.current[table.id] = nextPosition;
+      onMove?.(table.id, {
+        positionX: nextPosition.positionX,
+        positionY: nextPosition.positionY
       });
     }
   }
 
   return (
-    <div className="rounded-lg border border-ink/10 bg-white p-3 shadow-soft">
+    <div className="max-w-full overflow-hidden rounded-lg border border-ink/10 bg-white p-3 shadow-soft">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-ink">{t("floor.title")}</h2>
-          <p className="text-xs font-medium uppercase text-ink/55">
-            {t("floor.zones")}
-          </p>
         </div>
         {layoutLocked ? (
           <span className="inline-flex items-center gap-2 rounded-md border border-ink/10 bg-sage px-3 py-2 text-xs font-semibold text-ink">
@@ -149,6 +191,7 @@ export function FloorPlan({
           availableTableIds={availableTableIds}
           layoutLocked={layoutLocked}
           deleteMode={deleteMode}
+          modelUrl={modelUrl}
           zoom={zoom}
           onSelect={onSelect}
           onMove={onMove}
@@ -190,26 +233,11 @@ export function FloorPlan({
           <div className="absolute left-[420px] top-[276px] h-[58px] w-[94px] rounded-sm bg-[#f8f5ee]" />
           <div className="absolute left-[452px] top-[288px] h-[34px] w-[30px] rounded-full bg-[#cf473d]" />
           <div className="absolute bottom-6 left-[76px] h-[12px] w-[800px] bg-[#d5ece7]/75" />
-          <div className="absolute left-4 top-4 rounded-md bg-white/85 px-2 py-1 text-xs font-bold text-ink/70">
-            {t("floor.indoor")}
-          </div>
-          <div className="absolute left-[calc(33.333%+1rem)] top-4 rounded-md bg-white/85 px-2 py-1 text-xs font-bold text-ink/70">
-            {t("floor.terrace")}
-          </div>
-          <div className="absolute right-4 top-4 rounded-md bg-white/85 px-2 py-1 text-xs font-bold text-ink/70">
-            {t("floor.vip")}
-          </div>
-
           {draftTables.map((table) => {
             const disabled =
               mode === "booking" ? (availableSet ? !availableSet.has(table.id) : !table.active) : false;
             const selected = table.id === selectedTableId;
-            const footprint =
-              table.capacity >= 7
-                ? { width: 132, height: 54, rounded: "rounded-md" }
-                : table.capacity >= 4
-                  ? { width: 86, height: 70, rounded: "rounded-[999px]" }
-                  : { width: 72, height: 58, rounded: "rounded-md" };
+            const footprint = tableFootprint(table.capacity, table.shape);
 
             return (
               <div

@@ -23,6 +23,10 @@ import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
 import type { AvailabilitySlot, FloorTable, OpeningHours } from "@/lib/domain";
+import {
+  applyFloorPlanSettings,
+  floorPlanModelUrlFromSettings
+} from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
 import { addDaysToDateString } from "@/lib/time";
 import { useBookingStore } from "@/stores/booking-store";
@@ -34,6 +38,7 @@ type Restaurant = {
   address: string | null;
   phone: string | null;
   openingHours: OpeningHours;
+  settings: Record<string, unknown>;
   menu: Array<{
     name?: string;
     price?: string;
@@ -203,6 +208,14 @@ export function BookingExperience() {
   });
 
   const slots = slotsQuery.data?.slots ?? [];
+  const restaurantTables = useMemo(
+    () => applyFloorPlanSettings(restaurant?.tables ?? [], restaurant?.settings),
+    [restaurant?.settings, restaurant?.tables]
+  );
+  const floorPlanModelUrl = useMemo(
+    () => floorPlanModelUrlFromSettings(restaurant?.settings),
+    [restaurant?.settings]
+  );
   const selectedSlot = slots.find((slot) => slot.startTime === booking.startTime);
   const availableTables = availabilityQuery.data?.tables ?? [];
   const availableIds = useMemo(() => availableTables.map((table) => table.id), [availableTables]);
@@ -620,11 +633,12 @@ export function BookingExperience() {
         </div>
         <FloorPlan
           mode="booking"
-          tables={restaurant?.tables ?? []}
+          tables={restaurantTables}
           viewMode={floorViewMode}
           zoom={floorZoom}
           selectedTableId={booking.selectedTableId}
           availableTableIds={searched ? availableIds : undefined}
+          modelUrl={floorPlanModelUrl}
           onSelect={(table) => {
             if (!booking.autoAssignTable && (!searched || availableIds.includes(table.id))) {
               booking.setBookingField("selectedTableId", table.id);

@@ -22,13 +22,20 @@ import {
   Signal,
   Sparkles,
   Trash2,
-  Unlock
+  Unlock,
+  Upload
 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
-import type { DetectedGlbTable, FloorTable, OpeningHours, TableBlockReason, TableZone } from "@/lib/domain";
+import type { DetectedGlbTable, FloorTable, OpeningHours, TableBlockReason, TableShape, TableZone } from "@/lib/domain";
+import {
+  applyFloorPlanSettings,
+  floorPlanModelUrlFromSettings,
+  isTableShape,
+  withTableShape
+} from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
 import { addDaysToDateString, minutesToTime } from "@/lib/time";
 import { useFloorPlanStore } from "@/stores/floor-plan-store";
@@ -88,6 +95,7 @@ type TableBlock = {
 };
 
 type TableDraft = Pick<FloorTable, "label" | "capacity" | "zone" | "rotation" | "active">;
+type AdminPanel = "restaurant" | "hours" | "rules" | "tables" | "selected" | "blocks";
 type DayKey = keyof OpeningHours;
 
 const dayKeys = [
@@ -110,6 +118,22 @@ function today() {
 function settingNumber(settings: Record<string, unknown>, key: string, fallback: number) {
   const value = settings[key];
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Invalid file."));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Invalid file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function nextTableLabel(tables: FloorTable[]) {
@@ -137,10 +161,12 @@ export function AdminDashboard() {
   const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("2d");
   const [floorZoom, setFloorZoom] = useState(1);
   const [deleteMode, setDeleteMode] = useState(false);
+  const [adminPanel, setAdminPanel] = useState<AdminPanel>("restaurant");
   const [tableForm, setTableForm] = useState({
     label: "",
     capacity: 2,
-    zone: "INDOOR" as TableZone
+    zone: "INDOOR" as TableZone,
+    shape: "ROUND" as TableShape
   });
   const [blockForm, setBlockForm] = useState({
     startTime: "12:00",
@@ -163,6 +189,17 @@ export function AdminDashboard() {
   const { selectedTableId, setSelectedTableId } = useFloorPlanStore();
   const realtime = useRealtimeStore();
   const { t } = useI18n();
+  const adminMenuItems = useMemo(
+    () => [
+      { id: "restaurant" as const, label: t("admin.menuRestaurant") },
+      { id: "hours" as const, label: t("admin.menuHours") },
+      { id: "rules" as const, label: t("admin.menuRules") },
+      { id: "tables" as const, label: t("admin.menuTables") },
+      { id: "selected" as const, label: t("admin.menuSelected") },
+      { id: "blocks" as const, label: t("admin.menuBlocks") }
+    ],
+    [t]
+  );
 
   const restaurantsQuery = useQuery({
     queryKey: ["restaurants"],
@@ -226,20 +263,29 @@ export function AdminDashboard() {
   });
 
   const createTableMutation = useMutation({
-    mutationFn: (overrides?: Partial<TableDraft> & Partial<Pick<FloorTable, "positionX" | "positionY">>) =>
-      apiFetch<{ table: FloorTable }>(`/api/restaurants/${restaurant?.id}/tables`, {
+    mutationFn: (
+      overrides?: Partial<TableDraft> &
+        Partial<Pick<FloorTable, "positionX" | "positionY">> & { shape?: TableShape }
+    ) => {
+      const { shape: _shape, ...payload } = {
+        ...tableForm,
+        positionX: 120,
+        positionY: 120,
+        rotation: 0,
+        active: true,
+        ...overrides
+      };
+
+      return apiFetch<{ table: FloorTable }>(`/api/restaurants/${restaurant?.id}/tables`, {
         method: "POST",
-        body: JSON.stringify({
-          ...tableForm,
-          positionX: 120,
-          positionY: 120,
-          rotation: 0,
-          active: true,
-          ...overrides
-        })
-      }),
-    onSuccess: () => {
-      setTableForm({ label: "", capacity: 2, zone: "INDOOR" });
+        body: JSON.stringify(payload)
+      });
+    },
+    onSuccess: (data, variables) => {
+      setTableForm((current) => ({ ...current, label: "" }));
+      void persistTableShape(data.table.id, variables?.shape ?? tableForm.shape).catch((error) => {
+        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+      });
       queryClient.invalidateQueries({ queryKey: ["tables", restaurant?.id] });
       queryClient.invalidateQueries({ queryKey: ["restaurants"] });
     },
@@ -296,6 +342,24 @@ export function AdminDashboard() {
       queryClient.invalidateQueries({ queryKey: ["tables", restaurant?.id] });
       queryClient.invalidateQueries({ queryKey: ["restaurants"] });
       queryClient.invalidateQueries({ queryKey: ["analytics", restaurant?.id] });
+    }
+  });
+
+  const uploadGlbModelMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!file.name.toLowerCase().endsWith(".glb")) {
+        throw new Error(t("admin.invalidGlb"));
+      }
+
+      const dataUrl = await readFileAsDataUrl(file);
+      return patchRestaurantSettings({
+        ...getRestaurantSettingsFromForm(),
+        floorPlanModelDataUrl: dataUrl
+      });
+    },
+    onSuccess: () => {
+      setFloorViewMode("3d");
+      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
     }
   });
 
@@ -449,11 +513,10 @@ export function AdminDashboard() {
     }
   });
 
-  const tables = tablesQuery.data?.tables ?? restaurant?.tables ?? [];
-  const selectedTable = tables.find((table) => table.id === selectedTableId);
   const reservations = reservationsQuery.data?.reservations ?? [];
   const analytics = analyticsQuery.data?.analytics;
   const blocks = blocksQuery.data?.blocks ?? [];
+  const rawTables = tablesQuery.data?.tables ?? restaurant?.tables ?? [];
   const parsedRestaurantSettings = useMemo(() => {
     try {
       return JSON.parse(restaurantForm.settings) as Record<string, unknown>;
@@ -461,6 +524,15 @@ export function AdminDashboard() {
       return {};
     }
   }, [restaurantForm.settings]);
+  const tables = useMemo(
+    () => applyFloorPlanSettings(rawTables, parsedRestaurantSettings),
+    [parsedRestaurantSettings, rawTables]
+  );
+  const floorPlanModelUrl = useMemo(
+    () => floorPlanModelUrlFromSettings(parsedRestaurantSettings),
+    [parsedRestaurantSettings]
+  );
+  const selectedTable = tables.find((table) => table.id === selectedTableId);
   const openingHoursDraft = useMemo(() => {
     try {
       return JSON.parse(restaurantForm.openingHours) as OpeningHours;
@@ -606,6 +678,54 @@ export function AdminDashboard() {
     });
   }
 
+  function getRestaurantSettingsFromForm() {
+    try {
+      return JSON.parse(restaurantForm.settings) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  function getOpeningHoursFromForm() {
+    try {
+      return JSON.parse(restaurantForm.openingHours) as OpeningHours;
+    } catch {
+      return defaultOpeningHours();
+    }
+  }
+
+  async function patchRestaurantSettings(settings: Record<string, unknown>) {
+    if (!restaurant) {
+      throw new Error(t("admin.createRestaurant"));
+    }
+
+    setRestaurantForm((current) => ({
+      ...current,
+      settings: JSON.stringify(settings, null, 2)
+    }));
+
+    const payload = {
+      name: restaurantForm.name || restaurant.name,
+      slug: restaurantForm.slug || restaurant.slug,
+      description: restaurantForm.description || undefined,
+      address: restaurantForm.address || undefined,
+      timezone: "Europe/Paris",
+      openingHours: getOpeningHoursFromForm(),
+      settings
+    };
+
+    return apiFetch<{ restaurant: Restaurant }>(`/api/restaurants/${restaurant.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async function persistTableShape(tableId: string, shape: TableShape) {
+    const settings = withTableShape(getRestaurantSettingsFromForm(), tableId, shape);
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
   function updateOpeningHour(day: DayKey, value: Partial<OpeningHours[string]>) {
     setRestaurantForm((current) => {
       let openingHours: OpeningHours;
@@ -638,20 +758,21 @@ export function AdminDashboard() {
   }
 
   function handleQuickCreateTable() {
-    createTableMutation.mutate({
-      label: nextTableLabel(tables),
-      capacity: 2,
-      zone: "INDOOR",
-      positionX: 430,
-      positionY: 270,
-      rotation: 0,
-      active: true
-    });
+    setDeleteMode(false);
+    setAdminPanel("tables");
+    setTableForm((current) => ({
+      ...current,
+      label: current.label || nextTableLabel(tables)
+    }));
   }
 
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    createTableMutation.mutate({});
+    createTableMutation.mutate({
+      label: tableForm.label.trim() || nextTableLabel(tables),
+      positionX: 430,
+      positionY: 270
+    });
   }
 
   return (
@@ -752,11 +873,39 @@ export function AdminDashboard() {
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
-        <aside className="space-y-4">
-          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
-            <h2 className="mb-3 text-base font-bold text-ink">{t("admin.restaurant")}</h2>
+      <div className="grid gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+        <aside className="min-w-0 space-y-4">
+          <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-3 shadow-soft">
+            <div className="grid grid-cols-2 gap-2">
+              {adminMenuItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`h-10 rounded-md border px-3 text-sm font-bold transition ${
+                    adminPanel === item.id
+                      ? "border-moss bg-moss text-white"
+                      : "border-ink/10 bg-linen text-ink hover:border-moss/40"
+                  }`}
+                  type="button"
+                  onClick={() => setAdminPanel(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {adminPanel === "restaurant" || adminPanel === "hours" || adminPanel === "rules" ? (
+          <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <h2 className="mb-3 text-base font-bold text-ink">
+              {adminPanel === "restaurant"
+                ? t("admin.restaurant")
+                : adminPanel === "hours"
+                  ? t("admin.openingHours")
+                  : t("admin.settings")}
+            </h2>
             <div className="grid gap-3">
+              {adminPanel === "restaurant" ? (
+                <>
               <label className="text-sm font-semibold text-ink">
                 {t("admin.name")}
                 <input
@@ -799,8 +948,11 @@ export function AdminDashboard() {
                   onChange={(event) =>
                     setRestaurantForm((current) => ({ ...current, address: event.target.value }))
                   }
-                />
+                  />
               </label>
+                </>
+              ) : null}
+              {adminPanel === "hours" ? (
               <div className="rounded-md border border-ink/10 bg-linen p-3">
                 <p className="mb-3 text-sm font-bold text-ink">{t("admin.openingHours")}</p>
                 <div className="grid gap-2">
@@ -808,7 +960,10 @@ export function AdminDashboard() {
                     const hours = openingHoursDraft[day] ?? defaultOpeningHours()[day];
 
                     return (
-                      <div key={day} className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                      <div
+                        key={day}
+                        className="grid grid-cols-1 gap-2 rounded-md border border-ink/10 bg-white/70 p-2 sm:grid-cols-[1fr_minmax(0,92px)_minmax(0,92px)] sm:items-center"
+                      >
                         <label className="flex items-center gap-2 text-sm font-semibold text-ink">
                           <input
                             className="h-4 w-4 accent-moss"
@@ -819,7 +974,7 @@ export function AdminDashboard() {
                           {t(`day.${day}`)}
                         </label>
                         <select
-                          className="control h-10 min-w-24"
+                          className="control h-10 w-full min-w-0"
                           disabled={hours.closed}
                           value={hours.open}
                           onChange={(event) => updateOpeningHour(day, { open: event.target.value })}
@@ -831,7 +986,7 @@ export function AdminDashboard() {
                           ))}
                         </select>
                         <select
-                          className="control h-10 min-w-24"
+                          className="control h-10 w-full min-w-0"
                           disabled={hours.closed}
                           value={hours.close}
                           onChange={(event) => updateOpeningHour(day, { close: event.target.value })}
@@ -847,6 +1002,9 @@ export function AdminDashboard() {
                   })}
                 </div>
               </div>
+              ) : null}
+              {adminPanel === "rules" ? (
+                <>
               <div className="rounded-md border border-ink/10 bg-linen p-3">
                 <p className="mb-3 text-sm font-bold text-ink">{t("admin.settings")}</p>
                 <div className="grid gap-3">
@@ -893,6 +1051,8 @@ export function AdminDashboard() {
                   />
                 </label>
               </div>
+                </>
+              ) : null}
               {restaurantFormError || saveRestaurantMutation.error ? (
                 <p className="text-sm font-semibold text-red-700">
                   {restaurantFormError ?? saveRestaurantMutation.error?.message}
@@ -920,6 +1080,7 @@ export function AdminDashboard() {
               </div>
             </div>
           </div>
+          ) : null}
 
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <div className="grid grid-cols-3 gap-2">
@@ -929,7 +1090,8 @@ export function AdminDashboard() {
             </div>
           </div>
 
-          <form className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft" onSubmit={handleCreateTable}>
+          {adminPanel === "tables" ? (
+          <form className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft" onSubmit={handleCreateTable}>
             <h2 className="mb-3 text-base font-bold text-ink">{t("admin.tables")}</h2>
             <div className="grid gap-3">
               <label className="text-sm font-semibold text-ink">
@@ -974,6 +1136,24 @@ export function AdminDashboard() {
                   </select>
                 </label>
               </div>
+              <label className="text-sm font-semibold text-ink">
+                {t("admin.shape")}
+                <select
+                  className="control mt-1 w-full"
+                  disabled={restaurant?.layoutLocked}
+                  value={tableForm.shape}
+                  onChange={(event) =>
+                    setTableForm((current) => ({
+                      ...current,
+                      shape: event.target.value as TableShape
+                    }))
+                  }
+                >
+                  <option value="ROUND">{t("shape.ROUND")}</option>
+                  <option value="SQUARE">{t("shape.SQUARE")}</option>
+                  <option value="RECTANGLE">{t("shape.RECTANGLE")}</option>
+                </select>
+              </label>
               <button
                 className="primary-button"
                 disabled={!restaurant || restaurant.layoutLocked || createTableMutation.isPending}
@@ -984,8 +1164,10 @@ export function AdminDashboard() {
               </button>
             </div>
           </form>
+          ) : null}
 
-          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+          {adminPanel === "selected" ? (
+          <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-base font-bold text-ink">{t("admin.selectedTable")}</h2>
               <span className="rounded-md bg-sage/55 px-2 py-1 text-xs font-bold text-ink/70">
@@ -1038,6 +1220,29 @@ export function AdminDashboard() {
                     </select>
                   </label>
                 </div>
+                <label className="text-sm font-semibold text-ink">
+                  {t("admin.shape")}
+                  <select
+                    className="control mt-1 w-full"
+                    disabled={restaurant?.layoutLocked}
+                    value={selectedTable.shape ?? "ROUND"}
+                    onChange={(event) => {
+                      const shape = event.target.value;
+
+                      if (isTableShape(shape)) {
+                        void persistTableShape(selectedTable.id, shape).catch((error) => {
+                          setRestaurantFormError(
+                            error instanceof Error ? error.message : t("admin.invalidJson")
+                          );
+                        });
+                      }
+                    }}
+                  >
+                    <option value="ROUND">{t("shape.ROUND")}</option>
+                    <option value="SQUARE">{t("shape.SQUARE")}</option>
+                    <option value="RECTANGLE">{t("shape.RECTANGLE")}</option>
+                  </select>
+                </label>
                 <label className="text-sm font-semibold text-ink">
                   {t("admin.rotation")}
                   <div className="mt-2 flex items-center gap-3">
@@ -1092,8 +1297,10 @@ export function AdminDashboard() {
               <p className="text-sm text-ink/65">{t("admin.noTableSelected")}</p>
             )}
           </div>
+          ) : null}
 
-          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+          {adminPanel === "blocks" ? (
+          <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <h2 className="mb-3 text-base font-bold text-ink">{t("admin.blocks")}</h2>
             <div className="grid gap-3">
               <div className="grid grid-cols-2 gap-3">
@@ -1166,9 +1373,10 @@ export function AdminDashboard() {
               ) : null}
             </div>
           </div>
+          ) : null}
         </aside>
 
-        <section className="space-y-4">
+        <section className="min-w-0 space-y-4">
           <div className="rounded-lg border border-ink/10 bg-white p-3 shadow-soft">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1 sm:w-56">
@@ -1249,6 +1457,28 @@ export function AdminDashboard() {
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <label
+                    className={`secondary-button cursor-pointer ${
+                      !restaurant || uploadGlbModelMutation.isPending ? "opacity-60" : ""
+                    }`}
+                  >
+                    <Upload className="h-4 w-4" />
+                    {uploadGlbModelMutation.isPending ? t("admin.uploadingGlb") : t("admin.uploadGlb")}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept=".glb,model/gltf-binary"
+                      disabled={!restaurant || uploadGlbModelMutation.isPending}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+
+                        if (file) {
+                          uploadGlbModelMutation.mutate(file);
+                          event.currentTarget.value = "";
+                        }
+                      }}
+                    />
+                  </label>
                   <button
                     className="secondary-button"
                     type="button"
@@ -1272,6 +1502,11 @@ export function AdminDashboard() {
                     {syncGlbTablesMutation.error.message}
                   </p>
                 ) : null}
+                {uploadGlbModelMutation.error ? (
+                  <p className="mt-2 text-sm font-semibold text-red-700">
+                    {uploadGlbModelMutation.error.message}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1284,6 +1519,7 @@ export function AdminDashboard() {
             selectedTableId={selectedTableId}
             layoutLocked={restaurant?.layoutLocked}
             deleteMode={deleteMode}
+            modelUrl={floorPlanModelUrl}
             onSelect={(table) => setSelectedTableId(table.id)}
             onMove={(tableId, position) =>
               updateTableMutation.mutate({

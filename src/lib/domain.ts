@@ -1,5 +1,6 @@
 export type Role = "CLIENT" | "ADMIN" | "STAFF";
 export type TableZone = "INDOOR" | "TERRACE" | "VIP";
+export type TableShape = "ROUND" | "SQUARE" | "RECTANGLE";
 export type ReservationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
 export type TableBlockReason = "MAINTENANCE" | "ADMIN" | "EVENT";
 
@@ -21,6 +22,7 @@ export type FloorTable = {
   positionY: number;
   rotation: number;
   active: boolean;
+  shape?: TableShape;
 };
 
 export type DetectedGlbTable = {

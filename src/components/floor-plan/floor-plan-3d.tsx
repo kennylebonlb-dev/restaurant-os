@@ -5,7 +5,7 @@ import { Billboard, Html, OrbitControls, PerspectiveCamera, Text, useGLTF } from
 import { type MutableRefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { DetectedGlbTable, FloorTable } from "@/lib/domain";
+import type { DetectedGlbTable, FloorTable, TableShape } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
 
 const PLAN_WIDTH = 960;
@@ -23,6 +23,7 @@ type FloorPlan3DProps = {
   availableTableIds?: string[];
   layoutLocked?: boolean;
   deleteMode?: boolean;
+  modelUrl?: string;
   zoom: number;
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
@@ -33,11 +34,7 @@ type FloorPlan3DProps = {
 type RestaurantSceneProps = FloorPlan3DProps & {
   draftTables: FloorTable[];
   setDraftTables: (updater: (tables: FloorTable[]) => FloorTable[]) => void;
-  zoneLabels: {
-    indoor: string;
-    terrace: string;
-    vip: string;
-  };
+  onOptimisticMove: (tableId: string, position: { positionX: number; positionY: number }) => void;
 };
 
 function toScenePosition(positionX: number, positionY: number) {
@@ -278,20 +275,32 @@ function zoneTheme(zone: FloorTable["zone"]) {
   };
 }
 
-function tableDimensions(capacity: number) {
+function tableDimensions(capacity: number, shape: TableShape = "ROUND") {
+  if (shape === "RECTANGLE") {
+    if (capacity >= 7) {
+      return { width: 2.95, depth: 1.35 };
+    }
+
+    return { width: 2.35, depth: 1.18 };
+  }
+
+  if (shape === "SQUARE") {
+    return capacity >= 5 ? { width: 1.72, depth: 1.72 } : { width: 1.42, depth: 1.42 };
+  }
+
   if (capacity >= 7) {
-    return { width: 2.75, depth: 1.55 };
+    return { width: 2.1, depth: 2.1 };
   }
 
   if (capacity >= 5) {
-    return { width: 2.25, depth: 1.4 };
+    return { width: 1.72, depth: 1.72 };
   }
 
   if (capacity <= 2) {
-    return { width: 1.45, depth: 1.05 };
+    return { width: 1.28, depth: 1.28 };
   }
 
-  return { width: 1.85, depth: 1.22 };
+  return { width: 1.52, depth: 1.52 };
 }
 
 function CameraRig({
@@ -604,23 +613,13 @@ function CommunalTable() {
   );
 }
 
-function ArchitecturalShell({
-  zoneLabels
-}: {
-  zoneLabels: {
-    indoor: string;
-    terrace: string;
-    vip: string;
-  };
-}) {
+function ArchitecturalShell() {
   const backZ = -SCENE_DEPTH / 2 - 0.17;
   const frontZ = SCENE_DEPTH / 2 + 0.16;
   const leftX = -SCENE_WIDTH / 2 - 0.17;
   const rightX = SCENE_WIDTH / 2 + 0.16;
   const frameColor = "#e6d998";
   const panelWidth = SCENE_WIDTH / 6;
-  const zoneWidth = SCENE_WIDTH / 3;
-
   return (
     <group>
       <WoodFloor />
@@ -683,21 +682,6 @@ function ArchitecturalShell({
       <CommunalTable />
       <PatioDetails />
 
-      <Billboard position={[-zoneWidth, 0.22, SCENE_DEPTH / 2 - 0.8]}>
-        <Text anchorX="center" anchorY="middle" color="#33433a" fontSize={0.24} outlineColor="#ffffff" outlineWidth={0.012}>
-          {zoneLabels.indoor}
-        </Text>
-      </Billboard>
-      <Billboard position={[0, 0.22, SCENE_DEPTH / 2 - 0.8]}>
-        <Text anchorX="center" anchorY="middle" color="#8a6840" fontSize={0.24} outlineColor="#ffffff" outlineWidth={0.012}>
-          {zoneLabels.terrace}
-        </Text>
-      </Billboard>
-      <Billboard position={[zoneWidth, 0.22, SCENE_DEPTH / 2 - 0.8]}>
-        <Text anchorX="center" anchorY="middle" color="#263d37" fontSize={0.24} outlineColor="#ffffff" outlineWidth={0.012}>
-          {zoneLabels.vip}
-        </Text>
-      </Billboard>
     </group>
   );
 }
@@ -763,7 +747,7 @@ function TableModel({
   onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
 }) {
-  const { width, depth } = tableDimensions(table.capacity);
+  const { width, depth } = tableDimensions(table.capacity, table.shape);
   const position = toScenePosition(table.positionX, table.positionY);
   const theme = zoneTheme(table.zone);
   const opacity = disabled || !table.active ? 0.34 : 1;
@@ -788,10 +772,17 @@ function TableModel({
           size={[width + 0.38, 0.045, depth + 0.38]}
         />
       ) : null}
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[width, 0.22, depth]} />
-        <meshStandardMaterial color={tableTopColor} opacity={opacity} roughness={0.42} transparent={opacity < 1} />
-      </mesh>
+      {table.shape === "ROUND" ? (
+        <mesh castShadow receiveShadow>
+          <cylinderGeometry args={[width / 2, width / 2, 0.22, 48]} />
+          <meshStandardMaterial color={tableTopColor} opacity={opacity} roughness={0.42} transparent={opacity < 1} />
+        </mesh>
+      ) : (
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[width, 0.22, depth]} />
+          <meshStandardMaterial color={tableTopColor} opacity={opacity} roughness={0.42} transparent={opacity < 1} />
+        </mesh>
+      )}
       <mesh castShadow position={[0, -0.14, 0]}>
         <boxGeometry args={[width + 0.08, 0.08, depth + 0.08]} />
         <meshStandardMaterial color={edgeColor} opacity={opacity} roughness={0.5} transparent={opacity < 1} />
@@ -846,11 +837,13 @@ function TableModel({
 }
 
 function LoadedRestaurantModel({
+  modelUrl,
   onDetectedTablesChange
 }: {
+  modelUrl: string;
   onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 }) {
-  const gltf = useGLTF(GLB_MODEL_PATH) as { scene: THREE.Group };
+  const gltf = useGLTF(modelUrl) as { scene: THREE.Group };
   const { detectedTables, fit, scene } = useMemo(() => {
     const clonedScene = gltf.scene.clone(true);
 
@@ -1000,9 +993,10 @@ function RestaurantScene({
   availableTableIds,
   layoutLocked = false,
   deleteMode = false,
+  modelUrl = GLB_MODEL_PATH,
   zoom,
-  zoneLabels,
   onDetectedTablesChange,
+  onOptimisticMove,
   onSelect,
   onMove,
   onDelete
@@ -1080,10 +1074,12 @@ function RestaurantScene({
     const table = draftTables.find((item) => item.id === tableId);
 
     if (table) {
-      onMove?.(tableId, {
+      const nextPosition = {
         positionX: Math.round(table.positionX),
         positionY: Math.round(table.positionY)
-      });
+      };
+      onOptimisticMove(tableId, nextPosition);
+      onMove?.(tableId, nextPosition);
     }
 
     const target = event.target as HTMLElement;
@@ -1114,8 +1110,8 @@ function RestaurantScene({
       <color attach="background" args={["#2f302f"]} />
       <fog attach="fog" args={["#2f302f", 32, 58]} />
 
-      <Suspense fallback={<ArchitecturalShell zoneLabels={zoneLabels} />}>
-        <LoadedRestaurantModel onDetectedTablesChange={handleDetectedTablesChange} />
+      <Suspense fallback={<ArchitecturalShell />}>
+        <LoadedRestaurantModel key={modelUrl} modelUrl={modelUrl} onDetectedTablesChange={handleDetectedTablesChange} />
       </Suspense>
 
       <mesh
@@ -1167,25 +1163,46 @@ export function FloorPlan3D({
   availableTableIds,
   layoutLocked = false,
   deleteMode = false,
+  modelUrl = GLB_MODEL_PATH,
   zoom,
   onDetectedTablesChange,
   onSelect,
   onMove,
   onDelete
 }: FloorPlan3DProps) {
+  const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
   const { t } = useI18n();
-  const zoneLabels = useMemo(
-    () => ({
-      indoor: t("floor.indoor"),
-      terrace: t("floor.terrace"),
-      vip: t("floor.vip")
-    }),
-    [t]
+  const rememberOptimisticMove = useCallback(
+    (tableId: string, position: { positionX: number; positionY: number }) => {
+      optimisticPositionsRef.current[tableId] = position;
+    },
+    []
   );
 
   useEffect(() => {
-    setDraftTables(tables);
+    const nextTables = tables.map((table) => {
+      const optimisticPosition = optimisticPositionsRef.current[table.id];
+
+      if (!optimisticPosition) {
+        return table;
+      }
+
+      if (
+        Math.round(table.positionX) === optimisticPosition.positionX &&
+        Math.round(table.positionY) === optimisticPosition.positionY
+      ) {
+        delete optimisticPositionsRef.current[table.id];
+        return table;
+      }
+
+      return {
+        ...table,
+        ...optimisticPosition
+      };
+    });
+
+    setDraftTables(nextTables);
   }, [tables]);
 
   return (
@@ -1214,11 +1231,12 @@ export function FloorPlan3D({
           draftTables={draftTables}
           deleteMode={deleteMode}
           layoutLocked={layoutLocked}
+          modelUrl={modelUrl}
           mode={mode}
+          onOptimisticMove={rememberOptimisticMove}
           selectedTableId={selectedTableId}
           setDraftTables={setDraftTables}
           tables={tables}
-          zoneLabels={zoneLabels}
           zoom={zoom}
           onDelete={onDelete}
           onDetectedTablesChange={onDetectedTablesChange}
