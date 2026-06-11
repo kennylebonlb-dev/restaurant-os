@@ -1,4 +1,4 @@
-# Restaurant OS
+# SmarTable
 
 Production-ready MVP foundation for restaurant booking and table operations.
 
@@ -64,8 +64,8 @@ Open `http://localhost:3000`.
 
 ## Seed Accounts
 
-- Admin: `admin@restaurant-os.local` / `password123`
-- Client: `client@restaurant-os.local` / `password123`
+- Admin: `admin@smartable.local` / `password123`
+- Client: `client@smartable.local` / `password123`
 
 ## MVP Coverage
 

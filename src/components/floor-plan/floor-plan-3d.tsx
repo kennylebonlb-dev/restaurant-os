@@ -488,7 +488,7 @@ function MenuBand() {
     <group>
       <BoxMesh color="#fffaf1" position={[0.5, 2.42, z + 0.05]} size={[13.8, 0.88, 0.08]} />
       <Text anchorX="left" color="#2e2d2a" fontSize={0.34} maxWidth={4.5} position={[-6.1, 2.48, z + 0.11]}>
-        Restaurant OS
+        SmarTable
       </Text>
       {[-2.3, 1.6, 5.1].map((x, index) => (
         <group key={x}>

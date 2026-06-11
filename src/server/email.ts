@@ -53,7 +53,7 @@ function reservationHtml(reservation: ReservationEmailData, title: string) {
 }
 
 async function sendEmail(to: string, subject: string, html: string) {
-  const from = process.env.EMAIL_FROM || "Restaurant OS <bookings@example.com>";
+  const from = process.env.EMAIL_FROM || "SmarTable <bookings@example.com>";
 
   if (!resend) {
     console.info("Email skipped because RESEND_API_KEY is not configured.", { to, subject });

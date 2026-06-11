@@ -154,6 +154,9 @@ model Reservation {
   numberOfGuests Int
   status         ReservationStatus @default(PENDING)
   notes          String?
+  highChair      Boolean           @default(false)
+  birthday       Boolean           @default(false)
+  romanticDinner Boolean           @default(false)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -164,15 +167,20 @@ model Reservation {
 }
 
 model TableBlock {
-  id        String           @id @default(cuid())
-  tableId   String
-  table     Table            @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  date      DateTime         @db.Date
-  startTime String           @db.VarChar(5)
-  endTime   String           @db.VarChar(5)
-  reason    TableBlockReason
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id                String           @id @default(cuid())
+  tableId           String
+  table             Table            @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  date              DateTime         @db.Date
+  startTime         String           @db.VarChar(5)
+  endTime           String           @db.VarChar(5)
+  reason            TableBlockReason
+  customerFirstName String?
+  customerLastName  String?
+  customerEmail     String?
+  customerPhone     String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([tableId, date, startTime, endTime])
   @@map("table_blocks")

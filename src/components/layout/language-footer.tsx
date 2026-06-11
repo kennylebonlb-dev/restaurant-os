@@ -11,7 +11,7 @@ export function LanguageFooter() {
   return (
     <footer className="border-t border-ink/10 bg-white/85">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-        <p className="text-sm font-semibold text-ink/65">Restaurant OS</p>
+        <p className="text-sm font-semibold text-ink/65">SmarTable</p>
         <label className="flex items-center gap-2 text-sm font-semibold text-ink">
           <Globe2 className="h-4 w-4 text-ink/55" />
           {t("footer.language")}

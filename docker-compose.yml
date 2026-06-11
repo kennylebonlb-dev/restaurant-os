@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: restaurant-os-postgres
+    container_name: smartable-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: restaurant_os
@@ -10,7 +10,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - restaurant-os-postgres-data:/var/lib/postgresql/data
+      - smartable-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U restaurant_os -d restaurant_os"]
       interval: 5s
@@ -18,4 +18,4 @@ services:
       retries: 12
 
 volumes:
-  restaurant-os-postgres-data:
+  smartable-postgres-data:

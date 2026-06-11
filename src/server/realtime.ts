@@ -29,7 +29,7 @@ export function emitRestaurantEvent<TPayload>(
   event: RestaurantEvent,
   payload: TPayload
 ) {
-  io?.to(`restaurant:${restaurantId}`).to("restaurant-os:global").emit(event, {
+  io?.to(`restaurant:${restaurantId}`).to("smartable:global").emit(event, {
     restaurantId,
     event,
     payload,

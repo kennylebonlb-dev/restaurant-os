@@ -48,6 +48,9 @@ export async function POST(request: Request, context: Context) {
         lastName: data.lastName,
         email: data.email,
         phone: data.phone,
+        highChair: data.highChair,
+        birthday: data.birthday,
+        romanticDinner: data.romanticDinner,
         notes: data.notes,
         status: data.status
       });
@@ -72,6 +75,9 @@ export async function POST(request: Request, context: Context) {
       lastName: data.lastName,
       email: data.email,
       phone: data.phone,
+      highChair: data.highChair,
+      birthday: data.birthday,
+      romanticDinner: data.romanticDinner,
       notes: data.notes
     });
 

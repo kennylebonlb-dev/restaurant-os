@@ -69,6 +69,9 @@ export const createReservationSchema = availabilitySchema.extend({
   lastName: z.string().trim().min(1, "Last name is required.").max(80),
   email: z.string().email().transform((email) => email.toLowerCase().trim()),
   phone: z.string().trim().min(6, "Phone is required.").max(32),
+  highChair: z.boolean().default(false),
+  birthday: z.boolean().default(false),
+  romanticDinner: z.boolean().default(false),
   notes: z.string().trim().max(1000).optional()
 });
 
@@ -80,6 +83,9 @@ export const createAdminReservationSchema = availabilitySchema.extend({
   lastName: z.string().trim().max(80).optional(),
   email: z.string().email().transform((email) => email.toLowerCase().trim()).optional(),
   phone: z.string().trim().max(32).optional(),
+  highChair: z.boolean().default(false),
+  birthday: z.boolean().default(false),
+  romanticDinner: z.boolean().default(false),
   notes: z.string().trim().max(1000).optional(),
   status: z.enum(["PENDING", "CONFIRMED"]).default("CONFIRMED")
 });
@@ -94,7 +100,12 @@ export const createTableBlockSchema = z.object({
   date: dateStringSchema,
   startTime: timeStringSchema,
   endTime: timeStringSchema,
-  reason: z.enum(["MAINTENANCE", "ADMIN", "EVENT"])
+  reason: z.enum(["MAINTENANCE", "ADMIN", "EVENT"]),
+  customerFirstName: z.string().trim().max(80).optional(),
+  customerLastName: z.string().trim().max(80).optional(),
+  customerEmail: z.string().email().transform((email) => email.toLowerCase().trim()).optional(),
+  customerPhone: z.string().trim().max(32).optional(),
+  notes: z.string().trim().max(1000).optional()
 });
 
 export const registerSchema = z.object({

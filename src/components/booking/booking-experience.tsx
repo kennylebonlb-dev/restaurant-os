@@ -275,6 +275,9 @@ export function BookingExperience() {
           lastName: booking.lastName,
           email: booking.email,
           phone: booking.phone,
+          highChair: booking.highChair,
+          birthday: booking.birthday,
+          romanticDinner: booking.romanticDinner,
           notes: booking.notes || undefined
         })
     }),
@@ -286,6 +289,9 @@ export function BookingExperience() {
       queryClient.invalidateQueries({ queryKey: ["me", "profile"] });
       booking.resetTable();
       booking.setBookingField("notes", "");
+      booking.setBookingField("highChair", false);
+      booking.setBookingField("birthday", false);
+      booking.setBookingField("romanticDinner", false);
     }
   });
 
@@ -501,6 +507,39 @@ export function BookingExperience() {
                     {t(`feature.${feature}`)}
                   </label>
                 ))}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-ink/10 bg-linen p-3">
+              <p className="text-sm font-bold text-ink">{t("booking.specialRequests")}</p>
+              <div className="mt-3 grid gap-2">
+                <label className="flex items-start gap-2 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink">
+                  <input
+                    className="mt-1 h-4 w-4 accent-moss"
+                    type="checkbox"
+                    checked={booking.highChair}
+                    onChange={(event) => booking.setBookingField("highChair", event.target.checked)}
+                  />
+                  {t("request.highChair")}
+                </label>
+                <label className="flex items-start gap-2 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink">
+                  <input
+                    className="mt-1 h-4 w-4 accent-moss"
+                    type="checkbox"
+                    checked={booking.birthday}
+                    onChange={(event) => booking.setBookingField("birthday", event.target.checked)}
+                  />
+                  {t("request.birthday")}
+                </label>
+                <label className="flex items-start gap-2 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink">
+                  <input
+                    className="mt-1 h-4 w-4 accent-moss"
+                    type="checkbox"
+                    checked={booking.romanticDinner}
+                    onChange={(event) => booking.setBookingField("romanticDinner", event.target.checked)}
+                  />
+                  {t("request.romanticDinner")}
+                </label>
               </div>
             </div>
 

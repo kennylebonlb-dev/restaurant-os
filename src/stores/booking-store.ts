@@ -10,6 +10,9 @@ type BookingState = {
   email: string;
   phone: string;
   notes: string;
+  highChair: boolean;
+  birthday: boolean;
+  romanticDinner: boolean;
   autoAssignTable: boolean;
   tablePreferences: TableFeature[];
   selectedTableId?: string;
@@ -33,6 +36,9 @@ export const useBookingStore = create<BookingState>((set) => ({
   email: "",
   phone: "",
   notes: "",
+  highChair: false,
+  birthday: false,
+  romanticDinner: false,
   autoAssignTable: false,
   tablePreferences: [],
   selectedTableId: undefined,

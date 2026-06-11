@@ -36,6 +36,9 @@ export type CreateReservationInput = AvailabilityInput & {
   lastName?: string;
   email?: string;
   phone?: string;
+  highChair?: boolean;
+  birthday?: boolean;
+  romanticDinner?: boolean;
   notes?: string;
   status?: ReservationStatus;
 };
@@ -716,6 +719,9 @@ export async function createReservation(input: CreateReservationInput) {
           endTime: window.endTime,
           numberOfGuests: input.numberOfGuests,
           status: input.status ?? (tableId ? "CONFIRMED" : "PENDING"),
+          highChair: input.highChair ?? false,
+          birthday: input.birthday ?? false,
+          romanticDinner: input.romanticDinner ?? false,
           notes: input.notes
         },
         include: {

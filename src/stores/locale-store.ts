@@ -14,7 +14,7 @@ export const useLocaleStore = create<LocaleState>()(
       setLocale: (locale) => set({ locale })
     }),
     {
-      name: "restaurant-os-locale"
+      name: "smartable-locale"
     }
   )
 );

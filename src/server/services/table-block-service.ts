@@ -10,6 +10,11 @@ export async function createTableBlock(input: {
   startTime: string;
   endTime: string;
   reason: "MAINTENANCE" | "ADMIN" | "EVENT";
+  customerFirstName?: string;
+  customerLastName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  notes?: string;
 }) {
   assertValidTimeRange(input.startTime, input.endTime);
   const date = toDateOnly(input.date);
@@ -79,7 +84,12 @@ export async function createTableBlock(input: {
           date,
           startTime: input.startTime,
           endTime: input.endTime,
-          reason: input.reason
+          reason: input.reason,
+          customerFirstName: input.customerFirstName,
+          customerLastName: input.customerLastName,
+          customerEmail: input.customerEmail,
+          customerPhone: input.customerPhone,
+          notes: input.notes
         }
       });
 

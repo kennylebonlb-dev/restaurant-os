@@ -27,7 +27,7 @@ const io = new Server(httpServer, {
 setRealtimeServer(io);
 
 io.on("connection", (socket) => {
-  socket.join("restaurant-os:global");
+  socket.join("smartable:global");
 
   socket.on("restaurant:join", (restaurantId: string) => {
     if (restaurantId) {
@@ -43,5 +43,5 @@ io.on("connection", (socket) => {
 });
 
 httpServer.listen(port, hostname, () => {
-  console.log(`Restaurant OS is ready at http://${hostname}:${port}`);
+  console.log(`SmarTable is ready at http://${hostname}:${port}`);
 });

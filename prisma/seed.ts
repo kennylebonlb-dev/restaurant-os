@@ -2,6 +2,8 @@ import { PrismaClient } from "@prisma/client";
 import { hash } from "bcryptjs";
 
 const prisma = new PrismaClient();
+const adminEmail = "admin@smartable.local";
+const clientEmail = "client@smartable.local";
 
 const openingHours = {
   monday: { open: "12:00", close: "22:00" },
@@ -17,35 +19,35 @@ async function main() {
   const passwordHash = await hash("password123", 12);
 
   const admin = await prisma.user.upsert({
-    where: { email: "admin@restaurant-os.local" },
-    update: { passwordHash, role: "ADMIN", name: "Admin", firstName: "Admin", contactEmail: "admin@restaurant-os.local" },
+    where: { email: adminEmail },
+    update: { passwordHash, role: "ADMIN", name: "Admin", firstName: "Admin", contactEmail: adminEmail },
     create: {
-      email: "admin@restaurant-os.local",
+      email: adminEmail,
       name: "Admin",
       firstName: "Admin",
-      contactEmail: "admin@restaurant-os.local",
+      contactEmail: adminEmail,
       passwordHash,
       role: "ADMIN"
     }
   });
 
   const client = await prisma.user.upsert({
-    where: { email: "client@restaurant-os.local" },
+    where: { email: clientEmail },
     update: {
       passwordHash,
       role: "CLIENT",
       name: "Client Demo",
       firstName: "Client",
       lastName: "Demo",
-      contactEmail: "client@restaurant-os.local",
+      contactEmail: clientEmail,
       phone: "+33 6 00 00 00 00"
     },
     create: {
-      email: "client@restaurant-os.local",
+      email: clientEmail,
       name: "Client Demo",
       firstName: "Client",
       lastName: "Demo",
-      contactEmail: "client@restaurant-os.local",
+      contactEmail: clientEmail,
       phone: "+33 6 00 00 00 00",
       passwordHash,
       role: "CLIENT"
@@ -113,7 +115,7 @@ async function main() {
         status: "CONFIRMED",
         guestFirstName: "Client",
         guestLastName: "Demo",
-        guestEmail: "client@restaurant-os.local",
+        guestEmail: clientEmail,
         guestPhone: "+33 6 00 00 00 00",
         notes: "Window seat preferred."
       }
@@ -133,8 +135,8 @@ async function main() {
   }
 
   console.log("Seed complete.");
-  console.log("Admin: admin@restaurant-os.local / password123");
-  console.log("Client: client@restaurant-os.local / password123");
+  console.log(`Admin: ${adminEmail} / password123`);
+  console.log(`Client: ${clientEmail} / password123`);
 }
 
 main()

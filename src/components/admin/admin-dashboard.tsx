@@ -2,18 +2,20 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
   Ban,
   CalendarDays,
+  CakeSlice,
   Check,
   Box,
   ChevronLeft,
   ChevronRight,
   Clock3,
   Gauge,
+  Heart,
   LayoutGrid,
   List,
   Lock,
+  Milk,
   Minus,
   Plus,
   RefreshCw,
@@ -22,6 +24,7 @@ import {
   Signal,
   Sparkles,
   Trash2,
+  Users,
   Unlock,
   Upload
 } from "lucide-react";
@@ -78,6 +81,9 @@ type Reservation = {
   guestLastName: string | null;
   guestEmail: string | null;
   guestPhone: string | null;
+  highChair: boolean;
+  birthday: boolean;
+  romanticDinner: boolean;
   table: {
     id: string;
     label: string;
@@ -105,10 +111,15 @@ type TableBlock = {
   startTime: string;
   endTime: string;
   reason: TableBlockReason;
+  customerFirstName: string | null;
+  customerLastName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  notes: string | null;
 };
 
 type TableDraft = Pick<FloorTable, "label" | "capacity" | "zone" | "rotation" | "active">;
-type AdminPanel = "restaurant" | "hours" | "rules" | "vacations" | "tables" | "selected" | "blocks";
+type AdminPanel = "restaurant" | "hours" | "rules" | "vacations" | "tables" | "blocks";
 type DayKey = keyof OpeningHours;
 
 const dayKeys = [
@@ -213,9 +224,15 @@ export function AdminDashboard() {
     shape: "ROUND" as TableShape
   });
   const [blockForm, setBlockForm] = useState({
+    date: today(),
     startTime: "12:00",
     endTime: "14:00",
-    reason: "ADMIN" as TableBlockReason
+    reason: "ADMIN" as TableBlockReason,
+    customerFirstName: "",
+    customerLastName: "",
+    customerEmail: "",
+    customerPhone: "",
+    notes: ""
   });
   const [restaurantForm, setRestaurantForm] = useState({
     name: "",
@@ -242,7 +259,6 @@ export function AdminDashboard() {
       { id: "rules" as const, label: t("admin.menuRules") },
       { id: "vacations" as const, label: t("admin.menuVacations") },
       { id: "tables" as const, label: t("admin.menuTables") },
-      { id: "selected" as const, label: t("admin.menuSelected") },
       { id: "blocks" as const, label: t("admin.menuBlocks") }
     ],
     [t]
@@ -277,6 +293,10 @@ export function AdminDashboard() {
       settings: JSON.stringify(restaurant.settings ?? {}, null, 2)
     });
   }, [restaurant]);
+
+  useEffect(() => {
+    setBlockForm((current) => ({ ...current, date: selectedDate }));
+  }, [selectedDate]);
 
   useRestaurantSocket(restaurant?.id);
 
@@ -429,7 +449,7 @@ export function AdminDashboard() {
 
       const payload = {
         name: restaurantForm.name,
-        slug: restaurantForm.slug,
+        slug: buildRestaurantSlug(restaurantForm.name, restaurant?.slug),
         description: restaurantForm.description || undefined,
         address: restaurantForm.address || undefined,
         phone: restaurantForm.phone || undefined,
@@ -515,8 +535,15 @@ export function AdminDashboard() {
       apiFetch<{ block: TableBlock }>(`/api/tables/${selectedTableId}/blocks`, {
         method: "POST",
         body: JSON.stringify({
-          date: selectedDate,
-          ...blockForm
+          date: blockForm.date,
+          startTime: blockForm.startTime,
+          endTime: blockForm.endTime,
+          reason: blockForm.reason,
+          customerFirstName: blockForm.customerFirstName || undefined,
+          customerLastName: blockForm.customerLastName || undefined,
+          customerEmail: blockForm.customerEmail || undefined,
+          customerPhone: blockForm.customerPhone || undefined,
+          notes: blockForm.notes || undefined
         })
       }),
     onSuccess: () => {
@@ -643,8 +670,15 @@ export function AdminDashboard() {
     [activeReservations]
   );
   const activeTables = useMemo(() => tables.filter((table) => table.active), [tables]);
-  const occupiedTables = occupiedTableIds.size;
-  const freeTables = Math.max(activeTables.length - occupiedTables, 0);
+  const availableTableCapacityCounts = useMemo(() => {
+    const availableTablesForDay = activeTables.filter((table) => !occupiedTableIds.has(table.id));
+
+    return {
+      two: availableTablesForDay.filter((table) => table.capacity === 2).length,
+      four: availableTablesForDay.filter((table) => table.capacity === 4).length,
+      sixPlus: availableTablesForDay.filter((table) => table.capacity >= 6).length
+    };
+  }, [activeTables, occupiedTableIds]);
   const timelineReservations = useMemo(
     () =>
       [...activeReservations].sort((first, second) =>
@@ -801,7 +835,7 @@ export function AdminDashboard() {
 
     const payload = {
       name: restaurantForm.name || restaurant.name,
-      slug: restaurantForm.slug || restaurant.slug,
+      slug: buildRestaurantSlug(restaurantForm.name || restaurant.name, restaurant.slug),
       description: restaurantForm.description || undefined,
       address: restaurantForm.address || undefined,
       phone: restaurantForm.phone || undefined,
@@ -884,10 +918,12 @@ export function AdminDashboard() {
           <h1 className="text-2xl font-black text-ink">{t("admin.title")}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-ink/65">
             <span>{restaurant?.name ?? t("admin.createRestaurant")}</span>
-            <span className="inline-flex items-center gap-2 rounded-md border border-moss/15 bg-moss/10 px-2 py-1 text-xs font-bold text-moss">
-              <Signal className="h-3.5 w-3.5" />
-              {realtime.connected ? t("admin.liveConnected") : t("admin.liveDisconnected")}
-            </span>
+            {realtime.connected ? (
+              <span className="inline-flex items-center gap-2 rounded-md border border-moss/15 bg-moss/10 px-2 py-1 text-xs font-bold text-moss">
+                <Signal className="h-3.5 w-3.5" />
+                {t("admin.liveConnected")}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -956,22 +992,22 @@ export function AdminDashboard() {
           detail={`${analytics?.reservedSeats ?? 0}/${analytics?.totalSeats ?? 0} ${t("admin.seatsMetric").toLowerCase()}`}
         />
         <DashboardMetric
-          icon={<LayoutGrid className="h-5 w-5" />}
-          label={t("admin.freeTables")}
-          value={freeTables}
-          detail={`${activeTables.length} ${t("admin.tables").toLowerCase()}`}
+          icon={<Users className="h-5 w-5" />}
+          label={t("admin.availableTwoTop")}
+          value={availableTableCapacityCounts.two}
+          detail={t("admin.availableTablesDetail")}
         />
         <DashboardMetric
-          icon={<Ban className="h-5 w-5" />}
-          label={t("admin.occupiedTables")}
-          value={occupiedTables}
-          detail={t("admin.realtimeStats")}
+          icon={<Users className="h-5 w-5" />}
+          label={t("admin.availableFourTop")}
+          value={availableTableCapacityCounts.four}
+          detail={t("admin.availableTablesDetail")}
         />
         <DashboardMetric
-          icon={<Activity className="h-5 w-5" />}
-          label={t("admin.realtimeStats")}
-          value={realtime.eventCount}
-          detail={realtime.lastEvent ? `${realtime.lastEvent}` : t("admin.waitingForEvents")}
+          icon={<Users className="h-5 w-5" />}
+          label={t("admin.availableSixPlus")}
+          value={availableTableCapacityCounts.sixPlus}
+          detail={t("admin.availableTablesDetail")}
         />
       </div>
 
@@ -1018,26 +1054,16 @@ export function AdminDashboard() {
                 <input
                   className="control mt-1 w-full"
                   value={restaurantForm.name}
-                  onChange={(event) =>
-                    setRestaurantForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                      slug: current.slug || slugify(event.target.value)
-                    }))
-                  }
-                />
-              </label>
-              <label className="text-sm font-semibold text-ink">
-                {t("admin.slug")}
-                <input
-                  className="control mt-1 w-full"
-                  value={restaurantForm.slug}
-                  onChange={(event) =>
-                    setRestaurantForm((current) => ({ ...current, slug: slugify(event.target.value) }))
-                  }
-                />
-              </label>
-              <label className="text-sm font-semibold text-ink">
+	                  onChange={(event) =>
+	                    setRestaurantForm((current) => ({
+	                      ...current,
+	                      name: event.target.value,
+	                      slug: slugify(event.target.value)
+	                    }))
+	                  }
+	                />
+	              </label>
+	              <label className="text-sm font-semibold text-ink">
                 {t("admin.description")}
                 <textarea
                   className="control mt-1 min-h-20 w-full py-2"
@@ -1312,7 +1338,7 @@ export function AdminDashboard() {
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={saveRestaurantMutation.isPending || !restaurantForm.name || !restaurantForm.slug}
+                  disabled={saveRestaurantMutation.isPending || !restaurantForm.name}
                   onClick={() => saveRestaurantMutation.mutate()}
                 >
                   <Save className="h-4 w-4" />
@@ -1341,8 +1367,9 @@ export function AdminDashboard() {
           </div>
 
           {adminPanel === "tables" ? (
+          <div className="space-y-4">
           <form className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft" onSubmit={handleCreateTable}>
-            <h2 className="mb-3 text-base font-bold text-ink">{t("admin.tables")}</h2>
+            <h2 className="mb-3 text-base font-bold text-ink">{t("admin.addTable")}</h2>
             <div className="grid gap-3">
               <label className="text-sm font-semibold text-ink">
                 {t("admin.label")}
@@ -1414,9 +1441,7 @@ export function AdminDashboard() {
               </button>
             </div>
           </form>
-          ) : null}
 
-          {adminPanel === "selected" ? (
           <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-base font-bold text-ink">{t("admin.selectedTable")}</h2>
@@ -1577,12 +1602,40 @@ export function AdminDashboard() {
               <p className="text-sm text-ink/65">{t("admin.noTableSelected")}</p>
             )}
           </div>
+          </div>
           ) : null}
 
           {adminPanel === "blocks" ? (
           <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <h2 className="mb-3 text-base font-bold text-ink">{t("admin.blocks")}</h2>
+            <p className="mb-3 rounded-md bg-linen p-3 text-sm font-semibold text-ink/65">
+              {t("admin.blocksHint")}
+            </p>
             <div className="grid gap-3">
+              <label className="text-sm font-semibold text-ink">
+                {t("admin.selectedTable")}
+                <select
+                  className="control mt-1 w-full"
+                  value={selectedTableId ?? ""}
+                  onChange={(event) => setSelectedTableId(event.target.value || undefined)}
+                >
+                  <option value="">{t("admin.noTableSelected")}</option>
+                  {tables.map((table) => (
+                    <option key={table.id} value={table.id}>
+                      {table.label} · {table.capacity} {t("common.guests")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm font-semibold text-ink">
+                {t("booking.date")}
+                <input
+                  className="control mt-1 w-full"
+                  type="date"
+                  value={blockForm.date}
+                  onChange={(event) => setBlockForm((current) => ({ ...current, date: event.target.value }))}
+                />
+              </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="text-sm font-semibold text-ink">
                   {t("booking.start")}
@@ -1622,6 +1675,60 @@ export function AdminDashboard() {
                   <option value="EVENT">{t("admin.event")}</option>
                 </select>
               </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-semibold text-ink">
+                  {t("booking.firstName")}
+                  <input
+                    className="control mt-1 w-full"
+                    value={blockForm.customerFirstName}
+                    onChange={(event) =>
+                      setBlockForm((current) => ({ ...current, customerFirstName: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("booking.lastName")}
+                  <input
+                    className="control mt-1 w-full"
+                    value={blockForm.customerLastName}
+                    onChange={(event) =>
+                      setBlockForm((current) => ({ ...current, customerLastName: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-semibold text-ink">
+                  {t("booking.email")}
+                  <input
+                    className="control mt-1 w-full"
+                    type="email"
+                    value={blockForm.customerEmail}
+                    onChange={(event) =>
+                      setBlockForm((current) => ({ ...current, customerEmail: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("booking.phone")}
+                  <input
+                    className="control mt-1 w-full"
+                    type="tel"
+                    value={blockForm.customerPhone}
+                    onChange={(event) =>
+                      setBlockForm((current) => ({ ...current, customerPhone: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+              <label className="text-sm font-semibold text-ink">
+                {t("booking.notes")}
+                <textarea
+                  className="control mt-1 min-h-20 w-full py-2"
+                  value={blockForm.notes}
+                  onChange={(event) => setBlockForm((current) => ({ ...current, notes: event.target.value }))}
+                />
+              </label>
               <button
                 className="primary-button"
                 type="button"
@@ -1634,9 +1741,20 @@ export function AdminDashboard() {
               <div className="divide-y divide-ink/10">
                 {blocks.map((block) => (
                   <div key={block.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                    <span>
-                      {block.startTime}-{block.endTime} · {t(`reason.${block.reason}`)}
-                    </span>
+                    <div>
+                      <p className="font-bold text-ink">
+                        {String(block.date).slice(0, 10)} · {block.startTime}-{block.endTime} ·{" "}
+                        {t(`reason.${block.reason}`)}
+                      </p>
+                      {block.customerFirstName || block.customerLastName || block.customerEmail || block.customerPhone ? (
+                        <p className="text-xs font-semibold text-ink/55">
+                          {[block.customerFirstName, block.customerLastName].filter(Boolean).join(" ")}
+                          {block.customerEmail ? ` · ${block.customerEmail}` : ""}
+                          {block.customerPhone ? ` · ${block.customerPhone}` : ""}
+                        </p>
+                      ) : null}
+                      {block.notes ? <p className="text-xs text-ink/60">{block.notes}</p> : null}
+                    </div>
                     <button
                       className="icon-button h-8 w-8"
                       title={t("admin.removeBlock")}
@@ -1847,6 +1965,7 @@ export function AdminDashboard() {
                 </button>
               </div>
             </div>
+            <SpecialRequestsLegend />
 
             {view === "calendar" ? (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1960,6 +2079,10 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+function buildRestaurantSlug(name: string, fallback?: string) {
+  return slugify(name) || fallback || "restaurant";
+}
+
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md bg-linen p-3">
@@ -1996,6 +2119,27 @@ function DashboardMetric({
   );
 }
 
+function SpecialRequestsLegend() {
+  const { t } = useI18n();
+
+  return (
+    <div className="mb-4 flex flex-wrap gap-2 rounded-md bg-linen p-2 text-xs font-bold text-ink/65">
+      <span className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1">
+        <Milk className="h-3.5 w-3.5 text-moss" />
+        {t("request.highChair")}
+      </span>
+      <span className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1">
+        <CakeSlice className="h-3.5 w-3.5 text-clay" />
+        {t("request.birthday")}
+      </span>
+      <span className="inline-flex items-center gap-1.5 rounded bg-white px-2 py-1">
+        <Heart className="h-3.5 w-3.5 text-red-600" />
+        {t("request.romanticDinner")}
+      </span>
+    </div>
+  );
+}
+
 function ReservationRow({
   reservation,
   selectedTableId,
@@ -2014,6 +2158,26 @@ function ReservationRow({
     reservation.user.email;
   const guestEmail = reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email;
   const guestPhone = reservation.guestPhone ?? reservation.user.phone;
+  const specialRequests = [
+    {
+      active: reservation.highChair,
+      label: t("request.highChair"),
+      icon: <Milk className="h-3.5 w-3.5" />,
+      className: "bg-moss/10 text-moss"
+    },
+    {
+      active: reservation.birthday,
+      label: t("request.birthday"),
+      icon: <CakeSlice className="h-3.5 w-3.5" />,
+      className: "bg-clay/10 text-clay"
+    },
+    {
+      active: reservation.romanticDinner,
+      label: t("request.romanticDinner"),
+      icon: <Heart className="h-3.5 w-3.5" />,
+      className: "bg-red-50 text-red-700"
+    }
+  ].filter((item) => item.active);
 
   return (
     <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2029,6 +2193,20 @@ function ReservationRow({
           {guestEmail}
           {guestPhone ? ` · ${guestPhone}` : ""}
         </p>
+        {specialRequests.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {specialRequests.map((request) => (
+              <span
+                key={request.label}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-bold ${request.className}`}
+                title={request.label}
+              >
+                {request.icon}
+                {request.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {reservation.notes ? <p className="mt-1 text-xs text-ink/60">{reservation.notes}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">
