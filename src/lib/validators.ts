@@ -58,7 +58,7 @@ export const availabilitySchema = z.object({
 });
 
 export const createReservationSchema = availabilitySchema.extend({
-  tableId: z.string().cuid().optional(),
+  tableId: z.string().trim().min(1).optional(),
   autoAssignTable: z.boolean().default(false),
   firstName: z.string().trim().min(1, "First name is required.").max(80),
   lastName: z.string().trim().min(1, "Last name is required.").max(80),
@@ -69,7 +69,7 @@ export const createReservationSchema = availabilitySchema.extend({
 
 export const createAdminReservationSchema = availabilitySchema.extend({
   userId: z.string().cuid(),
-  tableId: z.string().cuid().optional(),
+  tableId: z.string().trim().min(1).optional(),
   autoAssignTable: z.boolean().default(false),
   firstName: z.string().trim().max(80).optional(),
   lastName: z.string().trim().max(80).optional(),
@@ -82,7 +82,7 @@ export const createAdminReservationSchema = availabilitySchema.extend({
 export const updateReservationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED"]).optional(),
   notes: z.string().max(1000).nullable().optional(),
-  tableId: z.string().cuid().nullable().optional()
+  tableId: z.string().trim().min(1).nullable().optional()
 });
 
 export const createTableBlockSchema = z.object({
