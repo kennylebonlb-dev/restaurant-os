@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { LockKeyhole, Mail, UserRound } from "lucide-react";
+import { LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
@@ -12,8 +12,10 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("client@restaurant-os.local");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("password123");
   const [error, setError] = useState<string>();
   const { t } = useI18n();
@@ -22,7 +24,7 @@ function LoginContent() {
     mutationFn: () =>
       apiFetch<{ user: { id: string } }>("/api/register", {
         method: "POST",
-        body: JSON.stringify({ name, email, password })
+        body: JSON.stringify({ firstName, lastName, email, phone, password })
       })
   });
 
@@ -77,18 +79,32 @@ function LoginContent() {
 
         <div className="mt-5 grid gap-3">
           {mode === "register" ? (
-            <label className="text-sm font-semibold text-ink">
-              {t("login.name")}
-              <div className="relative mt-1">
-                <UserRound className="field-icon" />
-                <input
-                  className="control with-leading-icon w-full"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  required
-                />
-              </div>
-            </label>
+            <>
+              <label className="text-sm font-semibold text-ink">
+                {t("login.firstName")}
+                <div className="relative mt-1">
+                  <UserRound className="field-icon" />
+                  <input
+                    className="control with-leading-icon w-full"
+                    value={firstName}
+                    onChange={(event) => setFirstName(event.target.value)}
+                    required
+                  />
+                </div>
+              </label>
+              <label className="text-sm font-semibold text-ink">
+                {t("login.lastName")}
+                <div className="relative mt-1">
+                  <UserRound className="field-icon" />
+                  <input
+                    className="control with-leading-icon w-full"
+                    value={lastName}
+                    onChange={(event) => setLastName(event.target.value)}
+                    required
+                  />
+                </div>
+              </label>
+            </>
           ) : null}
 
           <label className="text-sm font-semibold text-ink">
@@ -104,6 +120,22 @@ function LoginContent() {
               />
             </div>
           </label>
+
+          {mode === "register" ? (
+            <label className="text-sm font-semibold text-ink">
+              {t("login.phone")}
+              <div className="relative mt-1">
+                <Phone className="field-icon" />
+                <input
+                  className="control with-leading-icon w-full"
+                  type="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  required
+                />
+              </div>
+            </label>
+          ) : null}
 
           <label className="text-sm font-semibold text-ink">
             {t("login.password")}

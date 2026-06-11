@@ -7,16 +7,16 @@ export async function POST(request: Request) {
   try {
     const data = await parseJson(request, registerSchema);
     const passwordHash = await hash(data.password, 12);
-    const [firstName, ...lastNameParts] = data.name.trim().split(/\s+/);
-    const lastName = lastNameParts.join(" ");
+    const name = [data.firstName, data.lastName].filter(Boolean).join(" ");
 
     const user = await prisma.user.create({
       data: {
-        name: data.name,
-        firstName,
-        lastName: lastName || null,
+        name,
+        firstName: data.firstName,
+        lastName: data.lastName,
         contactEmail: data.email,
         email: data.email,
+        phone: data.phone,
         passwordHash,
         role: "CLIENT"
       },

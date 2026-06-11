@@ -1,6 +1,6 @@
 import { Prisma, type ReservationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { AvailabilitySlot, OpeningHours, TableFeature } from "@/lib/domain";
+import type { AvailabilitySlot, OpeningHours, TableFeature, VacationClosure } from "@/lib/domain";
 import { tableFeaturesFromSettings } from "@/lib/floor-plan-settings";
 import {
   addMinutes,
@@ -48,11 +48,19 @@ type ReservationWindow = {
 type RestaurantPolicy = {
   timezone: string;
   openingHours: OpeningHours;
+  vacationClosures: VacationClosure[];
   reservationDurationMinutes: number;
   minimumLeadTimeMinutes: number;
   releaseTableAfterDuration: boolean;
   strictCapacityMatching: boolean;
   tableFeatures: Record<string, TableFeature[]>;
+};
+
+type ServiceWindow = {
+  open: string;
+  close: string;
+  openMinutes: number;
+  closeMinutes: number;
 };
 
 type AssertTableAvailableInput = Omit<AvailabilityInput, "endTime"> &
@@ -99,6 +107,38 @@ function strictCapacityMatchingFromSettings(settings: unknown) {
   return !isRecord(settings) || settings.strictCapacityMatching !== false;
 }
 
+function vacationClosuresFromSettings(settings: unknown): VacationClosure[] {
+  if (!isRecord(settings) || !Array.isArray(settings.vacationClosures)) {
+    return [];
+  }
+
+  return settings.vacationClosures
+    .map((closure): VacationClosure | null => {
+      if (!isRecord(closure)) {
+        return null;
+      }
+
+      const startDate = closure.startDate;
+      const endDate = closure.endDate;
+
+      if (typeof startDate !== "string" || typeof endDate !== "string") {
+        return null;
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        return null;
+      }
+
+      return {
+        id: typeof closure.id === "string" ? closure.id : `${startDate}-${endDate}`,
+        startDate,
+        endDate,
+        label: typeof closure.label === "string" ? closure.label : undefined
+      };
+    })
+    .filter((closure): closure is VacationClosure => Boolean(closure));
+}
+
 async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<RestaurantPolicy> {
   const restaurant = await db.restaurant.findUnique({
     where: {
@@ -118,6 +158,7 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
   return {
     timezone: restaurant.timezone,
     openingHours: restaurant.openingHours as OpeningHours,
+    vacationClosures: vacationClosuresFromSettings(restaurant.settings),
     reservationDurationMinutes: reservationDurationFromSettings(restaurant.settings),
     minimumLeadTimeMinutes: minimumLeadTimeFromSettings(restaurant.settings),
     releaseTableAfterDuration: releaseTableAfterDurationFromSettings(restaurant.settings),
@@ -164,6 +205,77 @@ function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy): 
     startTime: input.startTime,
     endTime
   };
+}
+
+function isClosedForVacation(date: string, policy: RestaurantPolicy) {
+  return policy.vacationClosures.some((closure) => {
+    const startDate = closure.startDate <= closure.endDate ? closure.startDate : closure.endDate;
+    const endDate = closure.startDate <= closure.endDate ? closure.endDate : closure.startDate;
+    return date >= startDate && date <= endDate;
+  });
+}
+
+function getServiceWindows(dayHours: OpeningHours[string] | undefined): ServiceWindow[] {
+  if (!dayHours || dayHours.closed) {
+    return [];
+  }
+
+  const windows: ServiceWindow[] = [];
+  const addWindow = (open?: string, close?: string) => {
+    if (!open || !close) {
+      return;
+    }
+
+    const openMinutes = parseTimeToMinutes(open);
+    const closeMinutes = parseTimeToMinutes(close);
+
+    if (closeMinutes <= openMinutes) {
+      return;
+    }
+
+    windows.push({
+      open,
+      close,
+      openMinutes,
+      closeMinutes
+    });
+  };
+
+  addWindow(dayHours.open, dayHours.close);
+
+  if (dayHours.secondServiceEnabled) {
+    addWindow(dayHours.secondOpen, dayHours.secondClose);
+  }
+
+  return windows.sort((first, second) => first.openMinutes - second.openMinutes);
+}
+
+function assertRestaurantOpen(
+  policy: RestaurantPolicy,
+  date: string,
+  startTime: string,
+  endTime: string
+) {
+  if (isClosedForVacation(date, policy)) {
+    throw new BadRequestError("Restaurant is closed during this vacation period.");
+  }
+
+  const serviceWindows = getServiceWindows(policy.openingHours[getDayKey(date)]);
+
+  if (serviceWindows.length === 0) {
+    throw new BadRequestError("Restaurant is closed for this time.");
+  }
+
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  const insideService = serviceWindows.some(
+    (serviceWindow) =>
+      startMinutes >= serviceWindow.openMinutes && endMinutes <= serviceWindow.closeMinutes
+  );
+
+  if (!insideService) {
+    throw new BadRequestError("Restaurant is closed for this time.");
+  }
 }
 
 function assertLeadTime(date: string, startTime: string, timezone: string, minimumLeadTimeMinutes: number) {
@@ -282,6 +394,7 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
   const policy = await getRestaurantPolicy(db, input.restaurantId);
   const window = reservationWindow(input, policy);
   assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+  assertRestaurantOpen(policy, input.date, window.startTime, window.endTime);
 
   const allCandidateTables = await db.table.findMany({
     where: {
@@ -321,17 +434,9 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
 
 export async function getAvailabilitySlots(db: DbClient, input: Omit<AvailabilityInput, "startTime" | "endTime">) {
   const policy = await getRestaurantPolicy(db, input.restaurantId);
-  const dayHours = policy.openingHours[getDayKey(input.date)];
+  const serviceWindows = getServiceWindows(policy.openingHours[getDayKey(input.date)]);
 
-  if (!dayHours || dayHours.closed) {
-    return [] satisfies AvailabilitySlot[];
-  }
-
-  const openMinutes = parseTimeToMinutes(dayHours.open);
-  const closeMinutes = parseTimeToMinutes(dayHours.close);
-  const latestStart = closeMinutes - policy.reservationDurationMinutes;
-
-  if (latestStart < openMinutes) {
+  if (isClosedForVacation(input.date, policy) || serviceWindows.length === 0) {
     return [] satisfies AvailabilitySlot[];
   }
 
@@ -390,84 +495,99 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
 
   const slots: AvailabilitySlot[] = [];
   const now = getZonedDateTimeParts(policy.timezone);
+  const seenStartTimes = new Set<string>();
 
-  for (let start = openMinutes; start <= latestStart; start += 15) {
-    const startTime = minutesToTime(start);
-    const endTime = minutesToTime(start + policy.reservationDurationMinutes);
+  for (const serviceWindow of serviceWindows) {
+    const latestStart = serviceWindow.closeMinutes - policy.reservationDurationMinutes;
 
-    if (input.date < now.date || (input.date === now.date && start < now.minutes)) {
+    if (latestStart < serviceWindow.openMinutes) {
       continue;
     }
 
-    const selectableByTime = slotIsBookable(
-      input.date,
-      startTime,
-      policy.timezone,
-      policy.minimumLeadTimeMinutes
-    );
+    for (let start = serviceWindow.openMinutes; start <= latestStart; start += 15) {
+      const startTime = minutesToTime(start);
+      const endTime = minutesToTime(start + policy.reservationDurationMinutes);
 
-    if (tableIds.length === 0) {
+      if (seenStartTimes.has(startTime)) {
+        continue;
+      }
+
+      seenStartTimes.add(startTime);
+
+      if (input.date < now.date || (input.date === now.date && start < now.minutes)) {
+        continue;
+      }
+
+      const selectableByTime = slotIsBookable(
+        input.date,
+        startTime,
+        policy.timezone,
+        policy.minimumLeadTimeMinutes
+      );
+
+      if (tableIds.length === 0) {
+        slots.push({
+          startTime,
+          endTime,
+          availableTables: 0,
+          totalTables: 0,
+          selectable: false,
+          status: "RED",
+          reason: "NO_TABLE_CAPACITY"
+        });
+        continue;
+      }
+
+      const unavailableTableIds = new Set<string>();
+
+      for (const reservation of reservations) {
+        if (
+          reservation.tableId &&
+          (!policy.releaseTableAfterDuration ||
+            (reservation.startTime < endTime && reservation.endTime > startTime))
+        ) {
+          unavailableTableIds.add(reservation.tableId);
+        }
+      }
+
+      for (const block of blocks) {
+        if (block.startTime < endTime && block.endTime > startTime) {
+          unavailableTableIds.add(block.tableId);
+        }
+      }
+
+      const availableCandidateTables = candidateTables.filter((table) => !unavailableTableIds.has(table.id));
+      const preferredAvailableTables = filterByPreferredCapacity(
+        availableCandidateTables,
+        input.numberOfGuests,
+        policy
+      );
+      const exactCapacityAvailable = preferredAvailableTables.some(
+        (table) => table.capacity === input.numberOfGuests
+      );
+      const relevantTablePool = policy.strictCapacityMatching && exactCapacityAvailable
+        ? candidateTables.filter((table) => table.capacity === input.numberOfGuests)
+        : candidateTables;
+      const availableTables = preferredAvailableTables.length;
+      const totalTables = relevantTablePool.length;
+      const availabilityRatio = totalTables > 0 ? availableTables / totalTables : 0;
+
       slots.push({
         startTime,
         endTime,
-        availableTables: 0,
-        totalTables: 0,
-        selectable: false,
-        status: "RED",
-        reason: "NO_TABLE_CAPACITY"
+        availableTables,
+        totalTables,
+        selectable: selectableByTime && availableTables > 0,
+        status: !selectableByTime
+          ? "CLOSED"
+          : availableTables === 0
+            ? "RED"
+            : availabilityRatio <= 0.5
+              ? "ORANGE"
+              : "GREEN",
+        reason: !selectableByTime ? "TOO_SOON" : availableTables === 0 ? "FULL" : undefined
       });
-      continue;
     }
-
-    const unavailableTableIds = new Set<string>();
-
-    for (const reservation of reservations) {
-      if (
-        reservation.tableId &&
-        (!policy.releaseTableAfterDuration ||
-          (reservation.startTime < endTime && reservation.endTime > startTime))
-      ) {
-        unavailableTableIds.add(reservation.tableId);
-      }
-    }
-
-    for (const block of blocks) {
-      if (block.startTime < endTime && block.endTime > startTime) {
-        unavailableTableIds.add(block.tableId);
-      }
-    }
-
-    const availableCandidateTables = candidateTables.filter((table) => !unavailableTableIds.has(table.id));
-    const preferredAvailableTables = filterByPreferredCapacity(
-      availableCandidateTables,
-      input.numberOfGuests,
-      policy
-    );
-    const exactCapacityAvailable = preferredAvailableTables.some(
-      (table) => table.capacity === input.numberOfGuests
-    );
-    const relevantTablePool = policy.strictCapacityMatching && exactCapacityAvailable
-      ? candidateTables.filter((table) => table.capacity === input.numberOfGuests)
-      : candidateTables;
-    const availableTables = preferredAvailableTables.length;
-    const totalTables = relevantTablePool.length;
-    const availabilityRatio = totalTables > 0 ? availableTables / totalTables : 0;
-
-    slots.push({
-      startTime,
-      endTime,
-      availableTables,
-      totalTables,
-      selectable: selectableByTime && availableTables > 0,
-      status: !selectableByTime
-        ? "CLOSED"
-        : availableTables === 0
-          ? "RED"
-          : availabilityRatio <= 0.5
-            ? "ORANGE"
-            : "GREEN",
-      reason: !selectableByTime ? "TOO_SOON" : availableTables === 0 ? "FULL" : undefined
-    });
   }
 
   return slots;
@@ -477,6 +597,7 @@ export async function assertTableAvailable(db: DbClient, input: AssertTableAvail
   assertValidTimeRange(input.startTime, input.endTime);
   const policy = await getRestaurantPolicy(db, input.restaurantId);
   assertLeadTime(input.date, input.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+  assertRestaurantOpen(policy, input.date, input.startTime, input.endTime);
 
   const table = await db.table.findFirst({
     where: {
@@ -563,6 +684,7 @@ export async function createReservation(input: CreateReservationInput) {
         });
       } else {
         assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+        assertRestaurantOpen(policy, input.date, window.startTime, window.endTime);
       }
 
       if (input.firstName || input.lastName || input.email || input.phone) {

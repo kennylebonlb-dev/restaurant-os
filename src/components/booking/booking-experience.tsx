@@ -44,11 +44,6 @@ type Restaurant = {
   phone: string | null;
   openingHours: OpeningHours;
   settings: Record<string, unknown>;
-  menu: Array<{
-    name?: string;
-    price?: string;
-    category?: string;
-  }>;
   tables: FloorTable[];
 };
 
@@ -123,7 +118,9 @@ function reservationErrorMessage(
     "A table matching the party size is available.": t("error.exactCapacityAvailable"),
     "Table already has a reservation for this time.": t("error.tableAlreadyReserved"),
     "Table capacity is too small for this reservation.": t("error.tableTooSmall"),
-    "Table does not match the requested preferences.": t("error.tablePreferenceMismatch")
+    "Table does not match the requested preferences.": t("error.tablePreferenceMismatch"),
+    "Restaurant is closed for this time.": t("error.restaurantClosedTime"),
+    "Restaurant is closed during this vacation period.": t("error.restaurantClosedVacation")
   };
 
   return translations[message] ?? message;
@@ -338,8 +335,6 @@ export function BookingExperience() {
       booking.resetTable();
     }
   }, [availabilityQuery.data, availableIds, booking.selectedTableId, booking.resetTable]);
-
-  const menu = restaurant?.menu ?? [];
 
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_1fr] lg:px-8">
@@ -637,20 +632,12 @@ export function BookingExperience() {
               <p className="mt-2 text-sm text-ink/70">{restaurant.description}</p>
             ) : null}
             {restaurant.address ? <p className="mt-3 text-sm text-ink/70">{restaurant.address}</p> : null}
-            <div className="mt-4 divide-y divide-ink/10">
-              {menu.map((item, index) => (
-                <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-4 py-2">
-                  <div>
-                    <p className="text-sm font-semibold text-ink">{item.name}</p>
-                    <p className="text-xs text-ink/55">{item.category}</p>
-                  </div>
-                  {item.price ? <span className="text-sm font-bold text-clay">{item.price}</span> : null}
-                </div>
-              ))}
-              {menu.length === 0 ? (
-                <p className="py-2 text-sm font-semibold text-ink/65">{t("booking.menuUnavailable")}</p>
-              ) : null}
-            </div>
+            {restaurant.phone ? (
+              <p className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-ink/70">
+                <Phone className="h-4 w-4 text-moss" />
+                {t("booking.restaurantPhone")} : {restaurant.phone}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </section>

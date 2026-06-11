@@ -1207,9 +1207,9 @@ export function FloorPlan3D({
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-md border border-ink/10 bg-linen"
+      className="relative w-full max-w-full overflow-hidden rounded-md border border-ink/10 bg-linen"
       style={{
-        height: mode === "admin" ? "clamp(560px, 72vh, 760px)" : "clamp(500px, 64vh, 680px)"
+        height: PLAN_HEIGHT
       }}
     >
       <Canvas

@@ -68,6 +68,7 @@ export function FloorPlan({
   const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
   const availableSet = availableTableIds ? new Set(availableTableIds) : undefined;
+  const twoDZoom = 1;
   const { t } = useI18n();
 
   useEffect(() => {
@@ -110,8 +111,8 @@ export function FloorPlan({
     const rect = container.getBoundingClientRect();
     dragRef.current = {
       tableId: table.id,
-      offsetX: (event.clientX - rect.left) / zoom - table.positionX,
-      offsetY: (event.clientY - rect.top) / zoom - table.positionY
+      offsetX: (event.clientX - rect.left) / twoDZoom - table.positionX,
+      offsetY: (event.clientY - rect.top) / twoDZoom - table.positionY
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -127,11 +128,11 @@ export function FloorPlan({
     const rect = container.getBoundingClientRect();
     const positionX = Math.max(
       12,
-      Math.min((event.clientX - rect.left) / zoom - drag.offsetX, PLAN_WIDTH - 96)
+      Math.min((event.clientX - rect.left) / twoDZoom - drag.offsetX, PLAN_WIDTH - 96)
     );
     const positionY = Math.max(
       12,
-      Math.min((event.clientY - rect.top) / zoom - drag.offsetY, PLAN_HEIGHT - 76)
+      Math.min((event.clientY - rect.top) / twoDZoom - drag.offsetY, PLAN_HEIGHT - 76)
     );
 
     setDraftTables((current) =>
@@ -199,17 +200,20 @@ export function FloorPlan({
           onDetectedTablesChange={onDetectedTablesChange}
         />
       ) : (
-        <div className="overflow-auto rounded-md border border-ink/10 bg-[#30302f]">
+        <div
+          className="overflow-auto rounded-md border border-ink/10 bg-[#30302f]"
+          style={{ height: PLAN_HEIGHT }}
+        >
           <div
             ref={containerRef}
             className="relative overflow-hidden bg-[#30302f]"
             style={{
               width: PLAN_WIDTH,
               height: PLAN_HEIGHT,
-              transform: `scale(${zoom})`,
+              transform: `scale(${twoDZoom})`,
               transformOrigin: "top left",
-              marginRight: PLAN_WIDTH * (zoom - 1),
-              marginBottom: PLAN_HEIGHT * (zoom - 1)
+              marginRight: PLAN_WIDTH * (twoDZoom - 1),
+              marginBottom: PLAN_HEIGHT * (twoDZoom - 1)
             }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}

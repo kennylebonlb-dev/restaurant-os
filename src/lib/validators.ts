@@ -18,7 +18,10 @@ export const openingHoursSchema = z.record(
   z.object({
     open: timeStringSchema,
     close: timeStringSchema,
-    closed: z.boolean().optional()
+    closed: z.boolean().optional(),
+    secondServiceEnabled: z.boolean().optional(),
+    secondOpen: timeStringSchema.optional(),
+    secondClose: timeStringSchema.optional()
   })
 );
 
@@ -95,8 +98,10 @@ export const createTableBlockSchema = z.object({
 });
 
 export const registerSchema = z.object({
-  name: z.string().min(2).max(80),
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
   email: z.string().email().transform((email) => email.toLowerCase().trim()),
+  phone: z.string().trim().min(6).max(32),
   password: z.string().min(8).max(128)
 });
 

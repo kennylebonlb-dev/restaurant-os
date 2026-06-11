@@ -12,8 +12,18 @@ export type OpeningHours = Record<
     open: string;
     close: string;
     closed?: boolean;
+    secondServiceEnabled?: boolean;
+    secondOpen?: string;
+    secondClose?: string;
   }
 >;
+
+export type VacationClosure = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  label?: string;
+};
 
 export type FloorTable = {
   id: string;

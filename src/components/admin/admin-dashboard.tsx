@@ -37,7 +37,8 @@ import {
   type TableBlockReason,
   type TableFeature,
   type TableShape,
-  type TableZone
+  type TableZone,
+  type VacationClosure
 } from "@/lib/domain";
 import {
   applyFloorPlanSettings,
@@ -58,6 +59,7 @@ type Restaurant = {
   slug: string;
   description: string | null;
   address: string | null;
+  phone: string | null;
   openingHours: OpeningHours;
   settings: Record<string, unknown>;
   layoutLocked: boolean;
@@ -106,7 +108,7 @@ type TableBlock = {
 };
 
 type TableDraft = Pick<FloorTable, "label" | "capacity" | "zone" | "rotation" | "active">;
-type AdminPanel = "restaurant" | "hours" | "rules" | "tables" | "selected" | "blocks";
+type AdminPanel = "restaurant" | "hours" | "rules" | "vacations" | "tables" | "selected" | "blocks";
 type DayKey = keyof OpeningHours;
 
 const dayKeys = [
@@ -129,6 +131,37 @@ function today() {
 function settingNumber(settings: Record<string, unknown>, key: string, fallback: number) {
   const value = settings[key];
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readVacationClosures(settings: Record<string, unknown>): VacationClosure[] {
+  const closures = settings.vacationClosures;
+
+  if (!Array.isArray(closures)) {
+    return [];
+  }
+
+  return closures
+    .map((closure): VacationClosure | null => {
+      if (!closure || typeof closure !== "object" || Array.isArray(closure)) {
+        return null;
+      }
+
+      const record = closure as Record<string, unknown>;
+      const startDate = record.startDate;
+      const endDate = record.endDate;
+
+      if (typeof startDate !== "string" || typeof endDate !== "string") {
+        return null;
+      }
+
+      return {
+        id: typeof record.id === "string" ? record.id : `${startDate}-${endDate}`,
+        startDate,
+        endDate,
+        label: typeof record.label === "string" ? record.label : ""
+      };
+    })
+    .filter((closure): closure is VacationClosure => Boolean(closure));
 }
 
 function readFileAsDataUrl(file: File) {
@@ -189,10 +222,12 @@ export function AdminDashboard() {
     slug: "",
     description: "",
     address: "",
+    phone: "",
     openingHours: JSON.stringify(defaultOpeningHours(), null, 2),
     settings: "{}"
   });
   const [restaurantFormError, setRestaurantFormError] = useState<string>();
+  const [restaurantSaved, setRestaurantSaved] = useState(false);
   const [selectedTableDraft, setSelectedTableDraft] = useState<TableDraft | null>(null);
   const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
   const lastSavedTableDraftRef = useRef("");
@@ -205,6 +240,7 @@ export function AdminDashboard() {
       { id: "restaurant" as const, label: t("admin.menuRestaurant") },
       { id: "hours" as const, label: t("admin.menuHours") },
       { id: "rules" as const, label: t("admin.menuRules") },
+      { id: "vacations" as const, label: t("admin.menuVacations") },
       { id: "tables" as const, label: t("admin.menuTables") },
       { id: "selected" as const, label: t("admin.menuSelected") },
       { id: "blocks" as const, label: t("admin.menuBlocks") }
@@ -236,6 +272,7 @@ export function AdminDashboard() {
       slug: restaurant.slug,
       description: restaurant.description ?? "",
       address: restaurant.address ?? "",
+      phone: restaurant.phone ?? "",
       openingHours: JSON.stringify(restaurant.openingHours, null, 2),
       settings: JSON.stringify(restaurant.settings ?? {}, null, 2)
     });
@@ -377,6 +414,7 @@ export function AdminDashboard() {
   const saveRestaurantMutation = useMutation({
     mutationFn: async () => {
       setRestaurantFormError(undefined);
+      setRestaurantSaved(false);
 
       let openingHours: Record<string, unknown>;
       let settings: Record<string, unknown>;
@@ -394,6 +432,7 @@ export function AdminDashboard() {
         slug: restaurantForm.slug,
         description: restaurantForm.description || undefined,
         address: restaurantForm.address || undefined,
+        phone: restaurantForm.phone || undefined,
         timezone: "Europe/Paris",
         openingHours,
         settings
@@ -412,6 +451,8 @@ export function AdminDashboard() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["restaurants"] });
       setRestaurantId(data.restaurant.id);
+      setRestaurantSaved(true);
+      window.setTimeout(() => setRestaurantSaved(false), 3500);
     }
   });
 
@@ -562,6 +603,10 @@ export function AdminDashboard() {
   const minimumLeadTimeEnabled = parsedRestaurantSettings.minimumLeadTimeEnabled !== false;
   const releaseTableAfterDuration = parsedRestaurantSettings.oneReservationPerTablePerService !== false;
   const strictCapacityMatching = parsedRestaurantSettings.strictCapacityMatching !== false;
+  const vacationClosures = useMemo(
+    () => readVacationClosures(parsedRestaurantSettings),
+    [parsedRestaurantSettings]
+  );
   const visualTables = useMemo(() => {
     if (!selectedTableId || !selectedTableDraft) {
       return tables;
@@ -693,6 +738,41 @@ export function AdminDashboard() {
     });
   }
 
+  function updateVacationClosures(nextClosures: VacationClosure[]) {
+    updateRestaurantSetting("vacationClosures", nextClosures);
+  }
+
+  function addVacationClosure() {
+    updateVacationClosures([
+      ...vacationClosures,
+      {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}`,
+        startDate: selectedDate,
+        endDate: selectedDate,
+        label: ""
+      }
+    ]);
+  }
+
+  function updateVacationClosure(id: string, data: Partial<VacationClosure>) {
+    updateVacationClosures(
+      vacationClosures.map((closure) =>
+        closure.id === id
+          ? {
+              ...closure,
+              ...data
+            }
+          : closure
+      )
+    );
+  }
+
+  function removeVacationClosure(id: string) {
+    updateVacationClosures(vacationClosures.filter((closure) => closure.id !== id));
+  }
+
   function getRestaurantSettingsFromForm() {
     try {
       return JSON.parse(restaurantForm.settings) as Record<string, unknown>;
@@ -724,6 +804,7 @@ export function AdminDashboard() {
       slug: restaurantForm.slug || restaurant.slug,
       description: restaurantForm.description || undefined,
       address: restaurantForm.address || undefined,
+      phone: restaurantForm.phone || undefined,
       timezone: "Europe/Paris",
       openingHours: getOpeningHoursFromForm(),
       settings
@@ -915,14 +996,19 @@ export function AdminDashboard() {
             </div>
           </div>
 
-          {adminPanel === "restaurant" || adminPanel === "hours" || adminPanel === "rules" ? (
+          {adminPanel === "restaurant" ||
+          adminPanel === "hours" ||
+          adminPanel === "rules" ||
+          adminPanel === "vacations" ? (
           <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <h2 className="mb-3 text-base font-bold text-ink">
               {adminPanel === "restaurant"
                 ? t("admin.restaurant")
                 : adminPanel === "hours"
                   ? t("admin.openingHours")
-                  : t("admin.settings")}
+                  : adminPanel === "rules"
+                    ? t("admin.settings")
+                    : t("admin.vacations")}
             </h2>
             <div className="grid gap-3">
               {adminPanel === "restaurant" ? (
@@ -971,6 +1057,17 @@ export function AdminDashboard() {
                   }
                   />
               </label>
+              <label className="text-sm font-semibold text-ink">
+                {t("admin.phone")}
+                <input
+                  className="control mt-1 w-full"
+                  type="tel"
+                  value={restaurantForm.phone}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({ ...current, phone: event.target.value }))
+                  }
+                />
+              </label>
                 </>
               ) : null}
               {adminPanel === "hours" ? (
@@ -983,7 +1080,7 @@ export function AdminDashboard() {
                     return (
                       <div
                         key={day}
-                        className="grid grid-cols-1 gap-2 rounded-md border border-ink/10 bg-white/70 p-2 sm:grid-cols-[1fr_minmax(0,92px)_minmax(0,92px)] sm:items-center"
+                        className="grid gap-3 rounded-md border border-ink/10 bg-white/70 p-3"
                       >
                         <label className="flex items-center gap-2 text-sm font-semibold text-ink">
                           <input
@@ -994,30 +1091,78 @@ export function AdminDashboard() {
                           />
                           {t(`day.${day}`)}
                         </label>
-                        <select
-                          className="control h-10 w-full min-w-0"
-                          disabled={hours.closed}
-                          value={hours.open}
-                          onChange={(event) => updateOpeningHour(day, { open: event.target.value })}
-                        >
-                          {timeOptions.map((time) => (
-                            <option key={`${day}-open-${time}`} value={time}>
-                              {time}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="control h-10 w-full min-w-0"
-                          disabled={hours.closed}
-                          value={hours.close}
-                          onChange={(event) => updateOpeningHour(day, { close: event.target.value })}
-                        >
-                          {timeOptions.map((time) => (
-                            <option key={`${day}-close-${time}`} value={time}>
-                              {time}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="grid gap-2 sm:grid-cols-[1fr_minmax(0,92px)_minmax(0,92px)] sm:items-end">
+                          <p className="text-xs font-bold uppercase text-ink/50">{t("admin.firstService")}</p>
+                          <select
+                            className="control h-10 w-full min-w-0"
+                            disabled={hours.closed}
+                            value={hours.open}
+                            onChange={(event) => updateOpeningHour(day, { open: event.target.value })}
+                          >
+                            {timeOptions.map((time) => (
+                              <option key={`${day}-open-${time}`} value={time}>
+                                {time}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className="control h-10 w-full min-w-0"
+                            disabled={hours.closed}
+                            value={hours.close}
+                            onChange={(event) => updateOpeningHour(day, { close: event.target.value })}
+                          >
+                            {timeOptions.map((time) => (
+                              <option key={`${day}-close-${time}`} value={time}>
+                                {time}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+                          <input
+                            className="h-4 w-4 accent-moss"
+                            type="checkbox"
+                            disabled={hours.closed}
+                            checked={Boolean(hours.secondServiceEnabled)}
+                            onChange={(event) =>
+                              updateOpeningHour(day, {
+                                secondServiceEnabled: event.target.checked,
+                                secondOpen: hours.secondOpen ?? "19:00",
+                                secondClose: hours.secondClose ?? "23:00"
+                              })
+                            }
+                          />
+                          {t("admin.enableSecondService")}
+                        </label>
+                        {hours.secondServiceEnabled ? (
+                          <div className="grid gap-2 sm:grid-cols-[1fr_minmax(0,92px)_minmax(0,92px)] sm:items-end">
+                            <p className="text-xs font-bold uppercase text-ink/50">{t("admin.secondService")}</p>
+                            <select
+                              className="control h-10 w-full min-w-0"
+                              disabled={hours.closed}
+                              value={hours.secondOpen ?? "19:00"}
+                              onChange={(event) => updateOpeningHour(day, { secondOpen: event.target.value })}
+                            >
+                              {timeOptions.map((time) => (
+                                <option key={`${day}-second-open-${time}`} value={time}>
+                                  {time}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              className="control h-10 w-full min-w-0"
+                              disabled={hours.closed}
+                              value={hours.secondClose ?? "23:00"}
+                              onChange={(event) => updateOpeningHour(day, { secondClose: event.target.value })}
+                            >
+                              {timeOptions.map((time) => (
+                                <option key={`${day}-second-close-${time}`} value={time}>
+                                  {time}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -1085,10 +1230,83 @@ export function AdminDashboard() {
               </div>
                 </>
               ) : null}
+              {adminPanel === "vacations" ? (
+                <div className="rounded-md border border-ink/10 bg-linen p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold text-ink">{t("admin.vacations")}</p>
+                    <button
+                      className="secondary-button h-9 px-3 text-xs"
+                      type="button"
+                      onClick={addVacationClosure}
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t("admin.addVacation")}
+                    </button>
+                  </div>
+                  <div className="grid gap-2">
+                    {vacationClosures.map((closure) => (
+                      <div key={closure.id} className="grid gap-2 rounded-md border border-ink/10 bg-white p-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="text-sm font-semibold text-ink">
+                            {t("admin.vacationStart")}
+                            <input
+                              className="control mt-1 w-full"
+                              type="date"
+                              value={closure.startDate}
+                              onChange={(event) =>
+                                updateVacationClosure(closure.id, { startDate: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label className="text-sm font-semibold text-ink">
+                            {t("admin.vacationEnd")}
+                            <input
+                              className="control mt-1 w-full"
+                              type="date"
+                              value={closure.endDate}
+                              onChange={(event) =>
+                                updateVacationClosure(closure.id, { endDate: event.target.value })
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                          <label className="text-sm font-semibold text-ink">
+                            {t("admin.vacationLabel")}
+                            <input
+                              className="control mt-1 w-full"
+                              value={closure.label ?? ""}
+                              onChange={(event) =>
+                                updateVacationClosure(closure.id, { label: event.target.value })
+                              }
+                            />
+                          </label>
+                          <button
+                            className="icon-button h-10 w-10"
+                            title={t("admin.removeVacation")}
+                            type="button"
+                            onClick={() => removeVacationClosure(closure.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {vacationClosures.length === 0 ? (
+                      <p className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-ink/60">
+                        {t("admin.noVacations")}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {restaurantFormError || saveRestaurantMutation.error ? (
                 <p className="text-sm font-semibold text-red-700">
                   {restaurantFormError ?? saveRestaurantMutation.error?.message}
                 </p>
+              ) : null}
+              {restaurantSaved ? (
+                <p className="text-sm font-bold text-moss">{t("admin.savedChanges")}</p>
               ) : null}
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -1724,13 +1942,13 @@ export function AdminDashboard() {
 
 function defaultOpeningHours(): OpeningHours {
   return {
-    monday: { open: "12:00", close: "22:00" },
-    tuesday: { open: "12:00", close: "22:00" },
-    wednesday: { open: "12:00", close: "22:00" },
-    thursday: { open: "12:00", close: "22:00" },
-    friday: { open: "12:00", close: "23:00" },
-    saturday: { open: "12:00", close: "23:00" },
-    sunday: { open: "12:00", close: "21:00" }
+    monday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "22:00" },
+    tuesday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "22:00" },
+    wednesday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "22:00" },
+    thursday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "22:00" },
+    friday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "23:00" },
+    saturday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "23:00" },
+    sunday: { open: "12:00", close: "14:00", secondServiceEnabled: true, secondOpen: "19:00", secondClose: "21:00" }
   };
 }
 
