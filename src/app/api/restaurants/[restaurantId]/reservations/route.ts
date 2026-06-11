@@ -32,7 +32,7 @@ export async function POST(request: Request, context: Context) {
     const { restaurantId } = await context.params;
     const payload = await request.json();
 
-    if (session.user.role === "ADMIN") {
+    if (session.user.role === "ADMIN" && typeof payload.userId === "string") {
       const data = createAdminReservationSchema.parse(payload);
       const reservation = await createReservation({
         restaurantId,
