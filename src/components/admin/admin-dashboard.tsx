@@ -998,14 +998,14 @@ export function AdminDashboard() {
           label={t("admin.availableTables")}
           value={availableTablesTotal}
           detail={
-            <span className="flex flex-wrap gap-1.5">
-              <span className="rounded bg-sage/70 px-2 py-0.5">
+            <span className="grid grid-cols-3 gap-1.5 text-[10px] leading-tight sm:text-xs">
+              <span className="min-w-0 truncate rounded bg-sage/70 px-2 py-0.5 text-center">
                 {t("admin.availableTwoTop")} : {availableTableCapacityCounts.two}
               </span>
-              <span className="rounded bg-sage/70 px-2 py-0.5">
+              <span className="min-w-0 truncate rounded bg-sage/70 px-2 py-0.5 text-center">
                 {t("admin.availableFourTop")} : {availableTableCapacityCounts.four}
               </span>
-              <span className="rounded bg-sage/70 px-2 py-0.5">
+              <span className="min-w-0 truncate rounded bg-sage/70 px-2 py-0.5 text-center">
                 {t("admin.availableSixPlus")} : {availableTableCapacityCounts.sixPlus}
               </span>
             </span>
@@ -1359,14 +1359,6 @@ export function AdminDashboard() {
             </div>
           </div>
           ) : null}
-
-          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
-            <div className="grid grid-cols-3 gap-2">
-              <Metric label={t("admin.reservationsMetric")} value={analytics?.reservations ?? 0} />
-              <Metric label={t("admin.seatsMetric")} value={analytics?.reservedSeats ?? 0} />
-              <Metric label={t("admin.occupancyMetric")} value={`${analytics?.occupancyRate ?? 0}%`} />
-            </div>
-          </div>
 
           {adminPanel === "tables" ? (
           <div className="space-y-4">
@@ -2082,15 +2074,6 @@ function slugify(value: string) {
 
 function buildRestaurantSlug(name: string, fallback?: string) {
   return slugify(name) || fallback || "restaurant";
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md bg-linen p-3">
-      <p className="text-xs font-semibold text-ink/55">{label}</p>
-      <p className="mt-1 text-xl font-black text-ink">{value}</p>
-    </div>
-  );
 }
 
 function DashboardMetric({
