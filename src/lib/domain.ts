@@ -1,6 +1,8 @@
 export type Role = "CLIENT" | "ADMIN" | "STAFF";
 export type TableZone = "INDOOR" | "TERRACE" | "VIP";
 export type TableShape = "ROUND" | "SQUARE" | "RECTANGLE";
+export const tableFeatures = ["QUIET", "ACCESSIBLE", "KIDS", "WINDOW"] as const;
+export type TableFeature = (typeof tableFeatures)[number];
 export type ReservationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
 export type TableBlockReason = "MAINTENANCE" | "ADMIN" | "EVENT";
 
@@ -23,6 +25,7 @@ export type FloorTable = {
   rotation: number;
   active: boolean;
   shape?: TableShape;
+  features?: TableFeature[];
 };
 
 export type DetectedGlbTable = {
@@ -51,6 +54,7 @@ export type AvailabilityRequest = {
   startTime: string;
   endTime?: string;
   numberOfGuests: number;
+  tablePreferences?: TableFeature[];
 };
 
 export type AvailabilitySlot = {

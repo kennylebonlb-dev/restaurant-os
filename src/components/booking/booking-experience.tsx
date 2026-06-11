@@ -11,7 +11,6 @@ import {
   LayoutGrid,
   Mail,
   Phone,
-  Search,
   Sparkles,
   UserRound,
   Users
@@ -22,7 +21,13 @@ import { useEffect, useMemo, useState } from "react";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
-import type { AvailabilitySlot, FloorTable, OpeningHours } from "@/lib/domain";
+import {
+  tableFeatures,
+  type AvailabilitySlot,
+  type FloorTable,
+  type OpeningHours,
+  type TableFeature
+} from "@/lib/domain";
 import {
   applyFloorPlanSettings,
   floorPlanModelUrlFromSettings
@@ -101,16 +106,38 @@ function slotDotClass(slot: AvailabilitySlot) {
   return "bg-ink/25";
 }
 
+function reservationErrorMessage(
+  message: string | undefined,
+  locale: string,
+  t: ReturnType<typeof useI18n>["t"]
+) {
+  if (!message) {
+    return undefined;
+  }
+
+  if (locale !== "fr") {
+    return message;
+  }
+
+  const translations: Record<string, string> = {
+    "A table matching the party size is available.": t("error.exactCapacityAvailable"),
+    "Table already has a reservation for this time.": t("error.tableAlreadyReserved"),
+    "Table capacity is too small for this reservation.": t("error.tableTooSmall"),
+    "Table does not match the requested preferences.": t("error.tablePreferenceMismatch")
+  };
+
+  return translations[message] ?? message;
+}
+
 export function BookingExperience() {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
   const [restaurantId, setRestaurantId] = useState<string>();
-  const [searched, setSearched] = useState(false);
   const [message, setMessage] = useState<string>();
   const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("3d");
   const [floorZoom, setFloorZoom] = useState(1);
   const booking = useBookingStore();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
 
   const restaurantsQuery = useQuery({
     queryKey: ["restaurants"],
@@ -175,17 +202,27 @@ export function BookingExperience() {
   }, [profileQuery.data?.profile?.id, session?.user?.email, session?.user?.name]);
 
   const slotsQuery = useQuery({
-    queryKey: ["availability-slots", restaurant?.id, booking.date, booking.numberOfGuests],
+    queryKey: [
+      "availability-slots",
+      restaurant?.id,
+      booking.date,
+      booking.numberOfGuests,
+      booking.tablePreferences
+    ],
     enabled: Boolean(restaurant?.id),
     queryFn: () =>
       apiFetch<SlotsResponse>(`/api/restaurants/${restaurant?.id}/availability/slots`, {
         method: "POST",
         body: JSON.stringify({
           date: booking.date,
-          numberOfGuests: booking.numberOfGuests
+          numberOfGuests: booking.numberOfGuests,
+          tablePreferences: booking.tablePreferences
         })
       })
   });
+
+  const slots = slotsQuery.data?.slots ?? [];
+  const selectedSlot = slots.find((slot) => slot.startTime === booking.startTime);
 
   const availabilityQuery = useQuery({
     queryKey: [
@@ -193,21 +230,22 @@ export function BookingExperience() {
       restaurant?.id,
       booking.date,
       booking.startTime,
-      booking.numberOfGuests
+      booking.numberOfGuests,
+      booking.tablePreferences
     ],
-    enabled: searched && Boolean(restaurant?.id && booking.startTime),
+    enabled: Boolean(restaurant?.id && booking.startTime && selectedSlot?.selectable),
     queryFn: () =>
       apiFetch<AvailabilityResponse>(`/api/restaurants/${restaurant?.id}/availability`, {
         method: "POST",
         body: JSON.stringify({
           date: booking.date,
           startTime: booking.startTime,
-          numberOfGuests: booking.numberOfGuests
+          numberOfGuests: booking.numberOfGuests,
+          tablePreferences: booking.tablePreferences
         })
       })
   });
 
-  const slots = slotsQuery.data?.slots ?? [];
   const restaurantTables = useMemo(
     () => applyFloorPlanSettings(restaurant?.tables ?? [], restaurant?.settings),
     [restaurant?.settings, restaurant?.tables]
@@ -216,7 +254,6 @@ export function BookingExperience() {
     () => floorPlanModelUrlFromSettings(restaurant?.settings),
     [restaurant?.settings]
   );
-  const selectedSlot = slots.find((slot) => slot.startTime === booking.startTime);
   const availableTables = availabilityQuery.data?.tables ?? [];
   const availableIds = useMemo(() => availableTables.map((table) => table.id), [availableTables]);
   const contactComplete = Boolean(
@@ -236,6 +273,7 @@ export function BookingExperience() {
           numberOfGuests: booking.numberOfGuests,
           tableId: booking.autoAssignTable ? undefined : booking.selectedTableId,
           autoAssignTable: booking.autoAssignTable,
+          tablePreferences: booking.tablePreferences,
           firstName: booking.firstName,
           lastName: booking.lastName,
           email: booking.email,
@@ -254,13 +292,6 @@ export function BookingExperience() {
     }
   });
 
-  function searchTables() {
-    setMessage(undefined);
-    booking.resetTable();
-    setSearched(true);
-    queryClient.invalidateQueries({ queryKey: ["availability", restaurant?.id] });
-  }
-
   function selectSlot(slot: AvailabilitySlot) {
     if (!slot.selectable) {
       return;
@@ -269,24 +300,44 @@ export function BookingExperience() {
     setMessage(undefined);
     booking.setBookingField("startTime", slot.startTime);
     booking.resetTable();
-    setSearched(true);
   }
 
   function updateGuests(value: number) {
+    setMessage(undefined);
     booking.setBookingField("numberOfGuests", value);
     booking.resetTable();
-    setSearched(false);
   }
 
   function updateDate(date: string) {
+    setMessage(undefined);
     booking.setBookingField("date", date);
     booking.resetTable();
-    setSearched(false);
   }
 
   function shiftBookingDate(days: number) {
     updateDate(addDaysToDateString(booking.date, days));
   }
+
+  function toggleTablePreference(feature: TableFeature) {
+    setMessage(undefined);
+    booking.resetTable();
+    booking.setBookingField(
+      "tablePreferences",
+      booking.tablePreferences.includes(feature)
+        ? booking.tablePreferences.filter((item) => item !== feature)
+        : [...booking.tablePreferences, feature]
+    );
+  }
+
+  useEffect(() => {
+    if (
+      booking.selectedTableId &&
+      availabilityQuery.data &&
+      !availableIds.includes(booking.selectedTableId)
+    ) {
+      booking.resetTable();
+    }
+  }, [availabilityQuery.data, availableIds, booking.selectedTableId, booking.resetTable]);
 
   const menu = restaurant?.menu ?? [];
 
@@ -438,6 +489,26 @@ export function BookingExperience() {
               </span>
             </label>
 
+            <div className="rounded-md border border-ink/10 bg-linen p-3">
+              <p className="text-sm font-bold text-ink">{t("booking.tablePreferences")}</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {tableFeatures.map((feature) => (
+                  <label
+                    key={feature}
+                    className="flex items-start gap-2 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink"
+                  >
+                    <input
+                      className="mt-1 h-4 w-4 accent-moss"
+                      type="checkbox"
+                      checked={booking.tablePreferences.includes(feature)}
+                      onChange={() => toggleTablePreference(feature)}
+                    />
+                    {t(`feature.${feature}`)}
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-md border border-ink/10 bg-white p-3">
               <h2 className="mb-3 text-sm font-bold text-ink">{t("booking.customerInfo")}</h2>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -502,23 +573,17 @@ export function BookingExperience() {
               </label>
             </div>
 
-            <button
-              className="primary-button w-full"
-              type="button"
-              disabled={!restaurant || !selectedSlot?.selectable || availabilityQuery.isFetching}
-              onClick={searchTables}
-            >
-              <Search className="h-4 w-4" />
-              {availabilityQuery.isFetching ? t("booking.checking") : t("booking.findTables")}
-            </button>
           </div>
 
-          {searched ? (
+          {selectedSlot?.selectable ? (
             <div className="mt-4 rounded-md bg-sage/60 p-3 text-sm font-semibold text-ink">
-              {availableTables.length}{" "}
-              {availableTables.length === 1
-                ? t("booking.tableAvailable")
-                : t("booking.tablesAvailable")}
+              {availabilityQuery.isFetching
+                ? t("booking.checking")
+                : `${availableTables.length} ${
+                    availableTables.length === 1
+                      ? t("booking.tableAvailable")
+                      : t("booking.tablesAvailable")
+                  }`}
             </div>
           ) : null}
 
@@ -531,7 +596,7 @@ export function BookingExperience() {
 
           {reservationMutation.error ? (
             <div className="mt-4 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-700">
-              {reservationMutation.error.message}
+              {reservationErrorMessage(reservationMutation.error.message, locale, t)}
             </div>
           ) : null}
 
@@ -637,10 +702,10 @@ export function BookingExperience() {
           viewMode={floorViewMode}
           zoom={floorZoom}
           selectedTableId={booking.selectedTableId}
-          availableTableIds={searched ? availableIds : undefined}
+          availableTableIds={selectedSlot?.selectable ? availableIds : []}
           modelUrl={floorPlanModelUrl}
           onSelect={(table) => {
-            if (!booking.autoAssignTable && (!searched || availableIds.includes(table.id))) {
+            if (!booking.autoAssignTable && availableIds.includes(table.id)) {
               booking.setBookingField("selectedTableId", table.id);
             }
           }}

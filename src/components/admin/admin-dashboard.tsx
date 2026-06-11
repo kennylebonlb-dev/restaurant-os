@@ -29,11 +29,22 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
-import type { DetectedGlbTable, FloorTable, OpeningHours, TableBlockReason, TableShape, TableZone } from "@/lib/domain";
+import {
+  tableFeatures,
+  type DetectedGlbTable,
+  type FloorTable,
+  type OpeningHours,
+  type TableBlockReason,
+  type TableFeature,
+  type TableShape,
+  type TableZone
+} from "@/lib/domain";
 import {
   applyFloorPlanSettings,
   floorPlanModelUrlFromSettings,
   isTableShape,
+  tableFeaturesFromSettings,
+  withTableFeatures,
   withTableShape
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
@@ -533,6 +544,9 @@ export function AdminDashboard() {
     [parsedRestaurantSettings]
   );
   const selectedTable = tables.find((table) => table.id === selectedTableId);
+  const selectedTableFeatures = selectedTable
+    ? tableFeaturesFromSettings(parsedRestaurantSettings)[selectedTable.id] ?? selectedTable.features ?? []
+    : [];
   const openingHoursDraft = useMemo(() => {
     try {
       return JSON.parse(restaurantForm.openingHours) as OpeningHours;
@@ -547,6 +561,7 @@ export function AdminDashboard() {
   );
   const minimumLeadTimeEnabled = parsedRestaurantSettings.minimumLeadTimeEnabled !== false;
   const releaseTableAfterDuration = parsedRestaurantSettings.oneReservationPerTablePerService !== false;
+  const strictCapacityMatching = parsedRestaurantSettings.strictCapacityMatching !== false;
   const visualTables = useMemo(() => {
     if (!selectedTableId || !selectedTableDraft) {
       return tables;
@@ -722,6 +737,12 @@ export function AdminDashboard() {
 
   async function persistTableShape(tableId: string, shape: TableShape) {
     const settings = withTableShape(getRestaurantSettingsFromForm(), tableId, shape);
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistTableFeatures(tableId: string, features: TableFeature[]) {
+    const settings = withTableFeatures(getRestaurantSettingsFromForm(), tableId, features);
     await patchRestaurantSettings(settings);
     queryClient.invalidateQueries({ queryKey: ["restaurants"] });
   }
@@ -1050,6 +1071,17 @@ export function AdminDashboard() {
                     }
                   />
                 </label>
+                <label className="mt-3 flex items-start justify-between gap-3 border-t border-ink/10 pt-3 text-sm font-semibold text-ink">
+                  <span>{t("admin.strictCapacityMatching")}</span>
+                  <input
+                    className="h-5 w-5 shrink-0 accent-moss"
+                    type="checkbox"
+                    checked={strictCapacityMatching}
+                    onChange={(event) =>
+                      updateRestaurantSetting("strictCapacityMatching", event.target.checked)
+                    }
+                  />
+                </label>
               </div>
                 </>
               ) : null}
@@ -1243,6 +1275,36 @@ export function AdminDashboard() {
                     <option value="RECTANGLE">{t("shape.RECTANGLE")}</option>
                   </select>
                 </label>
+                <div className="rounded-md border border-ink/10 bg-linen p-3">
+                  <p className="text-sm font-bold text-ink">{t("admin.tableTools")}</p>
+                  <div className="mt-3 grid gap-2">
+                    {tableFeatures.map((feature) => (
+                      <label
+                        key={feature}
+                        className="flex items-start justify-between gap-3 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink"
+                      >
+                        <span>{t(`feature.${feature}`)}</span>
+                        <input
+                          className="h-5 w-5 shrink-0 accent-moss"
+                          type="checkbox"
+                          checked={selectedTableFeatures.includes(feature)}
+                          disabled={restaurant?.layoutLocked}
+                          onChange={(event) => {
+                            const nextFeatures = event.target.checked
+                              ? [...selectedTableFeatures, feature]
+                              : selectedTableFeatures.filter((item) => item !== feature);
+
+                            void persistTableFeatures(selectedTable.id, nextFeatures).catch((error) => {
+                              setRestaurantFormError(
+                                error instanceof Error ? error.message : t("admin.invalidJson")
+                              );
+                            });
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <label className="text-sm font-semibold text-ink">
                   {t("admin.rotation")}
                   <div className="mt-2 flex items-center gap-3">

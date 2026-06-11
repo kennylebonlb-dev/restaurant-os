@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { TableFeature } from "@/lib/domain";
 
 type BookingState = {
   date: string;
@@ -10,6 +11,7 @@ type BookingState = {
   phone: string;
   notes: string;
   autoAssignTable: boolean;
+  tablePreferences: TableFeature[];
   selectedTableId?: string;
   setBookingField: <TKey extends keyof Omit<BookingState, "setBookingField" | "resetTable">>(
     key: TKey,
@@ -32,6 +34,7 @@ export const useBookingStore = create<BookingState>((set) => ({
   phone: "",
   notes: "",
   autoAssignTable: false,
+  tablePreferences: [],
   selectedTableId: undefined,
   setBookingField: (key, value) => set({ [key]: value }),
   resetTable: () => set({ selectedTableId: undefined })

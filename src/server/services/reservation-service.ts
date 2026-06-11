@@ -1,6 +1,7 @@
 import { Prisma, type ReservationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { AvailabilitySlot, OpeningHours } from "@/lib/domain";
+import type { AvailabilitySlot, OpeningHours, TableFeature } from "@/lib/domain";
+import { tableFeaturesFromSettings } from "@/lib/floor-plan-settings";
 import {
   addMinutes,
   assertValidTimeRange,
@@ -24,6 +25,7 @@ export type AvailabilityInput = {
   startTime: string;
   endTime?: string;
   numberOfGuests: number;
+  tablePreferences?: TableFeature[];
 };
 
 export type CreateReservationInput = AvailabilityInput & {
@@ -49,6 +51,8 @@ type RestaurantPolicy = {
   reservationDurationMinutes: number;
   minimumLeadTimeMinutes: number;
   releaseTableAfterDuration: boolean;
+  strictCapacityMatching: boolean;
+  tableFeatures: Record<string, TableFeature[]>;
 };
 
 type AssertTableAvailableInput = Omit<AvailabilityInput, "endTime"> &
@@ -91,6 +95,10 @@ function releaseTableAfterDurationFromSettings(settings: unknown) {
   return !isRecord(settings) || settings.oneReservationPerTablePerService !== false;
 }
 
+function strictCapacityMatchingFromSettings(settings: unknown) {
+  return !isRecord(settings) || settings.strictCapacityMatching !== false;
+}
+
 async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<RestaurantPolicy> {
   const restaurant = await db.restaurant.findUnique({
     where: {
@@ -112,8 +120,36 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
     openingHours: restaurant.openingHours as OpeningHours,
     reservationDurationMinutes: reservationDurationFromSettings(restaurant.settings),
     minimumLeadTimeMinutes: minimumLeadTimeFromSettings(restaurant.settings),
-    releaseTableAfterDuration: releaseTableAfterDurationFromSettings(restaurant.settings)
+    releaseTableAfterDuration: releaseTableAfterDurationFromSettings(restaurant.settings),
+    strictCapacityMatching: strictCapacityMatchingFromSettings(restaurant.settings),
+    tableFeatures: tableFeaturesFromSettings(isRecord(restaurant.settings) ? restaurant.settings : {})
   };
+}
+
+function tableMatchesPreferences(
+  tableId: string,
+  policy: RestaurantPolicy,
+  preferences?: TableFeature[]
+) {
+  if (!preferences || preferences.length === 0) {
+    return true;
+  }
+
+  const features = policy.tableFeatures[tableId] ?? [];
+  return preferences.every((preference) => features.includes(preference));
+}
+
+function filterByPreferredCapacity<TTable extends { capacity: number }>(
+  tables: TTable[],
+  numberOfGuests: number,
+  policy: RestaurantPolicy
+) {
+  if (!policy.strictCapacityMatching) {
+    return tables;
+  }
+
+  const exactTables = tables.filter((table) => table.capacity === numberOfGuests);
+  return exactTables.length > 0 ? exactTables : tables;
 }
 
 function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy): ReservationWindow {
@@ -247,7 +283,7 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
   const window = reservationWindow(input, policy);
   assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
 
-  const candidateTables = await db.table.findMany({
+  const allCandidateTables = await db.table.findMany({
     where: {
       restaurantId: input.restaurantId,
       active: true,
@@ -257,6 +293,9 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
     },
     orderBy: [{ capacity: "asc" }, { label: "asc" }]
   });
+  const candidateTables = allCandidateTables.filter((table) =>
+    tableMatchesPreferences(table.id, policy, input.tablePreferences)
+  );
 
   if (candidateTables.length === 0) {
     return [];
@@ -273,7 +312,11 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
     policy.releaseTableAfterDuration
   );
 
-  return candidateTables.filter((table) => !unavailableTableIds.has(table.id));
+  return filterByPreferredCapacity(
+    candidateTables.filter((table) => !unavailableTableIds.has(table.id)),
+    input.numberOfGuests,
+    policy
+  );
 }
 
 export async function getAvailabilitySlots(db: DbClient, input: Omit<AvailabilityInput, "startTime" | "endTime">) {
@@ -292,7 +335,7 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
     return [] satisfies AvailabilitySlot[];
   }
 
-  const candidateTables = await db.table.findMany({
+  const allCandidateTables = await db.table.findMany({
     where: {
       restaurantId: input.restaurantId,
       active: true,
@@ -301,9 +344,13 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
       }
     },
     select: {
+      capacity: true,
       id: true
     }
   });
+  const candidateTables = allCandidateTables.filter((table) =>
+    tableMatchesPreferences(table.id, policy, input.tablePreferences)
+  );
   const tableIds = candidateTables.map((table) => table.id);
   const date = toDateOnly(input.date);
 
@@ -390,14 +437,27 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
       }
     }
 
-    const availableTables = tableIds.length - unavailableTableIds.size;
-    const availabilityRatio = availableTables / tableIds.length;
+    const availableCandidateTables = candidateTables.filter((table) => !unavailableTableIds.has(table.id));
+    const preferredAvailableTables = filterByPreferredCapacity(
+      availableCandidateTables,
+      input.numberOfGuests,
+      policy
+    );
+    const exactCapacityAvailable = preferredAvailableTables.some(
+      (table) => table.capacity === input.numberOfGuests
+    );
+    const relevantTablePool = policy.strictCapacityMatching && exactCapacityAvailable
+      ? candidateTables.filter((table) => table.capacity === input.numberOfGuests)
+      : candidateTables;
+    const availableTables = preferredAvailableTables.length;
+    const totalTables = relevantTablePool.length;
+    const availabilityRatio = totalTables > 0 ? availableTables / totalTables : 0;
 
     slots.push({
       startTime,
       endTime,
       availableTables,
-      totalTables: tableIds.length,
+      totalTables,
       selectable: selectableByTime && availableTables > 0,
       status: !selectableByTime
         ? "CLOSED"
@@ -433,6 +493,10 @@ export async function assertTableAvailable(db: DbClient, input: AssertTableAvail
     throw new ConflictError("Table capacity is too small for this reservation.");
   }
 
+  if (!tableMatchesPreferences(table.id, policy, input.tablePreferences)) {
+    throw new ConflictError("Table does not match the requested preferences.");
+  }
+
   const unavailableTableIds = await getUnavailableTableIds(
     db,
     input,
@@ -443,6 +507,21 @@ export async function assertTableAvailable(db: DbClient, input: AssertTableAvail
 
   if (unavailableTableIds.has(input.tableId)) {
     throw new ConflictError("Table already has a reservation for this time.");
+  }
+
+  if (policy.strictCapacityMatching && table.capacity > input.numberOfGuests) {
+    const preferredTables = await getAvailableTables(db, {
+      restaurantId: input.restaurantId,
+      date: input.date,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      numberOfGuests: input.numberOfGuests,
+      tablePreferences: input.tablePreferences
+    });
+
+    if (preferredTables.some((availableTable) => availableTable.capacity === input.numberOfGuests)) {
+      throw new ConflictError("A table matching the party size is available.");
+    }
   }
 
   return table;
@@ -461,7 +540,8 @@ export async function createReservation(input: CreateReservationInput) {
           date: input.date,
           startTime: window.startTime,
           endTime: window.endTime,
-          numberOfGuests: input.numberOfGuests
+          numberOfGuests: input.numberOfGuests,
+          tablePreferences: input.tablePreferences
         });
 
         if (availableTables.length === 0) {
@@ -478,6 +558,7 @@ export async function createReservation(input: CreateReservationInput) {
           startTime: window.startTime,
           endTime: window.endTime,
           numberOfGuests: input.numberOfGuests,
+          tablePreferences: input.tablePreferences,
           tableId
         });
       } else {

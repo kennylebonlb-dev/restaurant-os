@@ -1,7 +1,11 @@
-import type { FloorTable, TableShape } from "@/lib/domain";
+import { tableFeatures, type FloorTable, type TableFeature, type TableShape } from "@/lib/domain";
 
 export function isTableShape(value: unknown): value is TableShape {
   return value === "ROUND" || value === "SQUARE" || value === "RECTANGLE";
+}
+
+export function isTableFeature(value: unknown): value is TableFeature {
+  return tableFeatures.some((feature) => feature === value);
 }
 
 export function tableShapesFromSettings(settings?: Record<string, unknown> | null) {
@@ -20,6 +24,28 @@ export function tableShapesFromSettings(settings?: Record<string, unknown> | nul
   }, {});
 }
 
+export function tableFeaturesFromSettings(settings?: Record<string, unknown> | null) {
+  const tableFeaturesById = settings?.tableFeatures;
+
+  if (!tableFeaturesById || typeof tableFeaturesById !== "object" || Array.isArray(tableFeaturesById)) {
+    return {};
+  }
+
+  return Object.entries(tableFeaturesById).reduce<Record<string, TableFeature[]>>((features, [tableId, value]) => {
+    if (!Array.isArray(value)) {
+      return features;
+    }
+
+    const validFeatures = value.filter(isTableFeature);
+
+    if (validFeatures.length > 0) {
+      features[tableId] = validFeatures;
+    }
+
+    return features;
+  }, {});
+}
+
 export function withTableShape(
   settings: Record<string, unknown>,
   tableId: string,
@@ -34,14 +60,30 @@ export function withTableShape(
   };
 }
 
+export function withTableFeatures(
+  settings: Record<string, unknown>,
+  tableId: string,
+  features: TableFeature[]
+) {
+  return {
+    ...settings,
+    tableFeatures: {
+      ...tableFeaturesFromSettings(settings),
+      [tableId]: features
+    }
+  };
+}
+
 export function applyFloorPlanSettings(
   tables: FloorTable[],
   settings?: Record<string, unknown> | null
 ) {
   const shapes = tableShapesFromSettings(settings);
+  const features = tableFeaturesFromSettings(settings);
 
   return tables.map((table) => ({
     ...table,
+    features: features[table.id] ?? table.features ?? [],
     shape: shapes[table.id] ?? table.shape ?? "ROUND"
   }));
 }

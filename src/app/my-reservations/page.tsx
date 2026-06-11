@@ -39,12 +39,16 @@ type Profile = {
   createdAt: string;
 };
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function dateOnly(value: string) {
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function reservationEndDate(reservation: Reservation) {
+  return new Date(`${dateOnly(reservation.date)}T${reservation.endTime}:00`);
+}
+
+function isPastOrCancelled(reservation: Reservation) {
+  return reservation.status === "CANCELLED" || reservationEndDate(reservation) < new Date();
 }
 
 function splitName(name?: string | null) {
@@ -117,12 +121,13 @@ export default function MyReservationsPage() {
   const reservations = reservationsQuery.data?.reservations ?? [];
   const currentReservations = useMemo(
     () =>
-      reservations.filter(
-        (reservation) => reservation.status !== "CANCELLED" && dateOnly(reservation.date) >= today()
-      ),
+      reservations.filter((reservation) => !isPastOrCancelled(reservation)),
     [reservations]
   );
-  const latestReservations = useMemo(() => reservations.slice(0, 6), [reservations]);
+  const latestReservations = useMemo(
+    () => reservations.filter(isPastOrCancelled).slice(0, 6),
+    [reservations]
+  );
   const profile = profileQuery.data?.profile;
 
   return (

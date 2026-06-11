@@ -17,7 +17,8 @@ assert.equal(
     firstName: "Client",
     lastName: "Demo",
     email: "client@example.com",
-    phone: "+33600000000"
+    phone: "+33600000000",
+    tablePreferences: ["QUIET", "ACCESSIBLE"]
   }).tableId,
   "seed_table_t1"
 );

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tableFeatures } from "@/lib/domain";
 
 export const dateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
   message: "Date must use YYYY-MM-DD format."
@@ -54,7 +55,8 @@ export const availabilitySchema = z.object({
   date: dateStringSchema,
   startTime: timeStringSchema,
   endTime: timeStringSchema.optional(),
-  numberOfGuests: z.coerce.number().int().min(1).max(40)
+  numberOfGuests: z.coerce.number().int().min(1).max(40),
+  tablePreferences: z.array(z.enum(tableFeatures)).default([])
 });
 
 export const createReservationSchema = availabilitySchema.extend({
