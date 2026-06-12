@@ -37,7 +37,9 @@ import {
   type DetectedGlbTable,
   type FloorTable,
   type OpeningHours,
+  type TableAutoAssignPriority,
   type TableBlockReason,
+  type TableCombination,
   type TableFeature,
   type TableShape,
   type TableZone,
@@ -49,8 +51,12 @@ import {
   floorPlan2dImageUrlFromSettings,
   floorPlanModelUrlFromSettings,
   isTableShape,
+  tableAutoAssignPrioritiesFromSettings,
+  tableCombinationsFromSettings,
   tableFeaturesFromSettings,
   tableDisplayScaleLockedFromSettings,
+  withTableAutoAssignPriority,
+  withTableCombinations,
   withTableFeatures,
   withDefaultTableDisplayScale,
   withTableDisplayScale,
@@ -58,7 +64,13 @@ import {
   withTableShape
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
-import { addDaysToDateString, minutesToTime } from "@/lib/time";
+import {
+  addDaysToDateString,
+  getDayKey,
+  getZonedDateTimeParts,
+  minutesToTime,
+  parseTimeToMinutes
+} from "@/lib/time";
 import { useFloorPlanStore } from "@/stores/floor-plan-store";
 import { useRealtimeStore } from "@/stores/realtime-store";
 
@@ -127,12 +139,14 @@ type TableBlock = {
 type TableDraft = Pick<FloorTable, "label" | "capacity" | "zone" | "rotation" | "active">;
 type CreateTableOverrides = Partial<TableDraft> &
   Partial<Pick<FloorTable, "positionX" | "positionY">> & {
+    autoAssignPriority?: TableAutoAssignPriority;
     displayScale?: number;
     features?: TableFeature[];
     shape?: TableShape;
     viewImageUrl?: string;
   };
 type AdminPanel = "restaurant" | "hours" | "rules" | "vacations" | "tables" | "blocks";
+type ReservationServiceFilter = "all" | "lunch" | "dinner";
 type DayKey = keyof OpeningHours;
 
 const dayKeys = [
@@ -147,6 +161,7 @@ const dayKeys = [
 
 const timeOptions = Array.from({ length: 24 * 4 }, (_, index) => minutesToTime(index * 15));
 const reservationDurationOptions = [60, 75, 90, 105, 120, 135, 150, 180, 210, 240];
+const tablePriorityOptions = ["DISABLED", "LOW", "MEDIUM", "HIGH"] as const satisfies TableAutoAssignPriority[];
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -221,20 +236,129 @@ function nextTableLabel(tables: FloorTable[]) {
   return `T${tables.length + 1}`;
 }
 
+function createLocalId(prefix: string) {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${prefix}-${crypto.randomUUID()}`
+    : `${prefix}-${Date.now()}`;
+}
+
+function formatDisplayDate(date: string, locale: string) {
+  return new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-US", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  }).format(new Date(`${date}T12:00:00.000Z`));
+}
+
+function normalizeServiceWindows(dayHours: OpeningHours[string] | undefined) {
+  if (!dayHours || dayHours.closed) {
+    return [];
+  }
+
+  const windows: Array<{ service: "lunch" | "dinner"; open: string; close: string; openMinutes: number; closeMinutes: number }> = [];
+  const addWindow = (service: "lunch" | "dinner", open?: string, close?: string) => {
+    if (!open || !close) {
+      return;
+    }
+
+    try {
+      const openMinutes = parseTimeToMinutes(open);
+      const closeMinutes = parseTimeToMinutes(close);
+
+      if (closeMinutes > openMinutes) {
+        windows.push({ service, open, close, openMinutes, closeMinutes });
+      }
+    } catch {
+      // Invalid draft times are ignored until the admin saves a valid configuration.
+    }
+  };
+
+  addWindow("lunch", dayHours.open, dayHours.close);
+
+  if (dayHours.secondServiceEnabled) {
+    addWindow("dinner", dayHours.secondOpen, dayHours.secondClose);
+  }
+
+  return windows.sort((first, second) => first.openMinutes - second.openMinutes);
+}
+
+function isVacationDate(date: string, closures: VacationClosure[]) {
+  return closures.some((closure) => {
+    const startDate = closure.startDate <= closure.endDate ? closure.startDate : closure.endDate;
+    const endDate = closure.startDate <= closure.endDate ? closure.endDate : closure.startDate;
+    return date >= startDate && date <= endDate;
+  });
+}
+
+function getRestaurantOpeningStatus(openingHours: OpeningHours, closures: VacationClosure[]) {
+  const now = getZonedDateTimeParts("Europe/Paris");
+
+  if (isVacationDate(now.date, closures)) {
+    return { tone: "closed" as const, labelKey: "admin.closed" as const };
+  }
+
+  const serviceWindows = normalizeServiceWindows(openingHours[getDayKey(now.date)]);
+  const activeWindow = serviceWindows.find(
+    (serviceWindow) => now.minutes >= serviceWindow.openMinutes && now.minutes < serviceWindow.closeMinutes
+  );
+
+  if (activeWindow) {
+    return { tone: "open" as const, labelKey: "admin.open" as const };
+  }
+
+  const nextWindow = serviceWindows.find((serviceWindow) => serviceWindow.openMinutes > now.minutes);
+
+  if (nextWindow && nextWindow.openMinutes - now.minutes <= 30) {
+    return { tone: "soon" as const, labelKey: "admin.opensSoon" as const };
+  }
+
+  return { tone: "closed" as const, labelKey: "admin.closed" as const };
+}
+
+function reservationMatchesService(
+  reservation: Reservation,
+  filter: ReservationServiceFilter,
+  openingHours: OpeningHours,
+  selectedDate: string
+) {
+  if (filter === "all") {
+    return true;
+  }
+
+  const serviceWindows = normalizeServiceWindows(openingHours[getDayKey(selectedDate)]);
+  const startMinutes = parseTimeToMinutes(reservation.startTime);
+
+  return serviceWindows.some(
+    (serviceWindow) =>
+      serviceWindow.service === filter &&
+      startMinutes >= serviceWindow.openMinutes &&
+      startMinutes < serviceWindow.closeMinutes
+  );
+}
+
 export function AdminDashboard() {
   const queryClient = useQueryClient();
   const [restaurantId, setRestaurantId] = useState<string>();
   const [selectedDate, setSelectedDate] = useState(today());
   const [view, setView] = useState<"calendar" | "list" | "timeline">("calendar");
+  const [reservationServiceFilter, setReservationServiceFilter] = useState<ReservationServiceFilter>("all");
   const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("2d");
   const [floorZoom, setFloorZoom] = useState(1);
   const [deleteMode, setDeleteMode] = useState(false);
+  const [showCreateTablePanel, setShowCreateTablePanel] = useState(false);
   const [adminPanel, setAdminPanel] = useState<AdminPanel>("restaurant");
   const [tableForm, setTableForm] = useState({
     label: "",
     capacity: 2,
+    autoAssignPriority: "DISABLED" as TableAutoAssignPriority,
     zone: "INDOOR" as TableZone,
     shape: "ROUND" as TableShape
+  });
+  const [pendingDeleteTableId, setPendingDeleteTableId] = useState<string>();
+  const [combinationForm, setCombinationForm] = useState({
+    label: "",
+    tableIds: [] as string[]
   });
   const [blockForm, setBlockForm] = useState({
     date: today(),
@@ -258,6 +382,7 @@ export function AdminDashboard() {
   });
   const [restaurantFormError, setRestaurantFormError] = useState<string>();
   const [restaurantSaved, setRestaurantSaved] = useState(false);
+  const [nowTick, setNowTick] = useState(0);
   const [selectedTableDraft, setSelectedTableDraft] = useState<TableDraft | null>(null);
   const [selectedTableDisplayScaleDraft, setSelectedTableDisplayScaleDraft] = useState(1);
   const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
@@ -268,7 +393,7 @@ export function AdminDashboard() {
   const pendingTableViewImageIdRef = useRef<string | null>(null);
   const { selectedTableId, setSelectedTableId } = useFloorPlanStore();
   const realtime = useRealtimeStore();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const adminMenuItems = useMemo(
     () => [
       { id: "restaurant" as const, label: t("admin.menuRestaurant") },
@@ -317,6 +442,11 @@ export function AdminDashboard() {
 
   useRestaurantSocket(restaurant?.id);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowTick((current) => current + 1), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const tablesQuery = useQuery({
     queryKey: ["tables", restaurant?.id],
     enabled: Boolean(restaurant?.id),
@@ -350,6 +480,7 @@ export function AdminDashboard() {
   const createTableMutation = useMutation({
     mutationFn: (overrides?: CreateTableOverrides) => {
       const {
+        autoAssignPriority: _autoAssignPriority,
         displayScale: _displayScale,
         features: _features,
         shape: _shape,
@@ -371,6 +502,7 @@ export function AdminDashboard() {
     },
     onSuccess: (data, variables) => {
       setTableForm((current) => ({ ...current, label: "" }));
+      setShowCreateTablePanel(false);
       let settings: Record<string, unknown> = withTableShape(
         getRestaurantSettingsFromForm(),
         data.table.id,
@@ -387,6 +519,12 @@ export function AdminDashboard() {
       if (variables?.viewImageUrl) {
         settings = withTableViewImage(settings, data.table.id, variables.viewImageUrl);
       }
+
+      settings = withTableAutoAssignPriority(
+        settings,
+        data.table.id,
+        variables?.autoAssignPriority ?? tableForm.autoAssignPriority
+      );
 
       void patchRestaurantSettings(settings).catch((error) => {
         setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
@@ -674,6 +812,17 @@ export function AdminDashboard() {
   const selectedTableFeatures = selectedTable
     ? tableFeaturesFromSettings(parsedRestaurantSettings)[selectedTable.id] ?? selectedTable.features ?? []
     : [];
+  const tableAutoAssignPriorities = useMemo(
+    () => tableAutoAssignPrioritiesFromSettings(parsedRestaurantSettings),
+    [parsedRestaurantSettings]
+  );
+  const selectedTablePriority = selectedTable
+    ? tableAutoAssignPriorities[selectedTable.id] ?? selectedTable.autoAssignPriority ?? "DISABLED"
+    : "DISABLED";
+  const tableCombinations = useMemo(
+    () => tableCombinationsFromSettings(parsedRestaurantSettings),
+    [parsedRestaurantSettings]
+  );
   const openingHoursDraft = useMemo(() => {
     try {
       return JSON.parse(restaurantForm.openingHours) as OpeningHours;
@@ -695,6 +844,14 @@ export function AdminDashboard() {
     () => readVacationClosures(parsedRestaurantSettings),
     [parsedRestaurantSettings]
   );
+  const selectedDateLabel = useMemo(
+    () => formatDisplayDate(selectedDate, locale),
+    [locale, selectedDate]
+  );
+  const openingStatus = useMemo(
+    () => getRestaurantOpeningStatus(openingHoursDraft, vacationClosures),
+    [nowTick, openingHoursDraft, vacationClosures]
+  );
   const visualTables = useMemo(() => {
     if (!selectedTableId || !selectedTableDraft) {
       return tables;
@@ -711,13 +868,20 @@ export function AdminDashboard() {
     );
   }, [selectedTableDisplayScaleDraft, selectedTableDraft, selectedTableId, tables]);
 
+  const filteredReservations = useMemo(
+    () =>
+      reservations.filter((reservation) =>
+        reservationMatchesService(reservation, reservationServiceFilter, openingHoursDraft, selectedDate)
+      ),
+    [openingHoursDraft, reservationServiceFilter, reservations, selectedDate]
+  );
   const groupedReservations = useMemo(() => {
-    return reservations.reduce<Record<string, Reservation[]>>((groups, reservation) => {
+    return filteredReservations.reduce<Record<string, Reservation[]>>((groups, reservation) => {
       groups[reservation.startTime] = groups[reservation.startTime] ?? [];
       groups[reservation.startTime].push(reservation);
       return groups;
     }, {});
-  }, [reservations]);
+  }, [filteredReservations]);
   const activeReservations = useMemo(
     () => reservations.filter((reservation) => reservation.status !== "CANCELLED"),
     [reservations]
@@ -745,11 +909,16 @@ export function AdminDashboard() {
     availableTableCapacityCounts.two + availableTableCapacityCounts.four + availableTableCapacityCounts.sixPlus;
   const timelineReservations = useMemo(
     () =>
-      [...activeReservations].sort((first, second) =>
+      filteredReservations
+        .filter((reservation) => reservation.status !== "CANCELLED")
+        .sort((first, second) =>
         `${first.startTime}-${first.endTime}`.localeCompare(`${second.startTime}-${second.endTime}`)
       ),
-    [activeReservations]
+    [filteredReservations]
   );
+  const pendingDeleteTable = pendingDeleteTableId
+    ? tables.find((table) => table.id === pendingDeleteTableId)
+    : undefined;
 
   useEffect(() => {
     if (!selectedTable) {
@@ -952,6 +1121,18 @@ export function AdminDashboard() {
     queryClient.invalidateQueries({ queryKey: ["restaurants"] });
   }
 
+  async function persistTableAutoAssignPriority(tableId: string, priority: TableAutoAssignPriority) {
+    const settings = withTableAutoAssignPriority(getRestaurantSettingsFromForm(), tableId, priority);
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistTableCombinations(combinations: TableCombination[]) {
+    const settings = withTableCombinations(getRestaurantSettingsFromForm(), combinations);
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
   async function persistTableDisplayScale(tableId: string, displayScale: number) {
     let settings: Record<string, unknown> = withTableDisplayScale(
       getRestaurantSettingsFromForm(),
@@ -1024,7 +1205,7 @@ export function AdminDashboard() {
 
   function handleQuickCreateTable() {
     setDeleteMode(false);
-    setAdminPanel("tables");
+    setShowCreateTablePanel((current) => !current);
     setTableForm((current) => ({
       ...current,
       label: current.label || nextTableLabel(tables)
@@ -1035,6 +1216,7 @@ export function AdminDashboard() {
     setDeleteMode(false);
     createTableMutation.mutate({
       active: table.active,
+      autoAssignPriority: table.autoAssignPriority ?? "DISABLED",
       capacity: table.capacity,
       displayScale: table.displayScale ?? defaultTableDisplayScale,
       features: table.features ?? [],
@@ -1049,7 +1231,7 @@ export function AdminDashboard() {
   }
 
   function handleRotateTable(table: FloorTable) {
-    const rotation = (Math.round(table.rotation) + 15) % 360;
+    const rotation = (Math.round(table.rotation) + 90) % 360;
     setSelectedTableId(table.id);
 
     if (selectedTableId === table.id) {
@@ -1072,10 +1254,68 @@ export function AdminDashboard() {
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     createTableMutation.mutate({
+      autoAssignPriority: tableForm.autoAssignPriority,
+      capacity: tableForm.capacity,
       label: tableForm.label.trim() || nextTableLabel(tables),
       positionX: 430,
-      positionY: 270
+      positionY: 270,
+      shape: tableForm.shape,
+      zone: tableForm.zone
     });
+  }
+
+  function requestDeleteTable(tableId: string) {
+    setPendingDeleteTableId(tableId);
+  }
+
+  function confirmDeleteTable() {
+    if (pendingDeleteTableId) {
+      deleteTableMutation.mutate(pendingDeleteTableId);
+    }
+
+    setPendingDeleteTableId(undefined);
+  }
+
+  function toggleCombinationTable(tableId: string) {
+    setCombinationForm((current) => ({
+      ...current,
+      tableIds: current.tableIds.includes(tableId)
+        ? current.tableIds.filter((item) => item !== tableId)
+        : [...current.tableIds, tableId]
+    }));
+  }
+
+  function addTableCombination() {
+    const tableIds = Array.from(new Set(combinationForm.tableIds));
+
+    if (tableIds.length < 2) {
+      return;
+    }
+
+    const label = combinationForm.label.trim() || tableIds
+      .map((tableId) => tables.find((table) => table.id === tableId)?.label)
+      .filter(Boolean)
+      .join(" + ");
+
+    void persistTableCombinations([
+      ...tableCombinations,
+      {
+        id: createLocalId("combination"),
+        label,
+        tableIds
+      }
+    ]).catch((error) => {
+      setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+    });
+    setCombinationForm({ label: "", tableIds: [] });
+  }
+
+  function removeTableCombination(combinationId: string) {
+    void persistTableCombinations(tableCombinations.filter((combination) => combination.id !== combinationId)).catch(
+      (error) => {
+        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+      }
+    );
   }
 
   return (
@@ -1099,6 +1339,33 @@ export function AdminDashboard() {
           event.currentTarget.value = "";
         }}
       />
+      {pendingDeleteTable ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 px-4">
+          <div className="w-full max-w-sm rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <h2 className="text-base font-black text-ink">{t("admin.confirmDeleteTableTitle")}</h2>
+            <p className="mt-2 text-sm font-semibold text-ink/65">
+              {t("admin.confirmDeleteTable", { label: pendingDeleteTable.label })}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setPendingDeleteTableId(undefined)}
+              >
+                {t("common.no")}
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                disabled={deleteTableMutation.isPending}
+                onClick={confirmDeleteTable}
+              >
+                {t("common.yes")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-black text-ink">{t("admin.title")}</h1>
@@ -1162,6 +1429,33 @@ export function AdminDashboard() {
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink/10 bg-white px-4 py-3 shadow-soft">
+        <div>
+          <p className="text-xs font-bold uppercase text-ink/50">{t("admin.selectedDate")}</p>
+          <p className="text-sm font-black capitalize text-ink">{selectedDateLabel}</p>
+        </div>
+        <span
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-black ${
+            openingStatus.tone === "open"
+              ? "bg-moss/10 text-moss"
+              : openingStatus.tone === "soon"
+                ? "bg-orange-50 text-orange-700"
+                : "bg-red-50 text-red-700"
+          }`}
+        >
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              openingStatus.tone === "open"
+                ? "bg-moss"
+                : openingStatus.tone === "soon"
+                  ? "bg-orange-500"
+                  : "bg-red-600"
+            }`}
+          />
+          {t(openingStatus.labelKey)}
+        </span>
       </div>
 
       <div className="mb-6 grid gap-3 lg:grid-cols-3">
@@ -1549,80 +1843,6 @@ export function AdminDashboard() {
 
           {adminPanel === "tables" ? (
           <div className="space-y-4">
-          <form className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft" onSubmit={handleCreateTable}>
-            <h2 className="mb-3 text-base font-bold text-ink">{t("admin.menuTables")}</h2>
-            <div className="grid gap-3">
-              <label className="text-sm font-semibold text-ink">
-                {t("admin.label")}
-                <input
-                  className="control mt-1 w-full"
-                  value={tableForm.label}
-                  onChange={(event) => setTableForm((current) => ({ ...current, label: event.target.value }))}
-                  placeholder="T12"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-sm font-semibold text-ink">
-                  {t("admin.capacity")}
-                  <input
-                    className="control mt-1 w-full"
-                    min={1}
-                    max={40}
-                    type="number"
-                    value={tableForm.capacity}
-                    onChange={(event) =>
-                      setTableForm((current) => ({ ...current, capacity: Number(event.target.value) }))
-                    }
-                  />
-                </label>
-                <label className="text-sm font-semibold text-ink">
-                  {t("admin.zone")}
-                  <select
-                    className="control mt-1 w-full"
-                    disabled={restaurant?.layoutLocked}
-                    value={tableForm.zone}
-                    onChange={(event) =>
-                      setTableForm((current) => ({
-                        ...current,
-                        zone: event.target.value as TableZone
-                      }))
-                    }
-                  >
-                    <option value="INDOOR">{t("floor.indoor")}</option>
-                    <option value="TERRACE">{t("floor.terrace")}</option>
-                    <option value="VIP">VIP</option>
-                  </select>
-                </label>
-              </div>
-              <label className="text-sm font-semibold text-ink">
-                {t("admin.shape")}
-                <select
-                  className="control mt-1 w-full"
-                  disabled={restaurant?.layoutLocked}
-                  value={tableForm.shape}
-                  onChange={(event) =>
-                    setTableForm((current) => ({
-                      ...current,
-                      shape: event.target.value as TableShape
-                    }))
-                  }
-                >
-                  <option value="ROUND">{t("shape.ROUND")}</option>
-                  <option value="SQUARE">{t("shape.SQUARE")}</option>
-                  <option value="RECTANGLE">{t("shape.RECTANGLE")}</option>
-                </select>
-              </label>
-              <button
-                className="primary-button"
-                disabled={!restaurant || restaurant.layoutLocked || createTableMutation.isPending}
-                type="submit"
-              >
-                <Plus className="h-4 w-4" />
-                {t("admin.addTable")}
-              </button>
-            </div>
-          </form>
-
           <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-base font-bold text-ink">{t("admin.selectedTable")}</h2>
@@ -1704,6 +1924,30 @@ export function AdminDashboard() {
                     <option value="ROUND">{t("shape.ROUND")}</option>
                     <option value="SQUARE">{t("shape.SQUARE")}</option>
                     <option value="RECTANGLE">{t("shape.RECTANGLE")}</option>
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("admin.tablePriority")}
+                  <select
+                    className="control mt-1 w-full"
+                    disabled={restaurant?.layoutLocked}
+                    value={selectedTablePriority}
+                    onChange={(event) => {
+                      void persistTableAutoAssignPriority(
+                        selectedTable.id,
+                        event.target.value as TableAutoAssignPriority
+                      ).catch((error) => {
+                        setRestaurantFormError(
+                          error instanceof Error ? error.message : t("admin.invalidJson")
+                        );
+                      });
+                    }}
+                  >
+                    {tablePriorityOptions.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {t(`priority.${priority}`)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <div className="rounded-md border border-ink/10 bg-linen p-3">
@@ -1810,7 +2054,7 @@ export function AdminDashboard() {
                     className="danger-button"
                     type="button"
                     disabled={deleteTableMutation.isPending || restaurant?.layoutLocked}
-                    onClick={() => deleteTableMutation.mutate(selectedTable.id)}
+                    onClick={() => requestDeleteTable(selectedTable.id)}
                   >
                     <Trash2 className="h-4 w-4" />
                     {t("admin.deleteTable")}
@@ -1820,6 +2064,83 @@ export function AdminDashboard() {
             ) : (
               <p className="text-sm text-ink/65">{t("admin.noTableSelected")}</p>
             )}
+          </div>
+          <div className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <h2 className="text-base font-bold text-ink">{t("admin.tableCombinations")}</h2>
+            <p className="mt-1 text-sm font-semibold text-ink/60">{t("admin.tableCombinationsHint")}</p>
+            <div className="mt-3 grid gap-3">
+              <label className="text-sm font-semibold text-ink">
+                {t("admin.combinationName")}
+                <input
+                  className="control mt-1 w-full"
+                  value={combinationForm.label}
+                  onChange={(event) =>
+                    setCombinationForm((current) => ({ ...current, label: event.target.value }))
+                  }
+                  placeholder="T1 + T2"
+                />
+              </label>
+              <div>
+                <p className="mb-2 text-sm font-semibold text-ink">{t("admin.combinationTables")}</p>
+                <div className="grid max-h-44 gap-2 overflow-auto rounded-md border border-ink/10 bg-linen p-2">
+                  {tables.map((table) => (
+                    <label
+                      key={table.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink"
+                    >
+                      <span>
+                        {table.label} · {t("floor.seats", { count: table.capacity })}
+                      </span>
+                      <input
+                        className="h-5 w-5 accent-moss"
+                        type="checkbox"
+                        checked={combinationForm.tableIds.includes(table.id)}
+                        disabled={restaurant?.layoutLocked}
+                        onChange={() => toggleCombinationTable(table.id)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={restaurant?.layoutLocked || combinationForm.tableIds.length < 2}
+                onClick={addTableCombination}
+              >
+                <Plus className="h-4 w-4" />
+                {t("admin.addCombination")}
+              </button>
+              <div className="divide-y divide-ink/10">
+                {tableCombinations.map((combination) => (
+                  <div key={combination.id} className="flex items-start justify-between gap-3 py-3 text-sm">
+                    <div>
+                      <p className="font-bold text-ink">{combination.label}</p>
+                      <p className="text-xs font-semibold text-ink/55">
+                        {combination.tableIds
+                          .map((tableId) => tables.find((table) => table.id === tableId)?.label)
+                          .filter(Boolean)
+                          .join(" + ")}
+                      </p>
+                    </div>
+                    <button
+                      className="icon-button h-8 w-8"
+                      title={t("admin.delete")}
+                      type="button"
+                      disabled={restaurant?.layoutLocked}
+                      onClick={() => removeTableCombination(combination.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {tableCombinations.length === 0 ? (
+                <p className="rounded-md bg-linen px-3 py-2 text-sm font-semibold text-ink/60">
+                  {t("admin.noCombinations")}
+                </p>
+              ) : null}
+            </div>
           </div>
           </div>
           ) : null}
@@ -2039,10 +2360,13 @@ export function AdminDashboard() {
                 </button>
                 <button
                   className={`icon-button ${deleteMode ? "border-red-200 bg-red-50 text-red-700" : ""}`}
-                  title={t("admin.deleteMode")}
+                  title={t("admin.deleteTableMode")}
                   type="button"
                   disabled={!restaurant || restaurant.layoutLocked}
-                  onClick={() => setDeleteMode((current) => !current)}
+                  onClick={() => {
+                    setShowCreateTablePanel(false);
+                    setDeleteMode((current) => !current);
+                  }}
                 >
                   <Minus className="h-4 w-4" />
                 </button>
@@ -2164,6 +2488,97 @@ export function AdminDashboard() {
             ) : null}
           </div>
 
+          {showCreateTablePanel ? (
+            <form
+              className="rounded-lg border border-moss/20 bg-white p-4 shadow-soft"
+              onSubmit={handleCreateTable}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-base font-bold text-ink">{t("admin.addTable")}</h2>
+                <button
+                  className="icon-button h-8 w-8"
+                  title={t("admin.close")}
+                  type="button"
+                  onClick={() => setShowCreateTablePanel(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-5">
+                <label className="text-sm font-semibold text-ink md:col-span-2">
+                  {t("admin.label")}
+                  <input
+                    className="control mt-1 w-full"
+                    value={tableForm.label}
+                    onChange={(event) => setTableForm((current) => ({ ...current, label: event.target.value }))}
+                    placeholder={nextTableLabel(tables)}
+                  />
+                </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("admin.capacity")}
+                  <input
+                    className="control mt-1 w-full"
+                    min={1}
+                    max={40}
+                    type="number"
+                    value={tableForm.capacity}
+                    onChange={(event) =>
+                      setTableForm((current) => ({ ...current, capacity: Number(event.target.value) }))
+                    }
+                  />
+                </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("admin.shape")}
+                  <select
+                    className="control mt-1 w-full"
+                    disabled={restaurant?.layoutLocked}
+                    value={tableForm.shape}
+                    onChange={(event) =>
+                      setTableForm((current) => ({
+                        ...current,
+                        shape: event.target.value as TableShape
+                      }))
+                    }
+                  >
+                    <option value="ROUND">{t("shape.ROUND")}</option>
+                    <option value="SQUARE">{t("shape.SQUARE")}</option>
+                    <option value="RECTANGLE">{t("shape.RECTANGLE")}</option>
+                  </select>
+                </label>
+                <label className="text-sm font-semibold text-ink">
+                  {t("admin.tablePriority")}
+                  <select
+                    className="control mt-1 w-full"
+                    disabled={restaurant?.layoutLocked}
+                    value={tableForm.autoAssignPriority}
+                    onChange={(event) =>
+                      setTableForm((current) => ({
+                        ...current,
+                        autoAssignPriority: event.target.value as TableAutoAssignPriority
+                      }))
+                    }
+                  >
+                    {tablePriorityOptions.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {t(`priority.${priority}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <button
+                  className="primary-button"
+                  disabled={!restaurant || restaurant.layoutLocked || createTableMutation.isPending}
+                  type="submit"
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("admin.addTable")}
+                </button>
+              </div>
+            </form>
+          ) : null}
+
           <FloorPlan
             mode="admin"
             viewMode={floorViewMode}
@@ -2181,7 +2596,7 @@ export function AdminDashboard() {
                 data: position
               })
             }
-            onDelete={(tableId) => deleteTableMutation.mutate(tableId)}
+            onDelete={requestDeleteTable}
             onDuplicate={handleDuplicateTable}
             onRotate={handleRotateTable}
             onView={handleTableViewPhoto}
@@ -2192,6 +2607,21 @@ export function AdminDashboard() {
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-base font-bold text-ink">{t("admin.reservations")}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-md border border-ink/10 bg-linen p-1">
+                {(["all", "lunch", "dinner"] as const).map((service) => (
+                  <button
+                    key={service}
+                    className={`inline-flex h-9 items-center rounded px-3 text-sm font-semibold ${
+                      reservationServiceFilter === service ? "bg-white shadow-sm" : "text-ink/65"
+                    }`}
+                    type="button"
+                    onClick={() => setReservationServiceFilter(service)}
+                  >
+                    {t(`admin.service.${service}`)}
+                  </button>
+                ))}
+              </div>
               <div className="inline-flex rounded-md border border-ink/10 bg-linen p-1">
                 <button
                   className={`inline-flex h-9 items-center gap-2 rounded px-3 text-sm font-semibold ${
@@ -2224,6 +2654,7 @@ export function AdminDashboard() {
                   {t("admin.timeline")}
                 </button>
               </div>
+              </div>
             </div>
             {view === "calendar" ? (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -2248,7 +2679,7 @@ export function AdminDashboard() {
                     </div>
                   </div>
                 ))}
-                {reservations.length === 0 ? (
+                {filteredReservations.length === 0 ? (
                   <p className="rounded-md bg-sage/45 p-3 text-sm font-semibold text-ink">
                     {t("admin.noReservationsForDate")}
                   </p>
@@ -2256,7 +2687,7 @@ export function AdminDashboard() {
               </div>
             ) : view === "list" ? (
               <div className="divide-y divide-ink/10">
-                {reservations.map((reservation) => (
+                {filteredReservations.map((reservation) => (
                   <ReservationRow
                     key={reservation.id}
                     reservation={reservation}
@@ -2270,7 +2701,7 @@ export function AdminDashboard() {
                     onCancel={() => cancelReservationMutation.mutate(reservation.id)}
                   />
                 ))}
-                {reservations.length === 0 ? (
+                {filteredReservations.length === 0 ? (
                   <p className="rounded-md bg-sage/45 p-3 text-sm font-semibold text-ink">
                     {t("admin.noReservationsForDate")}
                   </p>

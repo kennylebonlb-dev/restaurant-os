@@ -1,7 +1,16 @@
 import { Prisma, type ReservationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { AvailabilitySlot, OpeningHours, TableFeature, VacationClosure } from "@/lib/domain";
-import { tableFeaturesFromSettings } from "@/lib/floor-plan-settings";
+import type {
+  AvailabilitySlot,
+  OpeningHours,
+  TableAutoAssignPriority,
+  TableFeature,
+  VacationClosure
+} from "@/lib/domain";
+import {
+  tableAutoAssignPrioritiesFromSettings,
+  tableFeaturesFromSettings
+} from "@/lib/floor-plan-settings";
 import {
   addMinutes,
   assertValidTimeRange,
@@ -56,6 +65,7 @@ type RestaurantPolicy = {
   minimumLeadTimeMinutes: number;
   releaseTableAfterDuration: boolean;
   strictCapacityMatching: boolean;
+  tableAutoAssignPriorities: Record<string, TableAutoAssignPriority>;
   tableFeatures: Record<string, TableFeature[]>;
 };
 
@@ -166,6 +176,9 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
     minimumLeadTimeMinutes: minimumLeadTimeFromSettings(restaurant.settings),
     releaseTableAfterDuration: releaseTableAfterDurationFromSettings(restaurant.settings),
     strictCapacityMatching: strictCapacityMatchingFromSettings(restaurant.settings),
+    tableAutoAssignPriorities: tableAutoAssignPrioritiesFromSettings(
+      isRecord(restaurant.settings) ? restaurant.settings : {}
+    ),
     tableFeatures: tableFeaturesFromSettings(isRecord(restaurant.settings) ? restaurant.settings : {})
   };
 }
@@ -194,6 +207,38 @@ function filterByPreferredCapacity<TTable extends { capacity: number }>(
 
   const exactTables = tables.filter((table) => table.capacity === numberOfGuests);
   return exactTables.length > 0 ? exactTables : tables;
+}
+
+function autoAssignPriorityRank(priority: TableAutoAssignPriority | undefined) {
+  if (priority === "HIGH") {
+    return 3;
+  }
+
+  if (priority === "MEDIUM") {
+    return 2;
+  }
+
+  if (priority === "LOW") {
+    return 1;
+  }
+
+  return 0;
+}
+
+function pickAutoAssignedTable<TTable extends { id: string }>(
+  tables: TTable[],
+  priorities: Record<string, TableAutoAssignPriority>
+) {
+  const rankedTables = tables.map((table) => ({
+    rank: autoAssignPriorityRank(priorities[table.id]),
+    table
+  }));
+  const highestRank = Math.max(...rankedTables.map((item) => item.rank));
+  const eligibleTables = highestRank > 0
+    ? rankedTables.filter((item) => item.rank === highestRank).map((item) => item.table)
+    : tables;
+
+  return eligibleTables[Math.floor(Math.random() * eligibleTables.length)];
 }
 
 function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy): ReservationWindow {
@@ -672,7 +717,7 @@ export async function createReservation(input: CreateReservationInput) {
           throw new ConflictError("No table is available for this time.");
         }
 
-        tableId = availableTables[Math.floor(Math.random() * availableTables.length)].id;
+        tableId = pickAutoAssignedTable(availableTables, policy.tableAutoAssignPriorities).id;
       }
 
       if (tableId) {

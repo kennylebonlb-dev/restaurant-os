@@ -1,4 +1,11 @@
-import { tableFeatures, type FloorTable, type TableFeature, type TableShape } from "@/lib/domain";
+import {
+  tableFeatures,
+  type FloorTable,
+  type TableAutoAssignPriority,
+  type TableCombination,
+  type TableFeature,
+  type TableShape
+} from "@/lib/domain";
 
 const DEFAULT_2D_PLAN_IMAGE = "/floor-plans/restaurant-2d.png";
 const MIN_TABLE_DISPLAY_SCALE = 0.6;
@@ -10,6 +17,10 @@ export function isTableShape(value: unknown): value is TableShape {
 
 export function isTableFeature(value: unknown): value is TableFeature {
   return tableFeatures.some((feature) => feature === value);
+}
+
+export function isTableAutoAssignPriority(value: unknown): value is TableAutoAssignPriority {
+  return value === "DISABLED" || value === "LOW" || value === "MEDIUM" || value === "HIGH";
 }
 
 export function tableShapesFromSettings(settings?: Record<string, unknown> | null) {
@@ -100,6 +111,58 @@ export function tableViewImagesFromSettings(settings?: Record<string, unknown> |
   }, {});
 }
 
+export function tableAutoAssignPrioritiesFromSettings(settings?: Record<string, unknown> | null) {
+  const tablePriorities = settings?.tableAutoAssignPriorities;
+
+  if (!tablePriorities || typeof tablePriorities !== "object" || Array.isArray(tablePriorities)) {
+    return {};
+  }
+
+  return Object.entries(tablePriorities).reduce<Record<string, TableAutoAssignPriority>>(
+    (priorities, [tableId, priority]) => {
+      if (isTableAutoAssignPriority(priority)) {
+        priorities[tableId] = priority;
+      }
+
+      return priorities;
+    },
+    {}
+  );
+}
+
+export function tableCombinationsFromSettings(settings?: Record<string, unknown> | null): TableCombination[] {
+  const combinations = settings?.tableCombinations;
+
+  if (!Array.isArray(combinations)) {
+    return [];
+  }
+
+  return combinations
+    .map((combination): TableCombination | null => {
+      if (!combination || typeof combination !== "object" || Array.isArray(combination)) {
+        return null;
+      }
+
+      const record = combination as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id : "";
+      const label = typeof record.label === "string" ? record.label : "";
+      const tableIds = Array.isArray(record.tableIds)
+        ? record.tableIds.filter((tableId): tableId is string => typeof tableId === "string")
+        : [];
+
+      if (!id || !label || tableIds.length < 2) {
+        return null;
+      }
+
+      return {
+        id,
+        label,
+        tableIds: Array.from(new Set(tableIds))
+      };
+    })
+    .filter((combination): combination is TableCombination => Boolean(combination));
+}
+
 export function defaultTableDisplayScaleFromSettings(settings?: Record<string, unknown> | null) {
   return normalizeTableDisplayScale(settings?.defaultTableDisplayScale);
 }
@@ -164,6 +227,35 @@ export function withTableViewImage(
   };
 }
 
+export function withTableAutoAssignPriority(
+  settings: Record<string, unknown>,
+  tableId: string,
+  priority: TableAutoAssignPriority
+) {
+  return {
+    ...settings,
+    tableAutoAssignPriorities: {
+      ...tableAutoAssignPrioritiesFromSettings(settings),
+      [tableId]: priority
+    }
+  };
+}
+
+export function withTableCombinations(
+  settings: Record<string, unknown>,
+  combinations: TableCombination[]
+) {
+  return {
+    ...settings,
+    tableCombinations: combinations
+      .map((combination) => ({
+        ...combination,
+        tableIds: Array.from(new Set(combination.tableIds))
+      }))
+      .filter((combination) => combination.label.trim() && combination.tableIds.length >= 2)
+  };
+}
+
 export function withDefaultTableDisplayScale(
   settings: Record<string, unknown>,
   displayScale: number,
@@ -184,13 +276,15 @@ export function applyFloorPlanSettings(
   const features = tableFeaturesFromSettings(settings);
   const displayScales = tableDisplayScalesFromSettings(settings);
   const viewImages = tableViewImagesFromSettings(settings);
+  const priorities = tableAutoAssignPrioritiesFromSettings(settings);
 
   return tables.map((table) => ({
     ...table,
     features: features[table.id] ?? table.features ?? [],
     shape: shapes[table.id] ?? table.shape ?? "ROUND",
     displayScale: displayScales[table.id] ?? table.displayScale ?? 1,
-    viewImageUrl: viewImages[table.id] ?? table.viewImageUrl
+    viewImageUrl: viewImages[table.id] ?? table.viewImageUrl,
+    autoAssignPriority: priorities[table.id] ?? table.autoAssignPriority ?? "DISABLED"
   }));
 }
 

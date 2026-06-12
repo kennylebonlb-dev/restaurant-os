@@ -859,7 +859,7 @@ function TableModel({
         <Html center position={[width / 2 + 0.44, 1.03, -depth / 2 - 0.24]}>
           <button
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-red-600 text-sm font-black text-white shadow-lg transition hover:bg-red-700"
-            title="Supprimer"
+            title={t("admin.deleteTable")}
             type="button"
             onClick={(event) => {
               event.stopPropagation();

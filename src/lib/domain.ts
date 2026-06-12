@@ -1,6 +1,7 @@
 export type Role = "CLIENT" | "ADMIN" | "STAFF";
 export type TableZone = "INDOOR" | "TERRACE" | "VIP";
 export type TableShape = "ROUND" | "SQUARE" | "RECTANGLE";
+export type TableAutoAssignPriority = "DISABLED" | "LOW" | "MEDIUM" | "HIGH";
 export const tableFeatures = ["QUIET", "ACCESSIBLE", "KIDS", "WINDOW"] as const;
 export type TableFeature = (typeof tableFeatures)[number];
 export type ReservationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
@@ -38,6 +39,13 @@ export type FloorTable = {
   features?: TableFeature[];
   displayScale?: number;
   viewImageUrl?: string;
+  autoAssignPriority?: TableAutoAssignPriority;
+};
+
+export type TableCombination = {
+  id: string;
+  label: string;
+  tableIds: string[];
 };
 
 export type DetectedGlbTable = {
