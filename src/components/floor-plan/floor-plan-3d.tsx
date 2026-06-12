@@ -2,6 +2,7 @@
 
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { Billboard, Html, OrbitControls, PerspectiveCamera, Text, useGLTF } from "@react-three/drei";
+import { Eye } from "lucide-react";
 import { type MutableRefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -28,6 +29,7 @@ type FloorPlan3DProps = {
   onSelect?: (table: FloorTable) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
   onDelete?: (tableId: string) => void;
+  onView?: (table: FloorTable) => void;
   onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 };
 
@@ -739,7 +741,9 @@ function TableModel({
   disabled,
   selected,
   deleteMode,
+  mode,
   onDelete,
+  onView,
   onPointerDown,
   onPointerMove,
   onPointerUp
@@ -748,11 +752,14 @@ function TableModel({
   disabled: boolean;
   selected: boolean;
   deleteMode: boolean;
+  mode: "booking" | "admin";
   onDelete?: (tableId: string) => void;
+  onView?: (table: FloorTable) => void;
   onPointerDown: (event: ThreeEvent<PointerEvent>, table: FloorTable) => void;
   onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
 }) {
+  const { t } = useI18n();
   const { width, depth } = tableDimensions(table.capacity, table.shape, table.displayScale);
   const position = toScenePosition(table.positionX, table.positionY);
   const theme = zoneTheme(table.zone);
@@ -808,20 +815,46 @@ function TableModel({
       </mesh>
       <Billboard position={[0, 1.05, 0]}>
         <mesh>
-          <planeGeometry args={[1.7, 0.44]} />
+          <planeGeometry args={[1.72, 0.58]} />
           <meshBasicMaterial color="#ffffff" transparent opacity={0.92} />
         </mesh>
         <Text
           anchorX="center"
           anchorY="middle"
           color="#16201d"
-          fontSize={0.19}
+          fontSize={0.18}
           maxWidth={1.5}
-          position={[0, 0.02, 0.01]}
+          position={[0, 0.1, 0.01]}
         >
-          {`${table.label} · ${table.capacity}`}
+          {table.label}
+        </Text>
+        <Text
+          anchorX="center"
+          anchorY="middle"
+          color="#46514c"
+          fontSize={0.13}
+          maxWidth={1.5}
+          position={[0, -0.12, 0.01]}
+        >
+          {t("floor.seats", { count: table.capacity })}
         </Text>
       </Billboard>
+      {mode === "booking" && table.viewImageUrl ? (
+        <Html center position={[width / 2 + 0.42, 1.08, -depth / 2 - 0.24]}>
+          <button
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-white text-ink shadow-lg transition hover:bg-sage focus-ring"
+            title={t("floor.viewPhoto")}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onView?.(table);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </button>
+        </Html>
+      ) : null}
       {deleteMode ? (
         <Html center position={[width / 2 + 0.44, 1.03, -depth / 2 - 0.24]}>
           <button
@@ -908,6 +941,7 @@ function DetectedTableHotspots({
   onSelect?: (table: FloorTable) => void;
 }) {
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+  const { t } = useI18n();
 
   function findMatchingTable(detectedTable: DetectedGlbTable) {
     let nearestTable: FloorTable | undefined;
@@ -969,7 +1003,7 @@ function DetectedTableHotspots({
             {mode === "admin" || selected ? (
               <Billboard position={[0, 0.64, 0]}>
                 <mesh>
-                  <planeGeometry args={[1.82, 0.42]} />
+                  <planeGeometry args={[1.82, 0.58]} />
                   <meshBasicMaterial color="#ffffff" opacity={0.9} transparent />
                 </mesh>
                 <Text
@@ -978,9 +1012,19 @@ function DetectedTableHotspots({
                   color="#16201d"
                   fontSize={0.16}
                   maxWidth={1.58}
-                  position={[0, 0, 0.01]}
+                  position={[0, 0.1, 0.01]}
                 >
-                  {`${matchingTable?.label ?? detectedTable.label} · ${detectedTable.capacity}`}
+                  {matchingTable?.label ?? detectedTable.label}
+                </Text>
+                <Text
+                  anchorX="center"
+                  anchorY="middle"
+                  color="#46514c"
+                  fontSize={0.12}
+                  maxWidth={1.58}
+                  position={[0, -0.12, 0.01]}
+                >
+                  {t("floor.seats", { count: matchingTable?.capacity ?? detectedTable.capacity })}
                 </Text>
               </Billboard>
             ) : null}
@@ -1005,7 +1049,8 @@ function RestaurantScene({
   onOptimisticMove,
   onSelect,
   onMove,
-  onDelete
+  onDelete,
+  onView
 }: RestaurantSceneProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const draggingTableIdRef = useRef<string | null>(null);
@@ -1149,7 +1194,9 @@ function RestaurantScene({
             key={table.id}
             deleteMode={mode === "admin" && deleteMode}
             disabled={disabled}
+            mode={mode}
             onDelete={onDelete}
+            onView={onView}
             selected={table.id === selectedTableId || table.id === draggingTableId}
             table={table}
             onPointerDown={handleTablePointerDown}
@@ -1174,7 +1221,8 @@ export function FloorPlan3D({
   onDetectedTablesChange,
   onSelect,
   onMove,
-  onDelete
+  onDelete,
+  onView
 }: FloorPlan3DProps) {
   const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
@@ -1248,6 +1296,7 @@ export function FloorPlan3D({
           onDetectedTablesChange={onDetectedTablesChange}
           onMove={onMove}
           onSelect={onSelect}
+          onView={onView}
         />
       </Canvas>
     </div>

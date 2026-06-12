@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
+  Eye,
   FileText,
   LayoutGrid,
   Mail,
@@ -134,6 +135,7 @@ export function BookingExperience() {
   const [message, setMessage] = useState<string>();
   const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("3d");
   const [floorZoom, setFloorZoom] = useState(1);
+  const [viewPreviewTableId, setViewPreviewTableId] = useState<string>();
   const booking = useBookingStore();
   const { locale, t } = useI18n();
 
@@ -252,6 +254,15 @@ export function BookingExperience() {
     () => restaurantTables.find((table) => table.id === booking.selectedTableId),
     [booking.selectedTableId, restaurantTables]
   );
+  const viewPreviewTable = useMemo(
+    () => restaurantTables.find((table) => table.id === viewPreviewTableId),
+    [restaurantTables, viewPreviewTableId]
+  );
+  const tableViewPreview = viewPreviewTable?.viewImageUrl
+    ? viewPreviewTable
+    : selectedTable?.viewImageUrl
+      ? selectedTable
+      : undefined;
   const floorPlanModelUrl = useMemo(
     () => floorPlanModelUrlFromSettings(restaurant?.settings),
     [restaurant?.settings]
@@ -350,6 +361,12 @@ export function BookingExperience() {
       booking.resetTable();
     }
   }, [availabilityQuery.data, availableIds, booking.selectedTableId, booking.resetTable]);
+
+  useEffect(() => {
+    if (viewPreviewTableId && !restaurantTables.some((table) => table.id === viewPreviewTableId)) {
+      setViewPreviewTableId(undefined);
+    }
+  }, [restaurantTables, viewPreviewTableId]);
 
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_1fr] lg:px-8">
@@ -737,18 +754,26 @@ export function BookingExperience() {
           modelUrl={floorPlanModelUrl}
           backgroundImageUrl={floorPlan2dImageUrl}
           onZoomChange={setFloorZoom}
+          onView={(table) => setViewPreviewTableId(table.id)}
           onSelect={(table) => {
             if (!booking.autoAssignTable && availableIds.includes(table.id)) {
               booking.setBookingField("selectedTableId", table.id);
+              if (table.viewImageUrl) {
+                setViewPreviewTableId(table.id);
+              }
             }
           }}
         />
-        {selectedTable?.viewImageUrl ? (
-          <div className="mt-3 overflow-hidden rounded-lg border border-ink/10 bg-white shadow-soft">
+        {tableViewPreview?.viewImageUrl ? (
+          <div className="mt-3 max-w-sm overflow-hidden rounded-lg border border-ink/10 bg-white shadow-soft">
+            <div className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-ink">
+              <Eye className="h-4 w-4 text-moss" />
+              {t("floor.viewPhoto")} · {tableViewPreview.label}
+            </div>
             <img
               alt=""
-              className="h-44 w-full object-cover"
-              src={selectedTable.viewImageUrl}
+              className="h-36 w-full object-cover"
+              src={tableViewPreview.viewImageUrl}
             />
           </div>
         ) : null}

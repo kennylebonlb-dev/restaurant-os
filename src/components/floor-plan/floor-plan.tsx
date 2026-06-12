@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { Armchair, Copy, Eye, Lock, RotateCw, Trash2, X } from "lucide-react";
-import { PointerEvent, WheelEvent, useEffect, useRef, useState } from "react";
+import { PointerEvent, useEffect, useRef, useState } from "react";
 import { FloorPlan3D } from "@/components/floor-plan/floor-plan-3d";
 import type { DetectedGlbTable, FloorTable, TableShape } from "@/lib/domain";
 import { useI18n } from "@/lib/i18n";
@@ -163,6 +163,22 @@ export function FloorPlan({
       return;
     }
 
+    const viewport = viewportRef.current;
+
+    if (!viewport) {
+      return;
+    }
+
+    viewport.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => viewport.removeEventListener("wheel", handleWheel);
+  }, [viewMode, zoom, onZoomChange, pan.x, pan.y, effectiveTwoDScale, twoDScale]);
+
+  useEffect(() => {
+    if (viewMode !== "2d") {
+      return;
+    }
+
     setPan((current) => {
       const nextPan = clampPan(current);
       return nextPan.x === current.x && nextPan.y === current.y ? current : nextPan;
@@ -252,12 +268,14 @@ export function FloorPlan({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+  function handleWheel(event: globalThis.WheelEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+
     if (!onZoomChange || viewMode !== "2d") {
       return;
     }
 
-    event.preventDefault();
     const nextZoom = Math.round(Math.min(1.8, Math.max(0.6, zoom - event.deltaY * 0.0015)) * 100) / 100;
 
     if (nextZoom === zoom) {
@@ -381,6 +399,7 @@ export function FloorPlan({
           onSelect={onSelect}
           onMove={onMove}
           onDelete={onDelete}
+          onView={onView}
           onDetectedTablesChange={onDetectedTablesChange}
         />
       ) : (
@@ -390,12 +409,11 @@ export function FloorPlan({
             "relative w-full max-w-full touch-none overflow-hidden rounded-md border border-ink/10 bg-[#30302f]",
             isPanning ? "cursor-grabbing" : "cursor-grab"
           )}
-          style={{ height: PLAN_HEIGHT }}
+          style={{ height: PLAN_HEIGHT, overscrollBehavior: "contain" }}
           onPointerDown={handleViewportPointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          onWheel={handleWheel}
         >
           <div
             ref={containerRef}
@@ -447,6 +465,7 @@ export function FloorPlan({
             const zoneTheme = tableZoneTheme(table.zone);
             const compactTable = displayScale <= 0.72;
             const labelFontSize = Math.max(9, Math.min(12, 11 * displayScale));
+            const seatsFontSize = Math.max(8, Math.min(10, 10 * displayScale));
 
             return (
               <div
@@ -487,7 +506,7 @@ export function FloorPlan({
                   title={t("floor.tableTitle", { label: table.label, capacity: table.capacity })}
                   disabled={disabled}
                   className={clsx(
-                    "relative z-10 flex touch-none select-none flex-col items-center justify-center gap-1 border text-xs font-bold shadow-sm transition focus-ring",
+                    "relative z-10 flex touch-none select-none flex-col items-center justify-center gap-0.5 border text-xs font-bold shadow-sm transition focus-ring",
                     footprint.rounded,
                     selected ? "text-white" : "hover:brightness-105",
                     !table.active && mode === "admin" && "border-dashed opacity-60",
@@ -513,12 +532,27 @@ export function FloorPlan({
                   >
                     {table.label}
                   </span>
-                  {compactTable ? null : (
-                    <span className="text-[10px] font-semibold leading-none opacity-75">
-                      {t("floor.seats", { count: table.capacity })}
-                    </span>
-                  )}
+                  <span
+                    className="max-w-full px-1 text-center font-semibold leading-none opacity-75"
+                    style={{ fontSize: seatsFontSize, overflowWrap: "anywhere" }}
+                  >
+                    {t("floor.seats", { count: table.capacity })}
+                  </span>
                 </button>
+                {mode === "booking" && table.viewImageUrl ? (
+                  <button
+                    className="absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition hover:bg-sage focus-ring"
+                    title={t("floor.viewPhoto")}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onView?.(table);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
                 {mode === "admin" && selected && !deleteMode ? (
                   <div className="absolute -right-3 top-1/2 z-20 flex -translate-y-1/2 translate-x-full flex-col gap-1">
                     <button
