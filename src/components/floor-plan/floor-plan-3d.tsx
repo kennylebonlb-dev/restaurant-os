@@ -275,32 +275,38 @@ function zoneTheme(zone: FloorTable["zone"]) {
   };
 }
 
-function tableDimensions(capacity: number, shape: TableShape = "ROUND") {
+function tableDimensions(capacity: number, shape: TableShape = "ROUND", displayScale = 1) {
+  const scale = Math.min(1.8, Math.max(0.6, displayScale));
+  const applyScale = (size: { width: number; depth: number }) => ({
+    width: size.width * scale,
+    depth: size.depth * scale
+  });
+
   if (shape === "RECTANGLE") {
     if (capacity >= 7) {
-      return { width: 2.95, depth: 1.35 };
+      return applyScale({ width: 2.95, depth: 1.35 });
     }
 
-    return { width: 2.35, depth: 1.18 };
+    return applyScale({ width: 2.35, depth: 1.18 });
   }
 
   if (shape === "SQUARE") {
-    return capacity >= 5 ? { width: 1.72, depth: 1.72 } : { width: 1.42, depth: 1.42 };
+    return applyScale(capacity >= 5 ? { width: 1.72, depth: 1.72 } : { width: 1.42, depth: 1.42 });
   }
 
   if (capacity >= 7) {
-    return { width: 2.1, depth: 2.1 };
+    return applyScale({ width: 2.1, depth: 2.1 });
   }
 
   if (capacity >= 5) {
-    return { width: 1.72, depth: 1.72 };
+    return applyScale({ width: 1.72, depth: 1.72 });
   }
 
   if (capacity <= 2) {
-    return { width: 1.28, depth: 1.28 };
+    return applyScale({ width: 1.28, depth: 1.28 });
   }
 
-  return { width: 1.52, depth: 1.52 };
+  return applyScale({ width: 1.52, depth: 1.52 });
 }
 
 function CameraRig({
@@ -747,12 +753,12 @@ function TableModel({
   onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
 }) {
-  const { width, depth } = tableDimensions(table.capacity, table.shape);
+  const { width, depth } = tableDimensions(table.capacity, table.shape, table.displayScale);
   const position = toScenePosition(table.positionX, table.positionY);
   const theme = zoneTheme(table.zone);
   const opacity = disabled || !table.active ? 0.34 : 1;
   const edgeColor = selected ? "#b66f45" : theme.accent;
-  const tableTopColor = table.capacity >= 7 ? "#ead09a" : "#fffdf7";
+  const tableTopColor = selected ? "#f4d0b5" : theme.table;
 
   return (
     <group

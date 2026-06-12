@@ -37,6 +37,7 @@ export type FloorTable = {
   shape?: TableShape;
   features?: TableFeature[];
   displayScale?: number;
+  viewImageUrl?: string;
 };
 
 export type DetectedGlbTable = {

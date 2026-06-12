@@ -84,6 +84,30 @@ export function tableDisplayScalesFromSettings(settings?: Record<string, unknown
   }, {});
 }
 
+export function tableViewImagesFromSettings(settings?: Record<string, unknown> | null) {
+  const tableViewImages = settings?.tableViewImages;
+
+  if (!tableViewImages || typeof tableViewImages !== "object" || Array.isArray(tableViewImages)) {
+    return {};
+  }
+
+  return Object.entries(tableViewImages).reduce<Record<string, string>>((images, [tableId, value]) => {
+    if (typeof value === "string" && value.startsWith("data:")) {
+      images[tableId] = value;
+    }
+
+    return images;
+  }, {});
+}
+
+export function defaultTableDisplayScaleFromSettings(settings?: Record<string, unknown> | null) {
+  return normalizeTableDisplayScale(settings?.defaultTableDisplayScale);
+}
+
+export function tableDisplayScaleLockedFromSettings(settings?: Record<string, unknown> | null) {
+  return settings?.lockTableDisplayScale === true;
+}
+
 export function withTableShape(
   settings: Record<string, unknown>,
   tableId: string,
@@ -126,6 +150,32 @@ export function withTableDisplayScale(
   };
 }
 
+export function withTableViewImage(
+  settings: Record<string, unknown>,
+  tableId: string,
+  imageUrl: string
+) {
+  return {
+    ...settings,
+    tableViewImages: {
+      ...tableViewImagesFromSettings(settings),
+      [tableId]: imageUrl
+    }
+  };
+}
+
+export function withDefaultTableDisplayScale(
+  settings: Record<string, unknown>,
+  displayScale: number,
+  locked = true
+) {
+  return {
+    ...settings,
+    defaultTableDisplayScale: normalizeTableDisplayScale(displayScale),
+    lockTableDisplayScale: locked
+  };
+}
+
 export function applyFloorPlanSettings(
   tables: FloorTable[],
   settings?: Record<string, unknown> | null
@@ -133,12 +183,14 @@ export function applyFloorPlanSettings(
   const shapes = tableShapesFromSettings(settings);
   const features = tableFeaturesFromSettings(settings);
   const displayScales = tableDisplayScalesFromSettings(settings);
+  const viewImages = tableViewImagesFromSettings(settings);
 
   return tables.map((table) => ({
     ...table,
     features: features[table.id] ?? table.features ?? [],
     shape: shapes[table.id] ?? table.shape ?? "ROUND",
-    displayScale: displayScales[table.id] ?? table.displayScale ?? 1
+    displayScale: displayScales[table.id] ?? table.displayScale ?? 1,
+    viewImageUrl: viewImages[table.id] ?? table.viewImageUrl
   }));
 }
 

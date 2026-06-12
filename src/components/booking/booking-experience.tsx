@@ -248,6 +248,10 @@ export function BookingExperience() {
     () => applyFloorPlanSettings(restaurant?.tables ?? [], restaurant?.settings),
     [restaurant?.settings, restaurant?.tables]
   );
+  const selectedTable = useMemo(
+    () => restaurantTables.find((table) => table.id === booking.selectedTableId),
+    [booking.selectedTableId, restaurantTables]
+  );
   const floorPlanModelUrl = useMemo(
     () => floorPlanModelUrlFromSettings(restaurant?.settings),
     [restaurant?.settings]
@@ -687,9 +691,7 @@ export function BookingExperience() {
       </section>
 
       <section>
-        <div className={`mb-3 grid gap-3 rounded-lg border border-ink/10 bg-white p-3 shadow-soft ${
-          floorViewMode === "3d" ? "sm:grid-cols-[220px_1fr] sm:items-center" : ""
-        }`}>
+        <div className="mb-3 grid gap-3 rounded-lg border border-ink/10 bg-white p-3 shadow-soft sm:grid-cols-[220px_1fr] sm:items-center">
           <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1">
             <button
               className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
@@ -734,12 +736,22 @@ export function BookingExperience() {
           availableTableIds={selectedSlot?.selectable ? availableIds : []}
           modelUrl={floorPlanModelUrl}
           backgroundImageUrl={floorPlan2dImageUrl}
+          onZoomChange={setFloorZoom}
           onSelect={(table) => {
             if (!booking.autoAssignTable && availableIds.includes(table.id)) {
               booking.setBookingField("selectedTableId", table.id);
             }
           }}
         />
+        {selectedTable?.viewImageUrl ? (
+          <div className="mt-3 overflow-hidden rounded-lg border border-ink/10 bg-white shadow-soft">
+            <img
+              alt=""
+              className="h-44 w-full object-cover"
+              src={selectedTable.viewImageUrl}
+            />
+          </div>
+        ) : null}
       </section>
     </div>
   );

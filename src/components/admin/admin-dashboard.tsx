@@ -45,12 +45,16 @@ import {
 } from "@/lib/domain";
 import {
   applyFloorPlanSettings,
+  defaultTableDisplayScaleFromSettings,
   floorPlan2dImageUrlFromSettings,
   floorPlanModelUrlFromSettings,
   isTableShape,
   tableFeaturesFromSettings,
+  tableDisplayScaleLockedFromSettings,
   withTableFeatures,
+  withDefaultTableDisplayScale,
   withTableDisplayScale,
+  withTableViewImage,
   withTableShape
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
@@ -121,6 +125,13 @@ type TableBlock = {
 };
 
 type TableDraft = Pick<FloorTable, "label" | "capacity" | "zone" | "rotation" | "active">;
+type CreateTableOverrides = Partial<TableDraft> &
+  Partial<Pick<FloorTable, "positionX" | "positionY">> & {
+    displayScale?: number;
+    features?: TableFeature[];
+    shape?: TableShape;
+    viewImageUrl?: string;
+  };
 type AdminPanel = "restaurant" | "hours" | "rules" | "vacations" | "tables" | "blocks";
 type DayKey = keyof OpeningHours;
 
@@ -253,6 +264,8 @@ export function AdminDashboard() {
   const lastSavedTableDraftRef = useRef("");
   const lastSavedTableDisplayScaleRef = useRef("");
   const detectedGlbTablesSignatureRef = useRef("");
+  const tableViewImageInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingTableViewImageIdRef = useRef<string | null>(null);
   const { selectedTableId, setSelectedTableId } = useFloorPlanStore();
   const realtime = useRealtimeStore();
   const { t } = useI18n();
@@ -335,11 +348,14 @@ export function AdminDashboard() {
   });
 
   const createTableMutation = useMutation({
-    mutationFn: (
-      overrides?: Partial<TableDraft> &
-        Partial<Pick<FloorTable, "positionX" | "positionY">> & { shape?: TableShape }
-    ) => {
-      const { shape: _shape, ...payload } = {
+    mutationFn: (overrides?: CreateTableOverrides) => {
+      const {
+        displayScale: _displayScale,
+        features: _features,
+        shape: _shape,
+        viewImageUrl: _viewImageUrl,
+        ...payload
+      } = {
         ...tableForm,
         positionX: 120,
         positionY: 120,
@@ -355,7 +371,24 @@ export function AdminDashboard() {
     },
     onSuccess: (data, variables) => {
       setTableForm((current) => ({ ...current, label: "" }));
-      void persistTableShape(data.table.id, variables?.shape ?? tableForm.shape).catch((error) => {
+      let settings: Record<string, unknown> = withTableShape(
+        getRestaurantSettingsFromForm(),
+        data.table.id,
+        variables?.shape ?? tableForm.shape
+      );
+      const displayScale = variables?.displayScale ?? (tableDisplayScaleLocked ? defaultTableDisplayScale : 1);
+
+      settings = withTableDisplayScale(settings, data.table.id, displayScale);
+
+      if (variables?.features && variables.features.length > 0) {
+        settings = withTableFeatures(settings, data.table.id, variables.features);
+      }
+
+      if (variables?.viewImageUrl) {
+        settings = withTableViewImage(settings, data.table.id, variables.viewImageUrl);
+      }
+
+      void patchRestaurantSettings(settings).catch((error) => {
         setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
       });
       queryClient.invalidateQueries({ queryKey: ["tables", restaurant?.id] });
@@ -656,6 +689,8 @@ export function AdminDashboard() {
   const minimumLeadTimeEnabled = parsedRestaurantSettings.minimumLeadTimeEnabled !== false;
   const releaseTableAfterDuration = parsedRestaurantSettings.oneReservationPerTablePerService !== false;
   const strictCapacityMatching = parsedRestaurantSettings.strictCapacityMatching !== false;
+  const defaultTableDisplayScale = defaultTableDisplayScaleFromSettings(parsedRestaurantSettings);
+  const tableDisplayScaleLocked = tableDisplayScaleLockedFromSettings(parsedRestaurantSettings);
   const vacationClosures = useMemo(
     () => readVacationClosures(parsedRestaurantSettings),
     [parsedRestaurantSettings]
@@ -781,7 +816,7 @@ export function AdminDashboard() {
     }, 450);
 
     return () => window.clearTimeout(timeout);
-  }, [selectedTableDisplayScaleDraft, selectedTableId]);
+  }, [selectedTableDisplayScaleDraft, selectedTableId, tableDisplayScaleLocked]);
 
   const handleDetectedGlbTablesChange = useCallback((nextTables: DetectedGlbTable[]) => {
     const signature = nextTables
@@ -918,7 +953,40 @@ export function AdminDashboard() {
   }
 
   async function persistTableDisplayScale(tableId: string, displayScale: number) {
-    const settings = withTableDisplayScale(getRestaurantSettingsFromForm(), tableId, displayScale);
+    let settings: Record<string, unknown> = withTableDisplayScale(
+      getRestaurantSettingsFromForm(),
+      tableId,
+      displayScale
+    );
+
+    if (tableDisplayScaleLocked) {
+      settings = withDefaultTableDisplayScale(settings, displayScale, true);
+    }
+
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistTableDisplayScaleLock(locked: boolean) {
+    const currentSettings = getRestaurantSettingsFromForm();
+    const settings = locked
+      ? withDefaultTableDisplayScale(currentSettings, selectedTableDisplayScaleDraft, true)
+      : {
+          ...currentSettings,
+          lockTableDisplayScale: false
+        };
+
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistTableViewImage(tableId: string, file: File) {
+    if (!file.type.startsWith("image/")) {
+      throw new Error(t("admin.invalid2dPlan"));
+    }
+
+    const dataUrl = await readFileAsDataUrl(file);
+    const settings = withTableViewImage(getRestaurantSettingsFromForm(), tableId, dataUrl);
     await patchRestaurantSettings(settings);
     queryClient.invalidateQueries({ queryKey: ["restaurants"] });
   }
@@ -963,6 +1031,44 @@ export function AdminDashboard() {
     }));
   }
 
+  function handleDuplicateTable(table: FloorTable) {
+    setDeleteMode(false);
+    createTableMutation.mutate({
+      active: table.active,
+      capacity: table.capacity,
+      displayScale: table.displayScale ?? defaultTableDisplayScale,
+      features: table.features ?? [],
+      label: nextTableLabel(tables),
+      positionX: Math.min(860, table.positionX + 36),
+      positionY: Math.min(500, table.positionY + 36),
+      rotation: table.rotation,
+      shape: table.shape,
+      viewImageUrl: table.viewImageUrl,
+      zone: table.zone
+    });
+  }
+
+  function handleRotateTable(table: FloorTable) {
+    const rotation = (Math.round(table.rotation) + 15) % 360;
+    setSelectedTableId(table.id);
+
+    if (selectedTableId === table.id) {
+      updateSelectedTableDraft({ rotation });
+      return;
+    }
+
+    updateTableMutation.mutate({
+      tableId: table.id,
+      data: { rotation }
+    });
+  }
+
+  function handleTableViewPhoto(table: FloorTable) {
+    setSelectedTableId(table.id);
+    pendingTableViewImageIdRef.current = table.id;
+    tableViewImageInputRef.current?.click();
+  }
+
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     createTableMutation.mutate({
@@ -974,6 +1080,25 @@ export function AdminDashboard() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <input
+        ref={tableViewImageInputRef}
+        className="sr-only"
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          const tableId = pendingTableViewImageIdRef.current;
+
+          if (file && tableId) {
+            void persistTableViewImage(tableId, file).catch((error) => {
+              setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalid2dPlan"));
+            });
+          }
+
+          pendingTableViewImageIdRef.current = null;
+          event.currentTarget.value = "";
+        }}
+      />
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-black text-ink">{t("admin.title")}</h1>
@@ -1425,7 +1550,7 @@ export function AdminDashboard() {
           {adminPanel === "tables" ? (
           <div className="space-y-4">
           <form className="overflow-hidden rounded-lg border border-ink/10 bg-white p-4 shadow-soft" onSubmit={handleCreateTable}>
-            <h2 className="mb-3 text-base font-bold text-ink">{t("admin.addTable")}</h2>
+            <h2 className="mb-3 text-base font-bold text-ink">{t("admin.menuTables")}</h2>
             <div className="grid gap-3">
               <label className="text-sm font-semibold text-ink">
                 {t("admin.label")}
@@ -1512,6 +1637,13 @@ export function AdminDashboard() {
                   <p className="text-ink/65">
                     {t("floor.seats", { count: selectedTable.capacity })} · {t(`zone.${selectedTable.zone}`)}
                   </p>
+                  {selectedTable.viewImageUrl ? (
+                    <img
+                      alt=""
+                      className="mt-3 h-28 w-full rounded-md object-cover"
+                      src={selectedTable.viewImageUrl}
+                    />
+                  ) : null}
                 </div>
                 <label className="text-sm font-semibold text-ink">
                   {t("admin.label")}
@@ -1641,6 +1773,19 @@ export function AdminDashboard() {
                       {Math.round(selectedTableDisplayScaleDraft * 100)}%
                     </span>
                   </div>
+                </label>
+                <label className="flex items-center justify-between gap-3 rounded-md border border-ink/10 bg-linen px-3 py-2 text-sm font-semibold text-ink">
+                  {t("admin.lockTableDisplaySize")}
+                  <input
+                    className="h-5 w-5 accent-moss"
+                    type="checkbox"
+                    checked={tableDisplayScaleLocked}
+                    onChange={(event) => {
+                      void persistTableDisplayScaleLock(event.target.checked).catch((error) => {
+                        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+                      });
+                    }}
+                  />
                 </label>
                 <label className="flex items-center justify-between gap-3 rounded-md border border-ink/10 bg-linen px-3 py-2 text-sm font-semibold text-ink">
                   {selectedTableDraft?.active ? t("admin.active") : t("admin.inactive")}
@@ -2000,6 +2145,10 @@ export function AdminDashboard() {
                   <p className="text-xs font-medium text-ink/60">
                     {detectedGlbTables.length > 0 ? t("admin.glbDetectedHint") : t("admin.noGlbTables")}
                   </p>
+                  <p className="inline-flex items-center gap-2 rounded-md bg-white px-2 py-1 text-xs font-bold text-ink/65">
+                    <Sparkles className="h-3.5 w-3.5 text-moss" />
+                    {t("admin.smart3dSync", { count: tables.length })}
+                  </p>
                 </div>
                 {syncGlbTablesMutation.error ? (
                   <p className="mt-2 text-sm font-semibold text-red-700">
@@ -2033,6 +2182,10 @@ export function AdminDashboard() {
               })
             }
             onDelete={(tableId) => deleteTableMutation.mutate(tableId)}
+            onDuplicate={handleDuplicateTable}
+            onRotate={handleRotateTable}
+            onView={handleTableViewPhoto}
+            onZoomChange={setFloorZoom}
             onDetectedTablesChange={handleDetectedGlbTablesChange}
           />
 
