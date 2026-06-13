@@ -18,6 +18,29 @@ const openingHours = {
 async function main() {
   const passwordHash = await hash("password123", 12);
 
+  await prisma.platformSetting.upsert({
+    where: { key: "brand" },
+    update: {
+      value: {
+        siteName: "C’est ma table",
+        logoUrl: "/cest-ma-table-logo.png",
+        faviconUrl: "/cest-ma-table-favicon.png",
+        logoAlt: "C’est ma table",
+        supportEmail: ""
+      }
+    },
+    create: {
+      key: "brand",
+      value: {
+        siteName: "C’est ma table",
+        logoUrl: "/cest-ma-table-logo.png",
+        faviconUrl: "/cest-ma-table-favicon.png",
+        logoAlt: "C’est ma table",
+        supportEmail: ""
+      }
+    }
+  });
+
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
     update: { passwordHash, role: "ADMIN", name: "Admin", firstName: "Admin", contactEmail: adminEmail },

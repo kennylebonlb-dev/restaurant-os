@@ -42,6 +42,7 @@ import { useBookingStore } from "@/stores/booking-store";
 type Restaurant = {
   id: string;
   name: string;
+  slug: string;
   description: string | null;
   address: string | null;
   phone: string | null;
@@ -130,7 +131,7 @@ function reservationErrorMessage(
   return translations[message] ?? message;
 }
 
-export function BookingExperience() {
+export function BookingExperience({ initialRestaurantSlug }: { initialRestaurantSlug?: string } = {}) {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
   const [restaurantId, setRestaurantId] = useState<string>();
@@ -147,15 +148,26 @@ export function BookingExperience() {
   });
 
   const restaurants = restaurantsQuery.data?.restaurants ?? [];
-  const restaurant = restaurants.find((item) => item.id === restaurantId) ?? restaurants[0];
+  const restaurantForSlug = initialRestaurantSlug
+    ? restaurants.find((item) => item.slug === initialRestaurantSlug)
+    : undefined;
+  const restaurant =
+    restaurants.find((item) => item.id === restaurantId) ??
+    restaurantForSlug ??
+    (initialRestaurantSlug ? undefined : restaurants[0]);
   const restaurantTimeZone = restaurant?.timezone || inferTimeZoneFromAddress(restaurant?.address);
   const restaurantToday = todayInTimeZone(restaurantTimeZone);
 
   useEffect(() => {
-    if (!restaurantId && restaurants[0]) {
+    if (!restaurantId && restaurantForSlug) {
+      setRestaurantId(restaurantForSlug.id);
+      return;
+    }
+
+    if (!restaurantId && !initialRestaurantSlug && restaurants[0]) {
       setRestaurantId(restaurants[0].id);
     }
-  }, [restaurantId, restaurants]);
+  }, [initialRestaurantSlug, restaurantForSlug, restaurantId, restaurants]);
 
   useRestaurantSocket(restaurant?.id);
 

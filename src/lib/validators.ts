@@ -123,3 +123,40 @@ export const updateProfileSchema = z.object({
   phone: z.string().trim().min(6).max(32),
   birthDate: z.union([dateStringSchema, z.literal("")]).optional()
 });
+
+const imageUrlSchema = z
+  .string()
+  .trim()
+  .refine(
+    (value) =>
+      value.startsWith("/") ||
+      value.startsWith("data:image/") ||
+      /^https?:\/\//.test(value),
+    "Image must be a relative, data, or http URL."
+  );
+
+export const platformAdminLoginSchema = z.object({
+  username: z.string().trim().min(1),
+  password: z.string().min(1)
+});
+
+export const platformBrandSchema = z.object({
+  siteName: z.string().trim().min(2).max(80),
+  logoUrl: imageUrlSchema,
+  faviconUrl: imageUrlSchema,
+  logoAlt: z.string().trim().min(2).max(120),
+  supportEmail: z
+    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+    .optional()
+});
+
+export const createManagedRestaurantSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(1000).optional(),
+  address: z.string().trim().max(240).optional(),
+  phone: z.string().trim().max(32).optional(),
+  ownerEmail: z
+    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+    .optional(),
+  slug: z.string().trim().regex(/^[a-z0-9-]+$/).optional()
+});
