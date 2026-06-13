@@ -57,6 +57,16 @@ textarea {
   display: block;
 }
 
+.login-visual-panel {
+  aspect-ratio: 4 / 5;
+}
+
+@media (min-width: 1024px) {
+  .login-visual-panel {
+    width: min(100%, calc((100vh - 9rem) * 0.8), 620px);
+  }
+}
+
 .icon-button {
   @apply inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink/15 bg-white text-ink shadow-sm transition hover:bg-sage/60 focus-ring disabled:cursor-not-allowed disabled:opacity-45;
 }
