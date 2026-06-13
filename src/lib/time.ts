@@ -98,3 +98,45 @@ export function getZonedDateTimeParts(timeZone: string) {
     minutes: Number(value("hour")) * 60 + Number(value("minute"))
   };
 }
+
+export function todayInTimeZone(timeZone: string) {
+  return getZonedDateTimeParts(timeZone).date;
+}
+
+export function inferTimeZoneFromAddress(address?: string | null) {
+  const normalizedAddress = address?.toLowerCase() ?? "";
+
+  if (!normalizedAddress.trim()) {
+    return "Europe/Paris";
+  }
+
+  if (/\b(france|paris|lyon|marseille|lille|nice|bordeaux|toulouse|nantes|strasbourg)\b/.test(normalizedAddress)) {
+    return "Europe/Paris";
+  }
+
+  if (/\b(london|united kingdom|royaume-uni|uk)\b/.test(normalizedAddress)) {
+    return "Europe/London";
+  }
+
+  if (/\b(new york|boston|washington|miami|toronto|montr[eé]al)\b/.test(normalizedAddress)) {
+    return "America/New_York";
+  }
+
+  if (/\b(chicago|dallas|houston)\b/.test(normalizedAddress)) {
+    return "America/Chicago";
+  }
+
+  if (/\b(denver|phoenix)\b/.test(normalizedAddress)) {
+    return "America/Denver";
+  }
+
+  if (/\b(los angeles|san francisco|seattle|las vegas)\b/.test(normalizedAddress)) {
+    return "America/Los_Angeles";
+  }
+
+  if (/\b(madrid|barcelona|espagne|spain|bruxelles|brussels|belgique|belgium|berlin|allemagne|germany|rome|italie|italy)\b/.test(normalizedAddress)) {
+    return "Europe/Paris";
+  }
+
+  return "Europe/Paris";
+}

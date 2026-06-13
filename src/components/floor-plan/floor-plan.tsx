@@ -561,7 +561,10 @@ export function FloorPlan({
                   </button>
                 ) : null}
                 {mode === "admin" && selected && !deleteMode ? (
-                  <div className="absolute -right-3 top-1/2 z-20 flex -translate-y-1/2 translate-x-full flex-col gap-1">
+                  <div
+                    className="absolute -right-3 top-1/2 z-20 flex -translate-y-1/2 translate-x-full flex-col gap-1"
+                    style={{ transform: `translate(100%, -50%) rotate(${-table.rotation}deg)` }}
+                  >
                     <button
                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition hover:bg-sage"
                       title={t("admin.duplicateTable")}
@@ -615,6 +618,7 @@ export function FloorPlan({
                 {mode === "admin" && deleteMode ? (
                   <button
                     className="absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-red-600 text-white shadow-md transition hover:bg-red-700"
+                    style={{ transform: `rotate(${-table.rotation}deg)` }}
                     title={t("admin.deleteTable")}
                     type="button"
                     onClick={(event) => {

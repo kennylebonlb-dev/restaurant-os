@@ -31,7 +31,7 @@ export const createRestaurantSchema = z.object({
   description: z.string().optional(),
   address: z.string().optional(),
   phone: z.string().optional(),
-  timezone: z.string().default("Europe/Paris"),
+  timezone: z.string().optional(),
   openingHours: openingHoursSchema,
   settings: z.record(z.unknown()).default({}),
   menu: z.array(z.record(z.unknown())).default([])

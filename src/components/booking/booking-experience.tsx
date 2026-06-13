@@ -36,7 +36,7 @@ import {
   tableViewImageStyle
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
-import { addDaysToDateString } from "@/lib/time";
+import { addDaysToDateString, inferTimeZoneFromAddress, todayInTimeZone } from "@/lib/time";
 import { useBookingStore } from "@/stores/booking-store";
 
 type Restaurant = {
@@ -45,6 +45,7 @@ type Restaurant = {
   description: string | null;
   address: string | null;
   phone: string | null;
+  timezone: string;
   openingHours: OpeningHours;
   settings: Record<string, unknown>;
   tables: FloorTable[];
@@ -147,6 +148,8 @@ export function BookingExperience() {
 
   const restaurants = restaurantsQuery.data?.restaurants ?? [];
   const restaurant = restaurants.find((item) => item.id === restaurantId) ?? restaurants[0];
+  const restaurantTimeZone = restaurant?.timezone || inferTimeZoneFromAddress(restaurant?.address);
+  const restaurantToday = todayInTimeZone(restaurantTimeZone);
 
   useEffect(() => {
     if (!restaurantId && restaurants[0]) {
@@ -223,7 +226,37 @@ export function BookingExperience() {
   });
 
   const slots = slotsQuery.data?.slots ?? [];
-  const selectedSlot = slots.find((slot) => slot.startTime === booking.startTime);
+  const nextDate = addDaysToDateString(booking.date, 1);
+  const hasSelectableSlots = slots.some((slot) => slot.selectable);
+  const shouldLoadNextDaySlots = !slotsQuery.isFetching && !hasSelectableSlots;
+  const nextDaySlotsQuery = useQuery({
+    queryKey: [
+      "availability-slots",
+      restaurant?.id,
+      nextDate,
+      booking.numberOfGuests,
+      booking.tablePreferences,
+      "fallback"
+    ],
+    enabled: Boolean(restaurant?.id && shouldLoadNextDaySlots),
+    queryFn: () =>
+      apiFetch<SlotsResponse>(`/api/restaurants/${restaurant?.id}/availability/slots`, {
+        method: "POST",
+        body: JSON.stringify({
+          date: nextDate,
+          numberOfGuests: booking.numberOfGuests,
+          tablePreferences: booking.tablePreferences
+        })
+      })
+  });
+  const nextDaySlots = nextDaySlotsQuery.data?.slots ?? [];
+  const showingNextDaySlots = shouldLoadNextDaySlots && nextDaySlots.length > 0;
+  const displayedSlots = showingNextDaySlots ? nextDaySlots : slots;
+  const displayedSlotsDate = showingNextDaySlots ? nextDate : booking.date;
+  const selectedSlot =
+    displayedSlotsDate === booking.date
+      ? displayedSlots.find((slot) => slot.startTime === booking.startTime)
+      : undefined;
 
   const availabilityQuery = useQuery({
     queryKey: [
@@ -318,6 +351,9 @@ export function BookingExperience() {
     }
 
     setMessage(undefined);
+    if (displayedSlotsDate !== booking.date) {
+      booking.setBookingField("date", displayedSlotsDate);
+    }
     booking.setBookingField("startTime", slot.startTime);
     booking.resetTable();
   }
@@ -348,6 +384,13 @@ export function BookingExperience() {
         : [...booking.tablePreferences, feature]
     );
   }
+
+  useEffect(() => {
+    if (booking.date < restaurantToday) {
+      booking.setBookingField("date", restaurantToday);
+      booking.resetTable();
+    }
+  }, [booking.date, booking.resetTable, booking.setBookingField, restaurantToday]);
 
   useEffect(() => {
     if (
@@ -456,12 +499,17 @@ export function BookingExperience() {
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-ink">{t("booking.selectTime")}</p>
               </div>
+              {showingNextDaySlots ? (
+                <p className="mb-2 rounded-md bg-sage/50 px-3 py-2 text-xs font-bold text-ink/70">
+                  {t("booking.showingNextDaySlots")}
+                </p>
+              ) : null}
               <div className="grid max-h-52 grid-cols-3 gap-2 overflow-auto rounded-md border border-ink/10 bg-linen p-2">
-                {slots.map((slot) => (
+                {displayedSlots.map((slot) => (
                   <button
                     key={slot.startTime}
                     className={`flex h-10 items-center justify-center gap-2 rounded-md border px-2 text-sm font-bold transition ${
-                      slot.startTime === booking.startTime
+                      displayedSlotsDate === booking.date && slot.startTime === booking.startTime
                         ? "border-moss bg-white text-moss shadow-sm"
                         : "border-ink/10 bg-white/80 text-ink hover:border-moss"
                     } ${!slot.selectable ? "cursor-not-allowed opacity-60 hover:border-ink/10" : ""} ${
@@ -482,12 +530,12 @@ export function BookingExperience() {
                     {slot.startTime}
                   </button>
                 ))}
-                {slotsQuery.isFetching ? (
+                {slotsQuery.isFetching || nextDaySlotsQuery.isFetching ? (
                   <p className="col-span-3 py-3 text-center text-sm font-semibold text-ink/60">
                     {t("booking.slotsLoading")}
                   </p>
                 ) : null}
-                {!slotsQuery.isFetching && slots.length === 0 ? (
+                {!slotsQuery.isFetching && !nextDaySlotsQuery.isFetching && displayedSlots.length === 0 ? (
                   <p className="col-span-3 py-3 text-center text-sm font-semibold text-ink/60">
                     {t("booking.noSlots")}
                   </p>

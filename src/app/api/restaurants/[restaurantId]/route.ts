@@ -1,4 +1,5 @@
 import { updateRestaurantSchema } from "@/lib/validators";
+import { inferTimeZoneFromAddress } from "@/lib/time";
 import { requireRole } from "@/server/auth/guards";
 import { apiError, noContent, ok, parseJson } from "@/server/http";
 import {
@@ -28,7 +29,15 @@ export async function PATCH(request: Request, context: Context) {
     await requireRole(["ADMIN"]);
     const { restaurantId } = await context.params;
     const data = await parseJson(request, updateRestaurantSchema);
-    const restaurant = await updateRestaurant(restaurantId, data);
+    const restaurant = await updateRestaurant(
+      restaurantId,
+      data.address !== undefined || data.timezone
+        ? {
+            ...data,
+            timezone: data.timezone || inferTimeZoneFromAddress(data.address)
+          }
+        : data
+    );
 
     return ok({ restaurant });
   } catch (error) {

@@ -25,7 +25,6 @@ import {
   RotateCw,
   Save,
   Signal,
-  Sparkles,
   Trash2,
   Users,
   Unlock
@@ -34,7 +33,6 @@ import {
   FormEvent,
   PointerEvent,
   ReactNode,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -45,7 +43,6 @@ import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
 import {
   tableFeatures,
-  type DetectedGlbTable,
   type FloorTable,
   type OpeningHours,
   type TableAutoAssignPriority,
@@ -84,8 +81,10 @@ import {
   addDaysToDateString,
   getDayKey,
   getZonedDateTimeParts,
+  inferTimeZoneFromAddress,
   minutesToTime,
-  parseTimeToMinutes
+  parseTimeToMinutes,
+  todayInTimeZone
 } from "@/lib/time";
 import { useFloorPlanStore } from "@/stores/floor-plan-store";
 import { useRealtimeStore } from "@/stores/realtime-store";
@@ -97,6 +96,7 @@ type Restaurant = {
   description: string | null;
   address: string | null;
   phone: string | null;
+  timezone: string;
   openingHours: OpeningHours;
   settings: Record<string, unknown>;
   layoutLocked: boolean;
@@ -308,8 +308,12 @@ function isVacationDate(date: string, closures: VacationClosure[]) {
   });
 }
 
-function getRestaurantOpeningStatus(openingHours: OpeningHours, closures: VacationClosure[]) {
-  const now = getZonedDateTimeParts("Europe/Paris");
+function getRestaurantOpeningStatus(
+  openingHours: OpeningHours,
+  closures: VacationClosure[],
+  timeZone: string
+) {
+  const now = getZonedDateTimeParts(timeZone);
 
   if (isVacationDate(now.date, closures)) {
     return { tone: "closed" as const, labelKey: "admin.closed" as const };
@@ -406,11 +410,9 @@ export function AdminDashboard() {
   const [tableViewCropDraft, setTableViewCropDraft] = useState<TableViewImageCrop>(
     defaultTableViewImageCrop()
   );
-  const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
   const lastSavedTableDraftRef = useRef("");
   const lastSavedTableDisplayScaleRef = useRef("");
   const lastSavedTableViewCropRef = useRef("");
-  const detectedGlbTablesSignatureRef = useRef("");
   const tableViewImageInputRef = useRef<HTMLInputElement | null>(null);
   const pendingTableViewImageIdRef = useRef<string | null>(null);
   const tableViewCropDragRef = useRef<{
@@ -440,12 +442,20 @@ export function AdminDashboard() {
 
   const restaurants = restaurantsQuery.data?.restaurants ?? [];
   const restaurant = restaurants.find((item) => item.id === restaurantId) ?? restaurants[0];
+  const restaurantTimeZone = restaurant?.timezone || inferTimeZoneFromAddress(restaurant?.address);
+  const restaurantToday = todayInTimeZone(restaurantTimeZone);
 
   useEffect(() => {
     if (!restaurantId && restaurants[0]) {
       setRestaurantId(restaurants[0].id);
     }
   }, [restaurantId, restaurants]);
+
+  useEffect(() => {
+    if (selectedDate < restaurantToday) {
+      setSelectedDate(restaurantToday);
+    }
+  }, [restaurantToday, selectedDate]);
 
   useEffect(() => {
     if (!restaurant) {
@@ -571,55 +581,6 @@ export function AdminDashboard() {
     }
   });
 
-  const syncGlbTablesMutation = useMutation({
-    mutationFn: async () => {
-      if (!restaurant) {
-        throw new Error(t("admin.createRestaurant"));
-      }
-
-      const orderedTables = [...tables].sort((first, second) => {
-        const row = first.positionY - second.positionY;
-        return Math.abs(row) > 24 ? row : first.positionX - second.positionX || first.label.localeCompare(second.label);
-      });
-
-      for (const [index, detectedTable] of detectedGlbTables.entries()) {
-        const payload = {
-          capacity: detectedTable.capacity,
-          positionX: detectedTable.positionX,
-          positionY: detectedTable.positionY,
-          rotation: detectedTable.rotation,
-          zone: detectedTable.zone,
-          active: true
-        };
-        const existingTable = orderedTables[index];
-
-        if (existingTable) {
-          await apiFetch<{ table: FloorTable }>(`/api/tables/${existingTable.id}`, {
-            method: "PATCH",
-            body: JSON.stringify(payload)
-          });
-        } else {
-          await apiFetch<{ table: FloorTable }>(`/api/restaurants/${restaurant.id}/tables`, {
-            method: "POST",
-            body: JSON.stringify({
-              ...payload,
-              label: detectedTable.label
-            })
-          });
-        }
-      }
-
-      return {
-        count: detectedGlbTables.length
-      };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tables", restaurant?.id] });
-      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics", restaurant?.id] });
-    }
-  });
-
   const saveRestaurantMutation = useMutation({
     mutationFn: async () => {
       setRestaurantFormError(undefined);
@@ -642,7 +603,7 @@ export function AdminDashboard() {
         description: restaurantForm.description || undefined,
         address: restaurantForm.address || undefined,
         phone: restaurantForm.phone || undefined,
-        timezone: "Europe/Paris",
+        timezone: inferTimeZoneFromAddress(restaurantForm.address),
         openingHours,
         settings
       };
@@ -848,8 +809,8 @@ export function AdminDashboard() {
     [locale, selectedDate]
   );
   const openingStatus = useMemo(
-    () => getRestaurantOpeningStatus(openingHoursDraft, vacationClosures),
-    [nowTick, openingHoursDraft, vacationClosures]
+    () => getRestaurantOpeningStatus(openingHoursDraft, vacationClosures, restaurantTimeZone),
+    [nowTick, openingHoursDraft, vacationClosures, restaurantTimeZone]
   );
   const visualTables = useMemo(() => {
     if (!selectedTableId || !selectedTableDraft) {
@@ -998,22 +959,6 @@ export function AdminDashboard() {
     return () => window.clearTimeout(timeout);
   }, [selectedTableDisplayScaleDraft, selectedTableId, tableDisplayScaleLocked]);
 
-  const handleDetectedGlbTablesChange = useCallback((nextTables: DetectedGlbTable[]) => {
-    const signature = nextTables
-      .map(
-        (table) =>
-          `${table.id}:${table.capacity}:${table.zone}:${table.positionX}:${table.positionY}:${table.rotation}`
-      )
-      .join("|");
-
-    if (signature === detectedGlbTablesSignatureRef.current) {
-      return;
-    }
-
-    detectedGlbTablesSignatureRef.current = signature;
-    setDetectedGlbTables(nextTables);
-  }, []);
-
   function updateSelectedTableDraft(data: Partial<TableDraft>) {
     setSelectedTableDraft((current) => (current ? { ...current, ...data } : current));
   }
@@ -1109,7 +1054,7 @@ export function AdminDashboard() {
       description: restaurantForm.description || undefined,
       address: restaurantForm.address || undefined,
       phone: restaurantForm.phone || undefined,
-      timezone: "Europe/Paris",
+      timezone: inferTimeZoneFromAddress(restaurantForm.address || restaurant.address),
       openingHours: getOpeningHoursFromForm(),
       settings
     };
@@ -2505,47 +2450,6 @@ export function AdminDashboard() {
                 </label>
               </div>
             </div>
-            {floorViewMode === "3d" ? (
-              <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="inline-flex items-center gap-2 text-sm font-bold text-ink">
-                    <Sparkles className="h-4 w-4 text-moss" />
-                    {t("admin.glbAi")}
-                  </span>
-                  <span className="rounded-md bg-white px-2 py-1 text-xs font-black text-ink">
-                    {t("admin.detectedTables", { count: detectedGlbTables.length })}
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={
-                      !restaurant ||
-                      restaurant.layoutLocked ||
-                      detectedGlbTables.length === 0 ||
-                      syncGlbTablesMutation.isPending
-                    }
-                    onClick={() => syncGlbTablesMutation.mutate()}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {syncGlbTablesMutation.isPending ? t("admin.saving") : t("admin.applyGlbDetection")}
-                  </button>
-                  <p className="text-xs font-medium text-ink/60">
-                    {detectedGlbTables.length > 0 ? t("admin.glbDetectedHint") : t("admin.noGlbTables")}
-                  </p>
-                  <p className="inline-flex items-center gap-2 rounded-md bg-white px-2 py-1 text-xs font-bold text-ink/65">
-                    <Sparkles className="h-3.5 w-3.5 text-moss" />
-                    {t("admin.smart3dSync", { count: tables.length })}
-                  </p>
-                </div>
-                {syncGlbTablesMutation.error ? (
-                  <p className="mt-2 text-sm font-semibold text-red-700">
-                    {syncGlbTablesMutation.error.message}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
           </div>
 
           {showCreateTablePanel ? (
@@ -2791,7 +2695,6 @@ export function AdminDashboard() {
             onRotate={handleRotateTable}
             onView={handleTableViewPhoto}
             onZoomChange={setFloorZoom}
-            onDetectedTablesChange={handleDetectedGlbTablesChange}
           />
 
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
