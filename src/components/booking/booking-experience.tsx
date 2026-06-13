@@ -744,39 +744,41 @@ export function BookingExperience() {
             />
           </label>
         </div>
-        <FloorPlan
-          mode="booking"
-          tables={restaurantTables}
-          viewMode={floorViewMode}
-          zoom={floorZoom}
-          selectedTableId={booking.selectedTableId}
-          availableTableIds={selectedSlot?.selectable ? availableIds : []}
-          modelUrl={floorPlanModelUrl}
-          backgroundImageUrl={floorPlan2dImageUrl}
-          onZoomChange={setFloorZoom}
-          onView={(table) => setViewPreviewTableId(table.id)}
-          onSelect={(table) => {
-            if (!booking.autoAssignTable && availableIds.includes(table.id)) {
-              booking.setBookingField("selectedTableId", table.id);
-              if (table.viewImageUrl) {
-                setViewPreviewTableId(table.id);
+        <div className="relative">
+          <FloorPlan
+            mode="booking"
+            tables={restaurantTables}
+            viewMode={floorViewMode}
+            zoom={floorZoom}
+            selectedTableId={booking.selectedTableId}
+            availableTableIds={selectedSlot?.selectable ? availableIds : []}
+            modelUrl={floorPlanModelUrl}
+            backgroundImageUrl={floorPlan2dImageUrl}
+            onZoomChange={setFloorZoom}
+            onView={(table) => setViewPreviewTableId(table.id)}
+            onSelect={(table) => {
+              if (!booking.autoAssignTable && availableIds.includes(table.id)) {
+                booking.setBookingField("selectedTableId", table.id);
               }
-            }
-          }}
-        />
-        {tableViewPreview?.viewImageUrl ? (
-          <div className="mt-3 max-w-sm overflow-hidden rounded-lg border border-ink/10 bg-white shadow-soft">
-            <div className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-ink">
-              <Eye className="h-4 w-4 text-moss" />
-              {t("floor.viewPhoto")} · {tableViewPreview.label}
+            }}
+          />
+          {tableViewPreview?.viewImageUrl ? (
+            <div
+              className="absolute left-1/2 top-1/2 z-30 w-[min(440px,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-white/70 bg-white/95 shadow-2xl backdrop-blur"
+              onMouseLeave={() => setViewPreviewTableId(undefined)}
+            >
+              <div className="flex items-center gap-2 border-b border-ink/10 px-3 py-2 text-sm font-bold text-ink">
+                <Eye className="h-4 w-4 text-moss" />
+                {t("floor.viewPhoto")} · {tableViewPreview.label}
+              </div>
+              <img
+                alt=""
+                className="h-64 w-full object-cover"
+                src={tableViewPreview.viewImageUrl}
+              />
             </div>
-            <img
-              alt=""
-              className="h-36 w-full object-cover"
-              src={tableViewPreview.viewImageUrl}
-            />
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </section>
     </div>
   );
