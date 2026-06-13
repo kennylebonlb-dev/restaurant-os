@@ -4,6 +4,11 @@ export type TableShape = "ROUND" | "SQUARE" | "RECTANGLE";
 export type TableAutoAssignPriority = "DISABLED" | "LOW" | "MEDIUM" | "HIGH";
 export const tableFeatures = ["QUIET", "ACCESSIBLE", "KIDS", "WINDOW"] as const;
 export type TableFeature = (typeof tableFeatures)[number];
+export type TableViewImageCrop = {
+  x: number;
+  y: number;
+  zoom: number;
+};
 export type ReservationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
 export type TableBlockReason = "MAINTENANCE" | "ADMIN" | "EVENT";
 
@@ -39,6 +44,7 @@ export type FloorTable = {
   features?: TableFeature[];
   displayScale?: number;
   viewImageUrl?: string;
+  viewImageCrop?: TableViewImageCrop;
   autoAssignPriority?: TableAutoAssignPriority;
 };
 

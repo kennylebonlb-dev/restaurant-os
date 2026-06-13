@@ -11,12 +11,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Crop,
   Gauge,
   Heart,
+  ImagePlus,
   LayoutGrid,
   List,
   Lock,
   Minus,
+  Move,
   Plus,
   RefreshCw,
   RotateCw,
@@ -27,7 +30,16 @@ import {
   Users,
   Unlock
 } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  PointerEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
 import { useRestaurantSocket } from "@/hooks/use-socket-events";
@@ -41,24 +53,29 @@ import {
   type TableCombination,
   type TableFeature,
   type TableShape,
+  type TableViewImageCrop,
   type TableZone,
   type VacationClosure
 } from "@/lib/domain";
 import {
   applyFloorPlanSettings,
+  defaultTableViewImageCrop,
   defaultTableDisplayScaleFromSettings,
   floorPlan2dImageUrlFromSettings,
   floorPlanModelUrlFromSettings,
   isTableShape,
+  normalizeTableViewImageCrop,
   tableAutoAssignPrioritiesFromSettings,
   tableCombinationsFromSettings,
   tableFeaturesFromSettings,
   tableDisplayScaleLockedFromSettings,
+  tableViewImageStyle,
   withTableAutoAssignPriority,
   withTableCombinations,
   withTableFeatures,
   withDefaultTableDisplayScale,
   withTableDisplayScale,
+  withTableViewImageCrop,
   withTableViewImage,
   withTableShape
 } from "@/lib/floor-plan-settings";
@@ -142,6 +159,7 @@ type CreateTableOverrides = Partial<TableDraft> &
     displayScale?: number;
     features?: TableFeature[];
     shape?: TableShape;
+    viewImageCrop?: TableViewImageCrop;
     viewImageUrl?: string;
   };
 type AdminPanel = "restaurant" | "hours" | "rules" | "vacations" | "tables" | "blocks";
@@ -384,12 +402,22 @@ export function AdminDashboard() {
   const [nowTick, setNowTick] = useState(0);
   const [selectedTableDraft, setSelectedTableDraft] = useState<TableDraft | null>(null);
   const [selectedTableDisplayScaleDraft, setSelectedTableDisplayScaleDraft] = useState(1);
+  const [tableViewEditorTableId, setTableViewEditorTableId] = useState<string | null>(null);
+  const [tableViewCropDraft, setTableViewCropDraft] = useState<TableViewImageCrop>(
+    defaultTableViewImageCrop()
+  );
   const [detectedGlbTables, setDetectedGlbTables] = useState<DetectedGlbTable[]>([]);
   const lastSavedTableDraftRef = useRef("");
   const lastSavedTableDisplayScaleRef = useRef("");
+  const lastSavedTableViewCropRef = useRef("");
   const detectedGlbTablesSignatureRef = useRef("");
   const tableViewImageInputRef = useRef<HTMLInputElement | null>(null);
   const pendingTableViewImageIdRef = useRef<string | null>(null);
+  const tableViewCropDragRef = useRef<{
+    crop: TableViewImageCrop;
+    pointerX: number;
+    pointerY: number;
+  } | null>(null);
   const { selectedTableId, setSelectedTableId } = useFloorPlanStore();
   const realtime = useRealtimeStore();
   const { locale, t } = useI18n();
@@ -483,6 +511,7 @@ export function AdminDashboard() {
         displayScale: _displayScale,
         features: _features,
         shape: _shape,
+        viewImageCrop: _viewImageCrop,
         viewImageUrl: _viewImageUrl,
         ...payload
       } = {
@@ -517,6 +546,10 @@ export function AdminDashboard() {
 
       if (variables?.viewImageUrl) {
         settings = withTableViewImage(settings, data.table.id, variables.viewImageUrl);
+      }
+
+      if (variables?.viewImageCrop) {
+        settings = withTableViewImageCrop(settings, data.table.id, variables.viewImageCrop);
       }
 
       settings = withTableAutoAssignPriority(
@@ -772,6 +805,9 @@ export function AdminDashboard() {
     [parsedRestaurantSettings]
   );
   const selectedTable = tables.find((table) => table.id === selectedTableId);
+  const tableViewEditorTable = tableViewEditorTableId
+    ? tables.find((table) => table.id === tableViewEditorTableId)
+    : undefined;
   const selectedTableFeatures = selectedTable
     ? tableFeaturesFromSettings(parsedRestaurantSettings)[selectedTable.id] ?? selectedTable.features ?? []
     : [];
@@ -907,6 +943,18 @@ export function AdminDashboard() {
   }, [selectedTable?.id]);
 
   useEffect(() => {
+    if (!tableViewEditorTable) {
+      setTableViewCropDraft(defaultTableViewImageCrop());
+      lastSavedTableViewCropRef.current = "";
+      return;
+    }
+
+    const crop = normalizeTableViewImageCrop(tableViewEditorTable.viewImageCrop);
+    setTableViewCropDraft(crop);
+    lastSavedTableViewCropRef.current = JSON.stringify(crop);
+  }, [tableViewEditorTable?.id]);
+
+  useEffect(() => {
     if (!selectedTableId || !selectedTableDraft) {
       return;
     }
@@ -949,6 +997,28 @@ export function AdminDashboard() {
 
     return () => window.clearTimeout(timeout);
   }, [selectedTableDisplayScaleDraft, selectedTableId, tableDisplayScaleLocked]);
+
+  useEffect(() => {
+    if (!tableViewEditorTableId || !tableViewEditorTable?.viewImageUrl) {
+      return;
+    }
+
+    const crop = normalizeTableViewImageCrop(tableViewCropDraft);
+    const serialized = JSON.stringify(crop);
+
+    if (serialized === lastSavedTableViewCropRef.current) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      lastSavedTableViewCropRef.current = serialized;
+      void persistTableViewImageCrop(tableViewEditorTableId, crop).catch((error) => {
+        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+      });
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [tableViewCropDraft, tableViewEditorTable?.viewImageUrl, tableViewEditorTableId]);
 
   const handleDetectedGlbTablesChange = useCallback((nextTables: DetectedGlbTable[]) => {
     const signature = nextTables
@@ -1145,7 +1215,17 @@ export function AdminDashboard() {
     }
 
     const dataUrl = await readFileAsDataUrl(file);
-    const settings = withTableViewImage(getRestaurantSettingsFromForm(), tableId, dataUrl);
+    const settings = withTableViewImageCrop(
+      withTableViewImage(getRestaurantSettingsFromForm(), tableId, dataUrl),
+      tableId,
+      defaultTableViewImageCrop()
+    );
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistTableViewImageCrop(tableId: string, crop: TableViewImageCrop) {
+    const settings = withTableViewImageCrop(getRestaurantSettingsFromForm(), tableId, crop);
     await patchRestaurantSettings(settings);
     queryClient.invalidateQueries({ queryKey: ["restaurants"] });
   }
@@ -1203,6 +1283,7 @@ export function AdminDashboard() {
       positionY: Math.min(500, table.positionY + 36),
       rotation: table.rotation,
       shape: table.shape,
+      viewImageCrop: table.viewImageCrop,
       viewImageUrl: table.viewImageUrl,
       zone: table.zone
     });
@@ -1225,8 +1306,56 @@ export function AdminDashboard() {
 
   function handleTableViewPhoto(table: FloorTable) {
     setSelectedTableId(table.id);
-    pendingTableViewImageIdRef.current = table.id;
+    setTableViewEditorTableId(table.id);
+    setAdminPanel("tables");
+  }
+
+  function openTableViewImagePicker(tableId: string) {
+    pendingTableViewImageIdRef.current = tableId;
     tableViewImageInputRef.current?.click();
+  }
+
+  function updateTableViewCropDraft(nextCrop: Partial<TableViewImageCrop>) {
+    setTableViewCropDraft((current) =>
+      normalizeTableViewImageCrop({
+        ...current,
+        ...nextCrop
+      })
+    );
+  }
+
+  function handleTableViewCropPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!tableViewEditorTable?.viewImageUrl) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    tableViewCropDragRef.current = {
+      crop: tableViewCropDraft,
+      pointerX: event.clientX,
+      pointerY: event.clientY
+    };
+  }
+
+  function handleTableViewCropPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = tableViewCropDragRef.current;
+
+    if (!drag) {
+      return;
+    }
+
+    updateTableViewCropDraft({
+      x: drag.crop.x + (event.clientX - drag.pointerX) / 3,
+      y: drag.crop.y + (event.clientY - drag.pointerY) / 3
+    });
+  }
+
+  function handleTableViewCropPointerEnd(event: PointerEvent<HTMLDivElement>) {
+    tableViewCropDragRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
@@ -1308,6 +1437,8 @@ export function AdminDashboard() {
           const tableId = pendingTableViewImageIdRef.current;
 
           if (file && tableId) {
+            setTableViewEditorTableId(tableId);
+            setTableViewCropDraft(defaultTableViewImageCrop());
             void persistTableViewImage(tableId, file).catch((error) => {
               setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalid2dPlan"));
             });
@@ -1836,11 +1967,14 @@ export function AdminDashboard() {
                     {t("floor.seats", { count: selectedTable.capacity })} · {t(`zone.${selectedTable.zone}`)}
                   </p>
                   {selectedTable.viewImageUrl ? (
-                    <img
-                      alt=""
-                      className="mt-3 h-28 w-full rounded-md object-cover"
-                      src={selectedTable.viewImageUrl}
-                    />
+                    <div className="mt-3 h-28 w-full overflow-hidden rounded-md">
+                      <img
+                        alt=""
+                        className="h-full w-full object-cover"
+                        src={selectedTable.viewImageUrl}
+                        style={tableViewImageStyle(selectedTable.viewImageCrop)}
+                      />
+                    </div>
                   ) : null}
                 </div>
                 <label className="text-sm font-semibold text-ink">
@@ -2506,6 +2640,127 @@ export function AdminDashboard() {
                 </button>
               </div>
             </form>
+          ) : null}
+
+          {tableViewEditorTable ? (
+            <div className="rounded-lg border border-moss/20 bg-white p-4 shadow-soft">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-moss">{t("admin.tableViewPhoto")}</p>
+                  <h2 className="text-base font-bold text-ink">
+                    {t("admin.tableViewEditorTitle")} · {tableViewEditorTable.label}
+                  </h2>
+                </div>
+                <button
+                  className="icon-button h-8 w-8"
+                  title={t("admin.close")}
+                  type="button"
+                  onClick={() => setTableViewEditorTableId(null)}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,6.1in)_1fr]">
+                <div
+                  className={`relative aspect-[16/10] w-full max-w-[6.1in] overflow-hidden rounded-md border border-ink/10 bg-linen ${
+                    tableViewEditorTable.viewImageUrl ? "cursor-move" : ""
+                  }`}
+                  onPointerDown={handleTableViewCropPointerDown}
+                  onPointerMove={handleTableViewCropPointerMove}
+                  onPointerUp={handleTableViewCropPointerEnd}
+                  onPointerCancel={handleTableViewCropPointerEnd}
+                >
+                  {tableViewEditorTable.viewImageUrl ? (
+                    <img
+                      alt=""
+                      className="h-full w-full select-none object-cover"
+                      draggable={false}
+                      src={tableViewEditorTable.viewImageUrl}
+                      style={tableViewImageStyle(tableViewCropDraft)}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-4 text-center text-sm font-semibold text-ink/55">
+                      {t("admin.tableViewNoPhoto")}
+                    </div>
+                  )}
+                  {tableViewEditorTable.viewImageUrl ? (
+                    <div className="absolute bottom-2 left-2 inline-flex items-center gap-2 rounded-md bg-white/90 px-2 py-1 text-xs font-bold text-ink shadow-sm">
+                      <Move className="h-3.5 w-3.5 text-moss" />
+                      {t("admin.dragCropPhoto")}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="grid content-start gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => openTableViewImagePicker(tableViewEditorTable.id)}
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      {t("admin.changePhoto")}
+                    </button>
+                    <span className="inline-flex h-10 items-center gap-2 rounded-md border border-ink/10 bg-linen px-3 text-sm font-bold text-ink">
+                      <Crop className="h-4 w-4 text-moss" />
+                      {t("admin.cropPhoto")}
+                    </span>
+                  </div>
+                  <label className="text-sm font-semibold text-ink">
+                    {t("admin.cropHorizontal")}
+                    <input
+                      className="mt-2 w-full accent-moss"
+                      disabled={!tableViewEditorTable.viewImageUrl}
+                      min={0}
+                      max={100}
+                      step={1}
+                      type="range"
+                      value={tableViewCropDraft.x}
+                      onChange={(event) =>
+                        updateTableViewCropDraft({ x: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-ink">
+                    {t("admin.cropVertical")}
+                    <input
+                      className="mt-2 w-full accent-moss"
+                      disabled={!tableViewEditorTable.viewImageUrl}
+                      min={0}
+                      max={100}
+                      step={1}
+                      type="range"
+                      value={tableViewCropDraft.y}
+                      onChange={(event) =>
+                        updateTableViewCropDraft({ y: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-ink">
+                    {t("admin.cropZoom")}
+                    <input
+                      className="mt-2 w-full accent-moss"
+                      disabled={!tableViewEditorTable.viewImageUrl}
+                      min={100}
+                      max={240}
+                      step={5}
+                      type="range"
+                      value={Math.round(tableViewCropDraft.zoom * 100)}
+                      onChange={(event) =>
+                        updateTableViewCropDraft({ zoom: Number(event.target.value) / 100 })
+                      }
+                    />
+                  </label>
+                  <button
+                    className="secondary-button justify-center"
+                    type="button"
+                    disabled={!tableViewEditorTable.viewImageUrl}
+                    onClick={() => setTableViewCropDraft(defaultTableViewImageCrop())}
+                  >
+                    {t("admin.resetCrop")}
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : null}
 
           <FloorPlan

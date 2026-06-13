@@ -4,12 +4,26 @@ import {
   type TableAutoAssignPriority,
   type TableCombination,
   type TableFeature,
-  type TableShape
+  type TableShape,
+  type TableViewImageCrop
 } from "@/lib/domain";
 
 const DEFAULT_2D_PLAN_IMAGE = "/floor-plans/restaurant-2d.png";
 const MIN_TABLE_DISPLAY_SCALE = 0.6;
 const MAX_TABLE_DISPLAY_SCALE = 1.8;
+const DEFAULT_TABLE_VIEW_IMAGE_CROP: TableViewImageCrop = { x: 50, y: 50, zoom: 1 };
+const MIN_TABLE_VIEW_IMAGE_ZOOM = 1;
+const MAX_TABLE_VIEW_IMAGE_ZOOM = 2.4;
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number) {
+  const numericValue = typeof value === "number" ? value : Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+
+  return Math.round(Math.min(max, Math.max(min, numericValue)) * 100) / 100;
+}
 
 export function isTableShape(value: unknown): value is TableShape {
   return value === "ROUND" || value === "SQUARE" || value === "RECTANGLE";
@@ -62,15 +76,40 @@ export function tableFeaturesFromSettings(settings?: Record<string, unknown> | n
 }
 
 export function normalizeTableDisplayScale(value: unknown) {
-  const numericValue = typeof value === "number" ? value : Number(value);
+  return clampNumber(value, MIN_TABLE_DISPLAY_SCALE, MAX_TABLE_DISPLAY_SCALE, 1);
+}
 
-  if (!Number.isFinite(numericValue)) {
-    return 1;
+export function defaultTableViewImageCrop(): TableViewImageCrop {
+  return { ...DEFAULT_TABLE_VIEW_IMAGE_CROP };
+}
+
+export function normalizeTableViewImageCrop(value: unknown): TableViewImageCrop {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultTableViewImageCrop();
   }
 
-  return Math.round(
-    Math.min(MAX_TABLE_DISPLAY_SCALE, Math.max(MIN_TABLE_DISPLAY_SCALE, numericValue)) * 100
-  ) / 100;
+  const record = value as Record<string, unknown>;
+
+  return {
+    x: clampNumber(record.x, 0, 100, DEFAULT_TABLE_VIEW_IMAGE_CROP.x),
+    y: clampNumber(record.y, 0, 100, DEFAULT_TABLE_VIEW_IMAGE_CROP.y),
+    zoom: clampNumber(
+      record.zoom,
+      MIN_TABLE_VIEW_IMAGE_ZOOM,
+      MAX_TABLE_VIEW_IMAGE_ZOOM,
+      DEFAULT_TABLE_VIEW_IMAGE_CROP.zoom
+    )
+  };
+}
+
+export function tableViewImageStyle(crop?: TableViewImageCrop) {
+  const normalizedCrop = normalizeTableViewImageCrop(crop);
+
+  return {
+    objectPosition: `${normalizedCrop.x}% ${normalizedCrop.y}%`,
+    transform: `scale(${normalizedCrop.zoom})`,
+    transformOrigin: `${normalizedCrop.x}% ${normalizedCrop.y}%`
+  };
 }
 
 export function tableDisplayScalesFromSettings(settings?: Record<string, unknown> | null) {
@@ -109,6 +148,22 @@ export function tableViewImagesFromSettings(settings?: Record<string, unknown> |
 
     return images;
   }, {});
+}
+
+export function tableViewImageCropsFromSettings(settings?: Record<string, unknown> | null) {
+  const tableViewImageCrops = settings?.tableViewImageCrops;
+
+  if (!tableViewImageCrops || typeof tableViewImageCrops !== "object" || Array.isArray(tableViewImageCrops)) {
+    return {};
+  }
+
+  return Object.entries(tableViewImageCrops).reduce<Record<string, TableViewImageCrop>>(
+    (crops, [tableId, value]) => {
+      crops[tableId] = normalizeTableViewImageCrop(value);
+      return crops;
+    },
+    {}
+  );
 }
 
 export function tableAutoAssignPrioritiesFromSettings(settings?: Record<string, unknown> | null) {
@@ -227,6 +282,20 @@ export function withTableViewImage(
   };
 }
 
+export function withTableViewImageCrop(
+  settings: Record<string, unknown>,
+  tableId: string,
+  crop: TableViewImageCrop
+) {
+  return {
+    ...settings,
+    tableViewImageCrops: {
+      ...tableViewImageCropsFromSettings(settings),
+      [tableId]: normalizeTableViewImageCrop(crop)
+    }
+  };
+}
+
 export function withTableAutoAssignPriority(
   settings: Record<string, unknown>,
   tableId: string,
@@ -276,6 +345,7 @@ export function applyFloorPlanSettings(
   const features = tableFeaturesFromSettings(settings);
   const displayScales = tableDisplayScalesFromSettings(settings);
   const viewImages = tableViewImagesFromSettings(settings);
+  const viewImageCrops = tableViewImageCropsFromSettings(settings);
   const priorities = tableAutoAssignPrioritiesFromSettings(settings);
 
   return tables.map((table) => ({
@@ -284,6 +354,7 @@ export function applyFloorPlanSettings(
     shape: shapes[table.id] ?? table.shape ?? "ROUND",
     displayScale: displayScales[table.id] ?? table.displayScale ?? 1,
     viewImageUrl: viewImages[table.id] ?? table.viewImageUrl,
+    viewImageCrop: viewImageCrops[table.id] ?? table.viewImageCrop,
     autoAssignPriority: priorities[table.id] ?? table.autoAssignPriority ?? "DISABLED"
   }));
 }

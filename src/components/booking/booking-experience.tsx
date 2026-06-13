@@ -32,7 +32,8 @@ import {
 import {
   applyFloorPlanSettings,
   floorPlan2dImageUrlFromSettings,
-  floorPlanModelUrlFromSettings
+  floorPlanModelUrlFromSettings,
+  tableViewImageStyle
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
 import { addDaysToDateString } from "@/lib/time";
@@ -780,11 +781,14 @@ export function BookingExperience() {
                 <Eye className="h-4 w-4 text-moss" />
                 {t("floor.viewPhoto")} · {tableViewPreview.label}
               </div>
-              <img
-                alt=""
-                className="aspect-[16/10] w-full object-cover"
-                src={tableViewPreview.viewImageUrl}
-              />
+              <div className="aspect-[16/10] w-full overflow-hidden">
+                <img
+                  alt=""
+                  className="h-full w-full object-cover"
+                  src={tableViewPreview.viewImageUrl}
+                  style={tableViewImageStyle(tableViewPreview.viewImageCrop)}
+                />
+              </div>
             </div>
           ) : null}
         </div>
