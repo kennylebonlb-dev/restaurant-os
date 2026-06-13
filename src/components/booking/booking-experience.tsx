@@ -774,7 +774,7 @@ export function BookingExperience() {
           />
           {tableViewPreview?.viewImageUrl ? (
             <div
-              className="absolute left-1/2 top-1/2 z-30 w-[min(6.1in,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-white/70 bg-white/95 shadow-2xl backdrop-blur"
+              className="absolute left-1/2 top-1/2 z-[2147483647] w-[min(6.1in,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-white/70 bg-white/95 shadow-2xl backdrop-blur"
               onMouseLeave={() => setViewPreviewTableId(undefined)}
             >
               <div className="flex items-center gap-2 border-b border-ink/10 px-3 py-2 text-sm font-bold text-ink">

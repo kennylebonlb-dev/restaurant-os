@@ -998,28 +998,6 @@ export function AdminDashboard() {
     return () => window.clearTimeout(timeout);
   }, [selectedTableDisplayScaleDraft, selectedTableId, tableDisplayScaleLocked]);
 
-  useEffect(() => {
-    if (!tableViewEditorTableId || !tableViewEditorTable?.viewImageUrl) {
-      return;
-    }
-
-    const crop = normalizeTableViewImageCrop(tableViewCropDraft);
-    const serialized = JSON.stringify(crop);
-
-    if (serialized === lastSavedTableViewCropRef.current) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      lastSavedTableViewCropRef.current = serialized;
-      void persistTableViewImageCrop(tableViewEditorTableId, crop).catch((error) => {
-        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
-      });
-    }, 450);
-
-    return () => window.clearTimeout(timeout);
-  }, [tableViewCropDraft, tableViewEditorTable?.viewImageUrl, tableViewEditorTableId]);
-
   const handleDetectedGlbTablesChange = useCallback((nextTables: DetectedGlbTable[]) => {
     const signature = nextTables
       .map(
@@ -1356,6 +1334,25 @@ export function AdminDashboard() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+  }
+
+  function handleValidateTableViewEditor() {
+    if (!tableViewEditorTableId || !tableViewEditorTable?.viewImageUrl) {
+      return;
+    }
+
+    const crop = normalizeTableViewImageCrop(tableViewCropDraft);
+    lastSavedTableViewCropRef.current = JSON.stringify(crop);
+    setRestaurantFormError(undefined);
+
+    void persistTableViewImageCrop(tableViewEditorTableId, crop)
+      .then(() => {
+        setRestaurantSaved(true);
+        window.setTimeout(() => setRestaurantSaved(false), 3500);
+      })
+      .catch((error) => {
+        setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+      });
   }
 
   function handleCreateTable(event: FormEvent<HTMLFormElement>) {
@@ -2757,6 +2754,15 @@ export function AdminDashboard() {
                     onClick={() => setTableViewCropDraft(defaultTableViewImageCrop())}
                   >
                     {t("admin.resetCrop")}
+                  </button>
+                  <button
+                    className="primary-button justify-center"
+                    type="button"
+                    disabled={!tableViewEditorTable.viewImageUrl}
+                    onClick={handleValidateTableViewEditor}
+                  >
+                    <Check className="h-4 w-4" />
+                    {t("admin.validate")}
                   </button>
                 </div>
               </div>
