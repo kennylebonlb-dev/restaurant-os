@@ -2,6 +2,7 @@
 
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { Billboard, Html, OrbitControls, PerspectiveCamera, Text, useGLTF } from "@react-three/drei";
+import clsx from "clsx";
 import { Eye } from "lucide-react";
 import { type MutableRefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -842,11 +843,18 @@ function TableModel({
       {mode === "booking" && table.viewImageUrl ? (
         <Html center position={[width / 2 + 0.42, 1.08, -depth / 2 - 0.24]}>
           <button
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-white text-ink shadow-lg transition hover:bg-sage focus-ring"
+            className={clsx(
+              "inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-white text-ink shadow-lg transition focus-ring",
+              disabled ? "cursor-not-allowed opacity-40" : "hover:bg-sage"
+            )}
+            disabled={disabled}
             title={t("floor.viewPhoto")}
             type="button"
             onClick={(event) => {
               event.stopPropagation();
+              if (disabled) {
+                return;
+              }
               onView?.(table);
             }}
             onPointerDown={(event) => event.stopPropagation()}

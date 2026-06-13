@@ -25,8 +25,7 @@ import {
   Sparkles,
   Trash2,
   Users,
-  Unlock,
-  Upload
+  Unlock
 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
@@ -588,42 +587,6 @@ export function AdminDashboard() {
     }
   });
 
-  const uploadGlbModelMutation = useMutation({
-    mutationFn: async (file: File) => {
-      if (!file.name.toLowerCase().endsWith(".glb")) {
-        throw new Error(t("admin.invalidGlb"));
-      }
-
-      const dataUrl = await readFileAsDataUrl(file);
-      return patchRestaurantSettings({
-        ...getRestaurantSettingsFromForm(),
-        floorPlanModelDataUrl: dataUrl
-      });
-    },
-    onSuccess: () => {
-      setFloorViewMode("3d");
-      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
-    }
-  });
-
-  const upload2dPlanMutation = useMutation({
-    mutationFn: async (file: File) => {
-      if (!file.type.startsWith("image/")) {
-        throw new Error(t("admin.invalid2dPlan"));
-      }
-
-      const dataUrl = await readFileAsDataUrl(file);
-      return patchRestaurantSettings({
-        ...getRestaurantSettingsFromForm(),
-        floorPlan2dImageDataUrl: dataUrl
-      });
-    },
-    onSuccess: () => {
-      setFloorViewMode("2d");
-      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
-    }
-  });
-
   const saveRestaurantMutation = useMutation({
     mutationFn: async () => {
       setRestaurantFormError(undefined);
@@ -1139,6 +1102,21 @@ export function AdminDashboard() {
       tableId,
       displayScale
     );
+
+    if (tableDisplayScaleLocked) {
+      settings = withDefaultTableDisplayScale(settings, displayScale, true);
+    }
+
+    await patchRestaurantSettings(settings);
+    queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+  }
+
+  async function persistAllTableDisplayScales(displayScale: number) {
+    let settings: Record<string, unknown> = getRestaurantSettingsFromForm();
+
+    for (const table of tables) {
+      settings = withTableDisplayScale(settings, table.id, displayScale);
+    }
 
     if (tableDisplayScaleLocked) {
       settings = withDefaultTableDisplayScale(settings, displayScale, true);
@@ -2018,6 +1996,18 @@ export function AdminDashboard() {
                     </span>
                   </div>
                 </label>
+                <button
+                  className="secondary-button justify-center text-xs"
+                  type="button"
+                  disabled={!selectedTable || restaurant?.layoutLocked || tables.length === 0}
+                  onClick={() => {
+                    void persistAllTableDisplayScales(selectedTableDisplayScaleDraft).catch((error) => {
+                      setRestaurantFormError(error instanceof Error ? error.message : t("admin.invalidJson"));
+                    });
+                  }}
+                >
+                  {t("admin.resizeAllTables")}
+                </button>
                 <label className="flex items-center justify-between gap-3 rounded-md border border-ink/10 bg-linen px-3 py-2 text-sm font-semibold text-ink">
                   {t("admin.lockTableDisplaySize")}
                   <input
@@ -2384,40 +2374,6 @@ export function AdminDashboard() {
                 </label>
               </div>
             </div>
-            {floorViewMode === "2d" ? (
-              <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <label
-                    className={`secondary-button cursor-pointer ${
-                      !restaurant || upload2dPlanMutation.isPending ? "opacity-60" : ""
-                    }`}
-                  >
-                    <Upload className="h-4 w-4" />
-                    {upload2dPlanMutation.isPending ? t("admin.uploading2dPlan") : t("admin.upload2dPlan")}
-                    <input
-                      className="sr-only"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      disabled={!restaurant || upload2dPlanMutation.isPending}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-
-                        if (file) {
-                          upload2dPlanMutation.mutate(file);
-                          event.currentTarget.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                  <p className="text-xs font-medium text-ink/60">{t("admin.upload2dPlanHint")}</p>
-                </div>
-                {upload2dPlanMutation.error ? (
-                  <p className="mt-2 text-sm font-semibold text-red-700">
-                    {upload2dPlanMutation.error.message}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
             {floorViewMode === "3d" ? (
               <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2430,28 +2386,6 @@ export function AdminDashboard() {
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <label
-                    className={`secondary-button cursor-pointer ${
-                      !restaurant || uploadGlbModelMutation.isPending ? "opacity-60" : ""
-                    }`}
-                  >
-                    <Upload className="h-4 w-4" />
-                    {uploadGlbModelMutation.isPending ? t("admin.uploadingGlb") : t("admin.uploadGlb")}
-                    <input
-                      className="sr-only"
-                      type="file"
-                      accept=".glb,model/gltf-binary"
-                      disabled={!restaurant || uploadGlbModelMutation.isPending}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-
-                        if (file) {
-                          uploadGlbModelMutation.mutate(file);
-                          event.currentTarget.value = "";
-                        }
-                      }}
-                    />
-                  </label>
                   <button
                     className="secondary-button"
                     type="button"
@@ -2477,11 +2411,6 @@ export function AdminDashboard() {
                 {syncGlbTablesMutation.error ? (
                   <p className="mt-2 text-sm font-semibold text-red-700">
                     {syncGlbTablesMutation.error.message}
-                  </p>
-                ) : null}
-                {uploadGlbModelMutation.error ? (
-                  <p className="mt-2 text-sm font-semibold text-red-700">
-                    {uploadGlbModelMutation.error.message}
                   </p>
                 ) : null}
               </div>

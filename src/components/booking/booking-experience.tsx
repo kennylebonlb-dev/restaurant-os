@@ -258,11 +258,7 @@ export function BookingExperience() {
     () => restaurantTables.find((table) => table.id === viewPreviewTableId),
     [restaurantTables, viewPreviewTableId]
   );
-  const tableViewPreview = viewPreviewTable?.viewImageUrl
-    ? viewPreviewTable
-    : selectedTable?.viewImageUrl
-      ? selectedTable
-      : undefined;
+  const tableViewPreview = viewPreviewTable?.viewImageUrl ? viewPreviewTable : undefined;
   const floorPlanModelUrl = useMemo(
     () => floorPlanModelUrlFromSettings(restaurant?.settings),
     [restaurant?.settings]
@@ -367,6 +363,15 @@ export function BookingExperience() {
       setViewPreviewTableId(undefined);
     }
   }, [restaurantTables, viewPreviewTableId]);
+
+  useEffect(() => {
+    if (
+      viewPreviewTableId &&
+      (!selectedSlot?.selectable || !availableIds.includes(viewPreviewTableId))
+    ) {
+      setViewPreviewTableId(undefined);
+    }
+  }, [availableIds, selectedSlot?.selectable, viewPreviewTableId]);
 
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_1fr] lg:px-8">
@@ -755,7 +760,11 @@ export function BookingExperience() {
             modelUrl={floorPlanModelUrl}
             backgroundImageUrl={floorPlan2dImageUrl}
             onZoomChange={setFloorZoom}
-            onView={(table) => setViewPreviewTableId(table.id)}
+            onView={(table) => {
+              if (selectedSlot?.selectable && availableIds.includes(table.id)) {
+                setViewPreviewTableId(table.id);
+              }
+            }}
             onSelect={(table) => {
               if (!booking.autoAssignTable && availableIds.includes(table.id)) {
                 booking.setBookingField("selectedTableId", table.id);
@@ -764,7 +773,7 @@ export function BookingExperience() {
           />
           {tableViewPreview?.viewImageUrl ? (
             <div
-              className="absolute left-1/2 top-1/2 z-30 w-[min(440px,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-white/70 bg-white/95 shadow-2xl backdrop-blur"
+              className="absolute left-1/2 top-1/2 z-30 w-[min(6.1in,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-white/70 bg-white/95 shadow-2xl backdrop-blur"
               onMouseLeave={() => setViewPreviewTableId(undefined)}
             >
               <div className="flex items-center gap-2 border-b border-ink/10 px-3 py-2 text-sm font-bold text-ink">
@@ -773,7 +782,7 @@ export function BookingExperience() {
               </div>
               <img
                 alt=""
-                className="h-64 w-full object-cover"
+                className="aspect-[16/10] w-full object-cover"
                 src={tableViewPreview.viewImageUrl}
               />
             </div>

@@ -541,11 +541,18 @@ export function FloorPlan({
                 </button>
                 {mode === "booking" && table.viewImageUrl ? (
                   <button
-                    className="absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition hover:bg-sage focus-ring"
+                    className={clsx(
+                      "absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition focus-ring",
+                      disabled ? "cursor-not-allowed opacity-40" : "hover:bg-sage"
+                    )}
+                    disabled={disabled}
                     title={t("floor.viewPhoto")}
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
+                      if (disabled) {
+                        return;
+                      }
                       onView?.(table);
                     }}
                     onPointerDown={(event) => event.stopPropagation()}
