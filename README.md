@@ -1,4 +1,4 @@
-# SmarTable
+# C’est ma table
 
 Production-ready MVP foundation for restaurant booking and table operations.
 
