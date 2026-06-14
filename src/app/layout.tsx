@@ -5,8 +5,8 @@ import { getPlatformBrand } from "@/server/platform-settings";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "C’est ma table",
-  description: "Réservation, gestion des tables et opérations restaurant en temps réel.",
+  title: "ToqueTop | Sites et réservations pour restaurants",
+  description: "Créez votre site restaurant, gérez les réservations, le plan de salle et les disponibilités en temps réel.",
   icons: {
     icon: "/favicon.ico",
     shortcut: "/favicon.ico"

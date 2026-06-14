@@ -82,3 +82,63 @@ textarea {
 .danger-button {
   @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-800 focus-ring disabled:cursor-not-allowed disabled:opacity-45;
 }
+
+.landing-hero-image {
+  animation: landingHeroDrift 18s ease-in-out infinite alternate;
+}
+
+.landing-fade-up {
+  animation: landingFadeUp 760ms ease-out both;
+}
+
+.landing-fade-up-stagger {
+  animation: landingFadeUp 720ms ease-out both;
+}
+
+.landing-fade-up-stagger:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.landing-fade-up-stagger:nth-child(3) {
+  animation-delay: 180ms;
+}
+
+.landing-fade-up-stagger:nth-child(4) {
+  animation-delay: 270ms;
+}
+
+.landing-grid-bg {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.12) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at 35% 30%, black, transparent 68%);
+}
+
+@keyframes landingHeroDrift {
+  from {
+    transform: scale(1.05) translate3d(-0.8rem, 0, 0);
+  }
+  to {
+    transform: scale(1.1) translate3d(0.8rem, -0.6rem, 0);
+  }
+}
+
+@keyframes landingFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-image,
+  .landing-fade-up,
+  .landing-fade-up-stagger {
+    animation: none;
+  }
+}
