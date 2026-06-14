@@ -17,7 +17,6 @@ import {
   Users
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FloorPlan } from "@/components/floor-plan/floor-plan";
 import { apiFetch } from "@/hooks/use-api";
@@ -442,23 +441,6 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
             )}
           </div>
 
-          {restaurants.length > 1 ? (
-            <label className="mb-3 block text-sm font-semibold text-ink">
-              {t("booking.restaurant")}
-              <select
-                className="control mt-1 w-full"
-                value={restaurant?.id}
-                onChange={(event) => setRestaurantId(event.target.value)}
-              >
-                {restaurants.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           <div className="grid gap-3">
             <label className="text-sm font-semibold text-ink">
               {t("booking.date")}
@@ -726,34 +708,32 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
             </div>
           ) : null}
 
-          {session && !contactComplete ? (
+          {!contactComplete ? (
             <div className="mt-4 rounded-md bg-orange-50 p-3 text-sm font-semibold text-orange-800">
               {t("booking.contactRequired")}
             </div>
           ) : null}
 
-          {session ? (
-            <button
-              className="primary-button mt-4 w-full"
-              type="button"
-              disabled={
-                !restaurant ||
-                !selectedSlot?.selectable ||
-                (!booking.autoAssignTable && !booking.selectedTableId) ||
-                !contactComplete ||
-                reservationMutation.isPending
-              }
-              onClick={() => reservationMutation.mutate()}
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              {t("booking.confirmReservation")}
-            </button>
-          ) : (
-            <Link className="primary-button mt-4 w-full" href="/login">
-              <CheckCircle2 className="h-4 w-4" />
-              {t("booking.signInToReserve")}
-            </Link>
-          )}
+          <button
+            className="primary-button mt-4 w-full"
+            type="button"
+            disabled={
+              !restaurant ||
+              !selectedSlot?.selectable ||
+              (!booking.autoAssignTable && !booking.selectedTableId) ||
+              !contactComplete ||
+              reservationMutation.isPending
+            }
+            onClick={() => reservationMutation.mutate()}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {t("booking.confirmReservation")}
+          </button>
+          {!session ? (
+            <p className="mt-2 text-center text-xs font-semibold text-ink/55">
+              {t("booking.guestReservationHint")}
+            </p>
+          ) : null}
         </div>
 
         {restaurant ? (

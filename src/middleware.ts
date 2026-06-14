@@ -1,27 +1,46 @@
-import { NextResponse } from "next/server";
-import { withAuth } from "next-auth/middleware";
+import { getToken } from "next-auth/jwt";
+import { NextResponse, type NextRequest } from "next/server";
 
-export default withAuth(
-  function middleware(request) {
-    const role = request.nextauth.token?.role;
+const ROOT_HOSTS = new Set(["toquetop.com", "www.toquetop.com", "localhost", "127.0.0.1"]);
+const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api"]);
 
-    if (
-      request.nextUrl.pathname.startsWith("/admin") &&
-      role !== "ADMIN" &&
-      role !== "STAFF"
-    ) {
+function hostWithoutPort(request: NextRequest) {
+  return (request.headers.get("host") ?? "").split(":")[0].toLowerCase();
+}
+
+function restaurantSubdomain(host: string) {
+  if (ROOT_HOSTS.has(host) || !host.endsWith(".toquetop.com")) {
+    return undefined;
+  }
+
+  const subdomain = host.replace(/\.toquetop\.com$/, "");
+
+  return subdomain && !IGNORED_SUBDOMAINS.has(subdomain) ? subdomain : undefined;
+}
+
+export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  if (pathname.startsWith("/admin")) {
+    const token = await getToken({ req: request });
+    const role = token?.role;
+
+    if (role !== "ADMIN" && role !== "STAFF") {
       return NextResponse.redirect(new URL("/", request.url));
     }
-
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token }) => Boolean(token)
-    }
   }
-);
+
+  const subdomain = restaurantSubdomain(hostWithoutPort(request));
+
+  if (subdomain && (pathname === "/" || pathname === "/reservation")) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/sites/${subdomain}`;
+    return NextResponse.rewrite(url);
+  }
+
+  return NextResponse.next();
+}
 
 export const config = {
-  matcher: ["/admin/:path*", "/my-reservations/:path*"]
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"]
 };

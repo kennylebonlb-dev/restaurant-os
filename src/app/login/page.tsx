@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
+import { CalendarSearch, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
@@ -13,6 +13,12 @@ type BrandResponse = {
   brand: PlatformBrand;
 };
 
+type GuestReservationResponse = {
+  reservations: Array<{
+    id: string;
+  }>;
+};
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -22,6 +28,10 @@ function LoginContent() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [guestReferenceName, setGuestReferenceName] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [guestError, setGuestError] = useState<string>();
   const [error, setError] = useState<string>();
   const { t } = useI18n();
   const brandQuery = useQuery({
@@ -30,6 +40,7 @@ function LoginContent() {
     staleTime: 60_000
   });
   const loginVisualUrl = brandQuery.data?.brand.loginVisualUrl ?? "/login-restaurant-visual.png";
+  const supportEmail = brandQuery.data?.brand.supportEmail || "contact@toquetop.com";
 
   const registerMutation = useMutation({
     mutationFn: () =>
@@ -37,6 +48,35 @@ function LoginContent() {
         method: "POST",
         body: JSON.stringify({ firstName, lastName, email, phone, password })
       })
+  });
+
+  const guestLookupMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<GuestReservationResponse>("/api/guest-reservations", {
+        method: "POST",
+        body: JSON.stringify({
+          referenceName: guestReferenceName,
+          phone: guestPhone
+        })
+      }),
+    onSuccess: (data) => {
+      if (data.reservations.length === 0) {
+        setGuestError(t("login.guestNoReservation"));
+        return;
+      }
+
+      window.sessionStorage.setItem(
+        "toquetop_guest_reservation_access",
+        JSON.stringify({
+          referenceName: guestReferenceName,
+          phone: guestPhone
+        })
+      );
+      router.push("/my-reservations?guest=1");
+    },
+    onError: (lookupError) => {
+      setGuestError(lookupError.message);
+    }
   });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -50,6 +90,7 @@ function LoginContent() {
     const result = await signIn("credentials", {
       email,
       password,
+      rememberMe: rememberMe ? "true" : "false",
       redirect: false
     });
 
@@ -73,7 +114,8 @@ function LoginContent() {
       </section>
 
       <section className="flex items-center justify-center py-2 lg:py-8">
-        <form className="w-full max-w-md rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-7" onSubmit={handleSubmit}>
+        <div className="w-full max-w-md space-y-4">
+        <form className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-7" onSubmit={handleSubmit}>
           <div>
             <h1 className="text-2xl font-black text-ink">
               {mode === "login" ? t("login.signIn") : t("login.createAccount")}
@@ -179,6 +221,23 @@ function LoginContent() {
             </label>
           </div>
 
+          {mode === "login" ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm font-semibold">
+              <label className="inline-flex items-center gap-2 text-ink/70">
+                <input
+                  className="h-4 w-4 accent-moss"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.target.checked)}
+                />
+                {t("login.rememberMe")}
+              </label>
+              <a className="text-moss hover:underline" href={`mailto:${supportEmail}?subject=Mot de passe oublié`}>
+                {t("login.forgotPassword")}
+              </a>
+            </div>
+          ) : null}
+
           {error || registerMutation.error ? (
             <p className="mt-4 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-700">
               {error ?? registerMutation.error?.message}
@@ -189,6 +248,64 @@ function LoginContent() {
             {mode === "login" ? t("login.signIn") : t("login.createAccount")}
           </button>
         </form>
+
+        <form
+          className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setGuestError(undefined);
+            guestLookupMutation.mutate();
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-moss/10 text-moss">
+              <CalendarSearch className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="text-base font-black text-ink">{t("login.findReservation")}</h2>
+              <p className="mt-1 text-sm font-medium leading-6 text-ink/60">
+                {t("login.findReservationHint")}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3">
+            <label className="text-sm font-semibold text-ink">
+              {t("login.referenceName")}
+              <div className="relative mt-1">
+                <UserRound className="field-icon" />
+                <input
+                  className="control with-leading-icon w-full"
+                  value={guestReferenceName}
+                  onChange={(event) => setGuestReferenceName(event.target.value)}
+                  placeholder="Jean Dupont"
+                  required
+                />
+              </div>
+            </label>
+            <label className="text-sm font-semibold text-ink">
+              {t("login.reservationPhone")}
+              <div className="relative mt-1">
+                <Phone className="field-icon" />
+                <input
+                  className="control with-leading-icon w-full"
+                  type="tel"
+                  value={guestPhone}
+                  onChange={(event) => setGuestPhone(event.target.value)}
+                  required
+                />
+              </div>
+            </label>
+          </div>
+          {guestError ? (
+            <p className="mt-4 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-700">
+              {guestError}
+            </p>
+          ) : null}
+          <button className="secondary-button mt-4 w-full" disabled={guestLookupMutation.isPending} type="submit">
+            {t("login.openReservation")}
+          </button>
+        </form>
+        </div>
       </section>
     </main>
   );

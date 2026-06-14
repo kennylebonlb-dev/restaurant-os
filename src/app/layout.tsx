@@ -4,14 +4,18 @@ import { AppShell } from "@/components/layout/app-shell";
 import { defaultPlatformBrand, getPlatformBrand } from "@/server/platform-settings";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "ToqueTop | Sites et réservations pour restaurants",
-  description: "Créez votre site restaurant, gérez les réservations, le plan de salle et les disponibilités en temps réel.",
-  icons: {
-    icon: "/favicon.ico",
-    shortcut: "/favicon.ico"
-  }
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getPlatformBrand().catch(() => defaultPlatformBrand);
+
+  return {
+    title: "ToqueTop | Sites et réservations pour restaurants",
+    description: "Créez votre site restaurant, gérez les réservations, le plan de salle et les disponibilités en temps réel.",
+    icons: {
+      icon: brand.faviconUrl,
+      shortcut: brand.faviconUrl
+    }
+  };
+}
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const brand = await getPlatformBrand().catch(() => defaultPlatformBrand);

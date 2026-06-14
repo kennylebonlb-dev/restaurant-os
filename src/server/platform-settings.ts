@@ -7,6 +7,10 @@ export type PlatformBrand = {
   logoHeight: number;
   footerLogoUrl: string;
   footerLogoHeight: number;
+  marketingLogoUrl: string;
+  marketingLogoHeight: number;
+  marketingFooterLogoUrl: string;
+  marketingFooterLogoHeight: number;
   loginVisualUrl: string;
   faviconUrl: string;
   logoAlt: string;
@@ -22,6 +26,10 @@ export const defaultPlatformBrand: PlatformBrand = {
   logoHeight: 48,
   footerLogoUrl: "/cest-ma-table-logo.png",
   footerLogoHeight: 32,
+  marketingLogoUrl: "/cest-ma-table-logo.png",
+  marketingLogoHeight: 48,
+  marketingFooterLogoUrl: "/cest-ma-table-logo.png",
+  marketingFooterLogoHeight: 32,
   loginVisualUrl: "/login-restaurant-visual.png",
   faviconUrl: "/cest-ma-table-favicon.png",
   logoAlt: "C’est ma table",
@@ -728,6 +736,26 @@ function normalizePlatformBrand(value: unknown): PlatformBrand {
           ? record.logoUrl
           : defaultPlatformBrand.footerLogoUrl,
     footerLogoHeight: normalizeImageHeight(record.footerLogoHeight, defaultPlatformBrand.footerLogoHeight),
+    marketingLogoUrl:
+      typeof record.marketingLogoUrl === "string" && record.marketingLogoUrl.trim()
+        ? record.marketingLogoUrl
+        : typeof record.logoUrl === "string" && record.logoUrl.trim()
+          ? record.logoUrl
+          : defaultPlatformBrand.marketingLogoUrl,
+    marketingLogoHeight: normalizeImageHeight(
+      record.marketingLogoHeight,
+      normalizeImageHeight(record.logoHeight, defaultPlatformBrand.marketingLogoHeight)
+    ),
+    marketingFooterLogoUrl:
+      typeof record.marketingFooterLogoUrl === "string" && record.marketingFooterLogoUrl.trim()
+        ? record.marketingFooterLogoUrl
+        : typeof record.footerLogoUrl === "string" && record.footerLogoUrl.trim()
+          ? record.footerLogoUrl
+          : defaultPlatformBrand.marketingFooterLogoUrl,
+    marketingFooterLogoHeight: normalizeImageHeight(
+      record.marketingFooterLogoHeight,
+      normalizeImageHeight(record.footerLogoHeight, defaultPlatformBrand.marketingFooterLogoHeight)
+    ),
     loginVisualUrl:
       typeof record.loginVisualUrl === "string" && record.loginVisualUrl.trim()
         ? record.loginVisualUrl

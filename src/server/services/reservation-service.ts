@@ -52,6 +52,11 @@ export type CreateReservationInput = AvailabilityInput & {
   status?: ReservationStatus;
 };
 
+export type GuestReservationLookupInput = {
+  referenceName: string;
+  phone: string;
+};
+
 type ReservationWindow = {
   startTime: string;
   endTime: string;
@@ -796,6 +801,125 @@ export async function createReservation(input: CreateReservationInput) {
 
   emitRestaurantEvent(input.restaurantId, "reservation:created", reservation);
   return reservation;
+}
+
+function normalizeLookupName(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+}
+
+function normalizePhone(value: string | null | undefined) {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+export function reservationGuestReference(input: { guestFirstName?: string | null; guestLastName?: string | null }) {
+  return normalizeLookupName(`${input.guestFirstName ?? ""}${input.guestLastName ?? ""}`);
+}
+
+function guestReservationWhere() {
+  return {
+    guestPhone: {
+      not: null
+    },
+    status: activeReservationWhere()
+  } satisfies Prisma.ReservationWhereInput;
+}
+
+export async function listGuestReservations(input: GuestReservationLookupInput) {
+  const reference = normalizeLookupName(input.referenceName);
+  const phone = normalizePhone(input.phone);
+
+  if (!reference || phone.length < 6) {
+    return [];
+  }
+
+  const reservations = await prisma.reservation.findMany({
+    where: guestReservationWhere(),
+    orderBy: [
+      {
+        date: "asc"
+      },
+      {
+        startTime: "asc"
+      }
+    ],
+    include: {
+      restaurant: {
+        select: {
+          name: true,
+          address: true
+        }
+      },
+      table: {
+        select: {
+          label: true
+        }
+      }
+    }
+  });
+
+  return reservations.filter((reservation) => {
+    const reservationPhone = normalizePhone(reservation.guestPhone);
+
+    return (
+      reservationGuestReference(reservation) === reference &&
+      (reservationPhone === phone || reservationPhone.endsWith(phone) || phone.endsWith(reservationPhone))
+    );
+  });
+}
+
+export async function cancelGuestReservation(reservationId: string, input: GuestReservationLookupInput) {
+  const reservations = await listGuestReservations(input);
+  const reservation = reservations.find((item) => item.id === reservationId);
+
+  if (!reservation) {
+    throw new NotFoundError("Reservation not found.");
+  }
+
+  return cancelReservation(reservationId, reservation.userId);
+}
+
+export async function updateGuestReservation(
+  reservationId: string,
+  input: GuestReservationLookupInput,
+  data: {
+    notes?: string | null;
+  }
+) {
+  const reservations = await listGuestReservations(input);
+  const reservation = reservations.find((item) => item.id === reservationId);
+
+  if (!reservation) {
+    throw new NotFoundError("Reservation not found.");
+  }
+
+  return updateReservation(reservationId, data);
+}
+
+export async function updateUserReservation(
+  reservationId: string,
+  userId: string,
+  data: {
+    notes?: string | null;
+  }
+) {
+  const reservation = await prisma.reservation.findUnique({
+    where: {
+      id: reservationId
+    },
+    select: {
+      userId: true
+    }
+  });
+
+  if (!reservation || reservation.userId !== userId) {
+    throw new NotFoundError("Reservation not found.");
+  }
+
+  return updateReservation(reservationId, data);
 }
 
 export async function listRestaurantReservations(restaurantId: string, date?: string) {

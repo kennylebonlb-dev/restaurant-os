@@ -136,10 +136,10 @@ export default async function HomePage() {
           >
             <Link className="group inline-flex min-w-0 items-center text-white" href="/">
               <img
-                src={brand.logoUrl}
+                src={brand.marketingLogoUrl}
                 alt={brand.logoAlt}
                 className="max-w-[220px] object-contain"
-                style={{ height: brand.logoHeight, padding: landing.header.logoSpacing }}
+                style={{ height: brand.marketingLogoHeight, padding: landing.header.logoSpacing }}
               />
             </Link>
             <div className="hidden items-center gap-6 text-sm font-bold text-white/80 lg:flex">
@@ -389,10 +389,10 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1fr_2fr]">
           <div>
             <img
-              src={brand.footerLogoUrl}
+              src={brand.marketingFooterLogoUrl}
               alt={brand.logoAlt}
               className="max-w-[220px] object-contain"
-              style={{ height: brand.footerLogoHeight }}
+              style={{ height: brand.marketingFooterLogoHeight }}
             />
             <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/60">{landing.footerTagline}</p>
           </div>

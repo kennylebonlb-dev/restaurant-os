@@ -97,6 +97,10 @@ const initialBrandForm: PlatformBrand = {
   logoHeight: 48,
   footerLogoUrl: "/cest-ma-table-logo.png",
   footerLogoHeight: 32,
+  marketingLogoUrl: "/cest-ma-table-logo.png",
+  marketingLogoHeight: 48,
+  marketingFooterLogoUrl: "/cest-ma-table-logo.png",
+  marketingFooterLogoHeight: 32,
   loginVisualUrl: "/login-restaurant-visual.png",
   faviconUrl: "/cest-ma-table-favicon.png",
   logoAlt: "C’est ma table",
@@ -778,6 +782,22 @@ export function PlatformAdminDashboard() {
     }
   }
 
+  async function updateMarketingLogo(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      updateBrand("marketingLogoUrl", dataUrl);
+    }
+  }
+
+  async function updateMarketingFooterLogo(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      updateBrand("marketingFooterLogoUrl", dataUrl);
+    }
+  }
+
   async function updateLoginVisual(event: ChangeEvent<HTMLInputElement>) {
     const dataUrl = await imageInputToDataUrl(event);
 
@@ -1012,10 +1032,12 @@ export function PlatformAdminDashboard() {
             ) : null}
 
             {activeSection === "assets" ? (
-              <AdminSectionLayout description="Gère les fichiers visibles sur le site : logo, favicon, visuel de connexion et logo footer." icon={<ImageIcon className="h-5 w-5" />} panelClass={panelClass} title="Logo et favicon">
+              <AdminSectionLayout description="Gère séparément les logos du site vitrine, des sites de réservation, le favicon et le visuel de connexion." icon={<ImageIcon className="h-5 w-5" />} panelClass={panelClass} title="Logo et favicon">
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo" height={brandForm.logoHeight} image={brandForm.logoUrl} title="Logo du site" onUpload={updateLogo} />
-                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo footer" height={brandForm.footerLogoHeight} image={brandForm.footerLogoUrl} title="Logo du footer" onUpload={updateFooterLogo} />
+                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo vitrine" height={brandForm.marketingLogoHeight} image={brandForm.marketingLogoUrl} title="Logo site vitrine" onUpload={updateMarketingLogo} />
+                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo footer vitrine" height={brandForm.marketingFooterLogoHeight} image={brandForm.marketingFooterLogoUrl} title="Logo footer vitrine" onUpload={updateMarketingFooterLogo} />
+                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo réservation" height={brandForm.logoHeight} image={brandForm.logoUrl} title="Logo site de réservation" onUpload={updateLogo} />
+                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo footer réservation" height={brandForm.footerLogoHeight} image={brandForm.footerLogoUrl} title="Logo footer réservation" onUpload={updateFooterLogo} />
                   <AssetCard alt="Favicon" buttonLabel="Remplacer le favicon" height={56} image={brandForm.faviconUrl} title="Favicon" onUpload={updateFavicon} />
                   <AssetCard alt="Visuel de connexion" buttonLabel="Remplacer le visuel" image={brandForm.loginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel page de connexion" onUpload={updateLoginVisual} />
                 </div>
@@ -1024,7 +1046,11 @@ export function PlatformAdminDashboard() {
                   <Field label="Nom du site" value={brandForm.siteName} onChange={(value) => updateBrand("siteName", value)} />
                   <Field label="Texte alternatif du logo" value={brandForm.logoAlt} onChange={(value) => updateBrand("logoAlt", value)} />
                   <label className="text-sm font-semibold">
-                    Taille du logo : {brandForm.logoHeight}px
+                    Taille du logo vitrine : {brandForm.marketingLogoHeight}px
+                    <input className="mt-3 w-full accent-moss" type="range" min={18} max={96} value={brandForm.marketingLogoHeight} onChange={(event) => updateBrand("marketingLogoHeight", Number(event.target.value))} />
+                  </label>
+                  <label className="text-sm font-semibold">
+                    Taille du logo réservation : {brandForm.logoHeight}px
                     <input className="mt-3 w-full accent-moss" type="range" min={18} max={96} value={brandForm.logoHeight} onChange={(event) => updateBrand("logoHeight", Number(event.target.value))} />
                   </label>
                   <label className="text-sm font-semibold">
@@ -1032,11 +1058,18 @@ export function PlatformAdminDashboard() {
                     <input className="mt-3 w-full accent-moss" type="range" min={0} max={40} value={landingForm.header.logoSpacing} onChange={(event) => updateHeader("logoSpacing", Number(event.target.value))} />
                   </label>
                   <label className="text-sm font-semibold">
-                    Taille du logo footer : {brandForm.footerLogoHeight}px
+                    Taille du logo footer vitrine : {brandForm.marketingFooterLogoHeight}px
+                    <input className="mt-3 w-full accent-moss" type="range" min={18} max={96} value={brandForm.marketingFooterLogoHeight} onChange={(event) => updateBrand("marketingFooterLogoHeight", Number(event.target.value))} />
+                  </label>
+                  <label className="text-sm font-semibold">
+                    Taille du logo footer réservation : {brandForm.footerLogoHeight}px
                     <input className="mt-3 w-full accent-moss" type="range" min={18} max={96} value={brandForm.footerLogoHeight} onChange={(event) => updateBrand("footerLogoHeight", Number(event.target.value))} />
                   </label>
+                  <button className="secondary-button self-end" type="button" onClick={() => updateBrand("marketingFooterLogoUrl", brandForm.marketingLogoUrl)}>
+                    Utiliser le logo vitrine en footer vitrine
+                  </button>
                   <button className="secondary-button self-end" type="button" onClick={() => updateBrand("footerLogoUrl", brandForm.logoUrl)}>
-                    Utiliser le logo principal en footer
+                    Utiliser le logo réservation en footer réservation
                   </button>
                 </div>
               </AdminSectionLayout>
@@ -1672,7 +1705,7 @@ function LiveStylePreview({ brand, landing }: { brand: PlatformBrand; landing: P
       }}
     >
       <div className="flex items-center justify-between gap-3">
-        <img src={brand.logoUrl} alt={brand.logoAlt} className="max-w-[180px] object-contain" style={{ height: brand.logoHeight }} />
+        <img src={brand.marketingLogoUrl} alt={brand.logoAlt} className="max-w-[180px] object-contain" style={{ height: brand.marketingLogoHeight }} />
         <button
           className="px-4 py-2 text-sm font-black"
           style={{
@@ -1729,7 +1762,7 @@ function PreviewPanel({
           style={{ backgroundColor: landing.appearance.backgroundColor, color: landing.appearance.textColor }}
         >
           <div className="flex items-center justify-between gap-2 px-3 py-3" style={{ backgroundColor: landing.header.backgroundColor === "transparent" ? "#1d2521" : landing.header.backgroundColor }}>
-            <img src={brand.logoUrl} alt={brand.logoAlt} className="max-w-[120px] object-contain" style={{ height: Math.min(brand.logoHeight, 36) }} />
+            <img src={brand.marketingLogoUrl} alt={brand.logoAlt} className="max-w-[120px] object-contain" style={{ height: Math.min(brand.marketingLogoHeight, 36) }} />
             <span className="rounded bg-white px-2 py-1 text-[10px] font-black text-ink">{landing.header.primaryButtonLabel}</span>
           </div>
           <div className="p-4">

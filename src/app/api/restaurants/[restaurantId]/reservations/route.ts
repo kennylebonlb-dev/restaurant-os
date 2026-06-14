@@ -1,5 +1,8 @@
 import { createAdminReservationSchema, createReservationSchema } from "@/lib/validators";
-import { requireRole, requireSession } from "@/server/auth/guards";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/server/auth/guards";
 import { sendReservationConfirmation } from "@/server/email";
 import { apiError, created, ok } from "@/server/http";
 import {
@@ -12,6 +15,62 @@ type Context = {
     restaurantId: string;
   }>;
 };
+
+async function findOrCreateReservationUser(data: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}) {
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      email: data.email
+    },
+    select: {
+      id: true,
+      passwordHash: true
+    }
+  });
+
+  if (existingUser) {
+    if (!existingUser.passwordHash) {
+      const name = [data.firstName, data.lastName].filter(Boolean).join(" ");
+
+      await prisma.user.update({
+        where: {
+          id: existingUser.id
+        },
+        data: {
+          name,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          contactEmail: data.email,
+          phone: data.phone
+        }
+      });
+    }
+
+    return existingUser.id;
+  }
+
+  const name = [data.firstName, data.lastName].filter(Boolean).join(" ");
+  const user = await prisma.user.create({
+    data: {
+      name,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      contactEmail: data.email,
+      email: data.email,
+      phone: data.phone,
+      role: "CLIENT"
+    },
+    select: {
+      id: true
+    }
+  });
+
+  return user.id;
+}
 
 export async function GET(request: Request, context: Context) {
   try {
@@ -28,11 +87,11 @@ export async function GET(request: Request, context: Context) {
 
 export async function POST(request: Request, context: Context) {
   try {
-    const session = await requireSession();
+    const session = await getServerSession(authOptions);
     const { restaurantId } = await context.params;
     const payload = await request.json();
 
-    if (session.user.role === "ADMIN" && typeof payload.userId === "string") {
+    if (session?.user.role === "ADMIN" && typeof payload.userId === "string") {
       const data = createAdminReservationSchema.parse(payload);
       const reservation = await createReservation({
         restaurantId,
@@ -61,9 +120,17 @@ export async function POST(request: Request, context: Context) {
     }
 
     const data = createReservationSchema.parse(payload);
+    const userId =
+      session?.user.id ??
+      (await findOrCreateReservationUser({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone
+      }));
     const reservation = await createReservation({
       restaurantId,
-      userId: session.user.id,
+      userId,
       date: data.date,
       startTime: data.startTime,
       endTime: data.endTime,

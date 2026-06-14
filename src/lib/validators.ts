@@ -96,6 +96,10 @@ export const updateReservationSchema = z.object({
   tableId: z.string().trim().min(1).nullable().optional()
 });
 
+export const customerReservationUpdateSchema = z.object({
+  notes: z.string().trim().max(1000).nullable().optional()
+});
+
 export const createTableBlockSchema = z.object({
   date: dateStringSchema,
   startTime: timeStringSchema,
@@ -113,6 +117,15 @@ export const registerSchema = z.object({
   lastName: z.string().trim().min(1).max(80),
   email: z.string().email().transform((email) => email.toLowerCase().trim()),
   phone: z.string().trim().min(6).max(32),
+  password: z.string().min(8).max(128)
+});
+
+export const guestReservationLookupSchema = z.object({
+  referenceName: z.string().trim().min(2).max(180),
+  phone: z.string().trim().min(6).max(32)
+});
+
+export const guestReservationRegisterSchema = guestReservationLookupSchema.extend({
   password: z.string().min(8).max(128)
 });
 
@@ -146,6 +159,10 @@ export const platformBrandSchema = z.object({
   logoHeight: z.coerce.number().int().min(18).max(96).default(48),
   footerLogoUrl: imageUrlSchema,
   footerLogoHeight: z.coerce.number().int().min(18).max(96).default(32),
+  marketingLogoUrl: imageUrlSchema,
+  marketingLogoHeight: z.coerce.number().int().min(18).max(96).default(48),
+  marketingFooterLogoUrl: imageUrlSchema,
+  marketingFooterLogoHeight: z.coerce.number().int().min(18).max(96).default(32),
   loginVisualUrl: imageUrlSchema,
   faviconUrl: imageUrlSchema,
   logoAlt: z.string().trim().min(2).max(120),
