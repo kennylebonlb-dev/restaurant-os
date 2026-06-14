@@ -8,19 +8,32 @@ type BrandResponse = {
   brand: PlatformBrand;
 };
 
-export function BrandLogo({ initialBrand }: { initialBrand: PlatformBrand }) {
+export function BrandLogo({
+  initialBrand,
+  variant = "header"
+}: {
+  initialBrand: PlatformBrand;
+  variant?: "header" | "footer";
+}) {
   const brandQuery = useQuery({
     queryKey: ["platform-brand"],
     queryFn: () => apiFetch<BrandResponse>("/api/platform-brand"),
     staleTime: 60_000
   });
   const brand = brandQuery.data?.brand ?? initialBrand;
+  const src = variant === "footer" ? brand.footerLogoUrl : brand.logoUrl;
+  const height = variant === "footer" ? brand.footerLogoHeight : brand.logoHeight;
+  const maxWidth = variant === "footer" ? 220 : 260;
 
   return (
     <img
-      src={brand.logoUrl}
+      src={src}
       alt={brand.logoAlt}
-      className="h-10 w-auto max-w-[190px] object-contain sm:h-12 sm:max-w-[230px]"
+      className="w-auto object-contain"
+      style={{
+        height,
+        maxWidth
+      }}
     />
   );
 }

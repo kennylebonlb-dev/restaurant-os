@@ -143,6 +143,9 @@ export const platformAdminLoginSchema = z.object({
 export const platformBrandSchema = z.object({
   siteName: z.string().trim().min(2).max(80),
   logoUrl: imageUrlSchema,
+  logoHeight: z.coerce.number().int().min(18).max(96).default(48),
+  footerLogoUrl: imageUrlSchema,
+  footerLogoHeight: z.coerce.number().int().min(18).max(96).default(32),
   faviconUrl: imageUrlSchema,
   logoAlt: z.string().trim().min(2).max(120),
   supportEmail: z

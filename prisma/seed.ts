@@ -24,6 +24,9 @@ async function main() {
       value: {
         siteName: "C’est ma table",
         logoUrl: "/cest-ma-table-logo.png",
+        logoHeight: 48,
+        footerLogoUrl: "/cest-ma-table-logo.png",
+        footerLogoHeight: 32,
         faviconUrl: "/cest-ma-table-favicon.png",
         logoAlt: "C’est ma table",
         supportEmail: ""
@@ -34,6 +37,9 @@ async function main() {
       value: {
         siteName: "C’est ma table",
         logoUrl: "/cest-ma-table-logo.png",
+        logoHeight: 48,
+        footerLogoUrl: "/cest-ma-table-logo.png",
+        footerLogoHeight: 32,
         faviconUrl: "/cest-ma-table-favicon.png",
         logoAlt: "C’est ma table",
         supportEmail: ""

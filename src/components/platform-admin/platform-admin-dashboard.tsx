@@ -65,6 +65,9 @@ export function PlatformAdminDashboard() {
   const [brandForm, setBrandForm] = useState<PlatformBrand>({
     siteName: "C’est ma table",
     logoUrl: "/cest-ma-table-logo.png",
+    logoHeight: 48,
+    footerLogoUrl: "/cest-ma-table-logo.png",
+    footerLogoHeight: 32,
     faviconUrl: "/cest-ma-table-favicon.png",
     logoAlt: "C’est ma table",
     supportEmail: ""
@@ -153,6 +156,14 @@ export function PlatformAdminDashboard() {
     }
   }
 
+  async function updateFooterLogo(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      setBrandForm((current) => ({ ...current, footerLogoUrl: dataUrl }));
+    }
+  }
+
   function submitBrand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     saveBrandMutation.mutate();
@@ -222,19 +233,82 @@ export function PlatformAdminDashboard() {
             </label>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink">
-                Logo de l’en-tête
-                <span className="mt-3 flex min-h-20 items-center justify-center rounded-md bg-white p-3">
-                  <img src={brandForm.logoUrl} alt={brandForm.logoAlt} className="max-h-16 max-w-full object-contain" />
+              <div className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink">
+                <p>Logo de l’en-tête</p>
+                <span className="mt-3 flex min-h-24 items-center justify-center rounded-md bg-white p-3">
+                  <img
+                    src={brandForm.logoUrl}
+                    alt={brandForm.logoAlt}
+                    className="max-w-full object-contain"
+                    style={{ height: brandForm.logoHeight }}
+                  />
                 </span>
-                <span className="secondary-button mt-3 w-full cursor-pointer">
+                <label className="secondary-button mt-3 w-full cursor-pointer">
                   <ImagePlus className="h-4 w-4" />
                   Remplacer
                   <input className="sr-only" type="file" accept="image/*" onChange={updateLogo} />
-                </span>
-              </label>
+                </label>
+                <label className="mt-3 block text-xs font-bold uppercase text-ink/55">
+                  Taille : {brandForm.logoHeight}px
+                  <input
+                    className="mt-2 w-full accent-moss"
+                    type="range"
+                    min={24}
+                    max={88}
+                    value={brandForm.logoHeight}
+                    onChange={(event) =>
+                      setBrandForm((current) => ({ ...current, logoHeight: Number(event.target.value) }))
+                    }
+                  />
+                </label>
+              </div>
 
-              <label className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink">
+              <div className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink">
+                <p>Logo du bas de page</p>
+                <span className="mt-3 flex min-h-24 items-center justify-center rounded-md bg-white p-3">
+                  <img
+                    src={brandForm.footerLogoUrl}
+                    alt={brandForm.logoAlt}
+                    className="max-w-full object-contain"
+                    style={{ height: brandForm.footerLogoHeight }}
+                  />
+                </span>
+                <label className="secondary-button mt-3 w-full cursor-pointer">
+                  <ImagePlus className="h-4 w-4" />
+                  Remplacer
+                  <input className="sr-only" type="file" accept="image/*" onChange={updateFooterLogo} />
+                </label>
+                <button
+                  className="secondary-button mt-2 w-full"
+                  type="button"
+                  onClick={() =>
+                    setBrandForm((current) => ({
+                      ...current,
+                      footerLogoUrl: current.logoUrl,
+                      footerLogoHeight: Math.max(18, Math.min(96, Math.round(current.logoHeight * 0.7)))
+                    }))
+                  }
+                >
+                  Utiliser le logo de l’en-tête
+                </button>
+                <label className="mt-3 block text-xs font-bold uppercase text-ink/55">
+                  Taille : {brandForm.footerLogoHeight}px
+                  <input
+                    className="mt-2 w-full accent-moss"
+                    type="range"
+                    min={18}
+                    max={72}
+                    value={brandForm.footerLogoHeight}
+                    onChange={(event) =>
+                      setBrandForm((current) => ({ ...current, footerLogoHeight: Number(event.target.value) }))
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink sm:col-span-1">
                 Favicon
                 <span className="mt-3 flex min-h-20 items-center justify-center rounded-md bg-white p-3">
                   <img src={brandForm.faviconUrl} alt="" className="h-14 w-14 object-contain" />

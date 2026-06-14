@@ -32,7 +32,7 @@ export function AppShell({
         </header>
       )}
       <main className="flex-1">{children}</main>
-      {hideChrome ? null : <LanguageFooter />}
+      {hideChrome ? null : <LanguageFooter brand={brand} />}
     </div>
   );
 }
