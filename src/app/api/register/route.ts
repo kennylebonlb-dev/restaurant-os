@@ -1,6 +1,7 @@
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { registerSchema } from "@/lib/validators";
+import { sendRegistrationConfirmation } from "@/server/email";
 import { apiError, created, parseJson } from "@/server/http";
 
 export async function POST(request: Request) {
@@ -23,12 +24,20 @@ export async function POST(request: Request) {
       select: {
         id: true,
         name: true,
+        firstName: true,
+        lastName: true,
         email: true,
         role: true
       }
     });
 
-    return created({ user });
+    try {
+      await sendRegistrationConfirmation(user);
+    } catch (error) {
+      console.error("Registration confirmation email failed.", error);
+    }
+
+    return created({ user, emailSent: Boolean(process.env.RESEND_API_KEY) });
   } catch (error) {
     return apiError(error);
   }
