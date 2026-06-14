@@ -71,13 +71,10 @@ export default async function HomePage() {
           className="absolute inset-0 h-full w-full scale-105 object-cover object-center landing-hero-image"
         />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(12,18,16,0.92),rgba(12,18,16,0.62),rgba(12,18,16,0.18))]" />
-        <div className="absolute inset-x-0 top-0 z-10">
+        <div className="absolute inset-x-0 top-0 z-40">
           <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
-            <Link className="group inline-flex items-center gap-3 text-white" href="/">
-              <span className="flex h-11 w-11 items-center justify-center rounded-md bg-white text-ink shadow-soft">
-                <Sparkles className="h-5 w-5 text-clay" />
-              </span>
-              <span className="text-2xl font-black tracking-normal">{landing.brandName}</span>
+            <Link className="group inline-flex min-w-0 items-center text-white" href="/">
+              <ToqueTopLogo brandName={landing.brandName} />
             </Link>
             <div className="hidden items-center gap-6 text-sm font-bold text-white/80 lg:flex">
               <LandingAnchorLink className="transition hover:text-white" href="#solution">
@@ -105,7 +102,7 @@ export default async function HomePage() {
           </nav>
         </div>
 
-        <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl items-center px-4 pb-16 pt-28 sm:px-6 lg:px-8">
+        <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl items-center px-4 pb-16 pt-32 sm:px-6 lg:px-8">
           <div className="max-w-3xl landing-fade-up">
             <p className="inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 py-2 text-xs font-black uppercase text-white/80 backdrop-blur">
               <Zap className="h-4 w-4 text-[#ead6bd]" />
@@ -353,7 +350,7 @@ export default async function HomePage() {
       <footer className="bg-ink px-4 py-12 text-white sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1fr_2fr]">
           <div>
-            <p className="text-2xl font-black">{landing.brandName}</p>
+            <ToqueTopLogo brandName={landing.brandName} />
             <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/60">{landing.footerTagline}</p>
           </div>
           <div className="grid gap-8 sm:grid-cols-3">
@@ -364,6 +361,25 @@ export default async function HomePage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function ToqueTopLogo({ brandName }: { brandName: string }) {
+  const [firstWord, secondWord = ""] = brandName.includes(" ")
+    ? brandName.split(/\s+/, 2)
+    : ["Toque", brandName.replace(/^Toque/i, "") || "Top"];
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-3">
+      <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-white text-ink shadow-soft">
+        <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-[#ead6bd]" />
+        <Sparkles className="h-5 w-5 text-clay" />
+      </span>
+      <span className="leading-none">
+        <span className="block text-2xl font-black tracking-normal text-white sm:text-3xl">{firstWord}</span>
+        <span className="-mt-0.5 block text-2xl font-black tracking-normal text-[#ead6bd] sm:text-3xl">{secondWord || "Top"}</span>
+      </span>
+    </span>
   );
 }
 
