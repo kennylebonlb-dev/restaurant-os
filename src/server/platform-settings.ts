@@ -50,6 +50,7 @@ export type PlatformLandingProofPoint = {
 export type PlatformLandingPlan = {
   name: string;
   price: string;
+  annualPrice: string;
   highlight: string;
   featured: boolean;
   active: boolean;
@@ -135,6 +136,7 @@ export type PlatformLandingSettings = {
   visibleSections: PlatformLandingVisibleSections;
   customBlocks: PlatformLandingCustomBlock[];
   brandName: string;
+  heroImageUrl: string;
   heroEyebrow: string;
   heroTitle: string;
   heroSubtitle: string;
@@ -247,57 +249,58 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
     }
   ],
   brandName: "ToqueTop",
-  heroEyebrow: "Site, réservations et plan de salle pour restaurants ambitieux",
-  heroTitle: "Remplissez vos tables sans perdre le contrôle de votre salle.",
+  heroImageUrl: "/login-restaurant-visual.png",
+  heroEyebrow: "Réservations 24/7, rappels automatiques et site restaurant prêt en moins de 5 minutes",
+  heroTitle: "Gagnez du temps en salle et réduisez les no-shows jusqu’à 35%.",
   heroSubtitle:
-    "ToqueTop crée votre site restaurant et centralise les réservations, le plan de salle, les disponibilités, les préférences clients et les statistiques dans un espace fluide, premium et temps réel.",
-  primaryCtaLabel: "Voir les forfaits",
+    "ToqueTop crée votre site, centralise les réservations, automatise les rappels SMS et e-mail, connecte vos réseaux sociaux et Google, et donne à vos équipes un cockpit simple pour piloter chaque service.",
+  primaryCtaLabel: "Commencer 30 jours gratuits",
   primaryCtaHref: "#forfaits",
   secondaryCtaLabel: "Démo gratuite sans inscription",
   secondaryCtaHref: "/reservation",
   demoCtaLabel: "Demander une démo",
   demoCtaHref: "#demo",
   proofPoints: [
-    { value: "0%", label: "commission sur vos réservations directes" },
-    { value: "15 min", label: "créneaux configurables pour chaque service" },
-    { value: "2D + 3D", label: "plans de salle pensés pour convertir" },
-    { value: "24/7", label: "prise de réservation même quand l’équipe est occupée" }
+    { value: "-35%", label: "de no-shows grâce aux rappels automatiques" },
+    { value: "24/7", label: "réservations en ligne même quand l’équipe est occupée" },
+    { value: "5 min", label: "pour lancer un site ToqueTop opérationnel" },
+    { value: "30 j", label: "gratuits, sans carte bancaire, annulable à tout moment" }
   ],
   solutionEyebrow: "Une plateforme complète",
-  solutionTitle: "Tout ce qu’un restaurant doit piloter, dans un seul cockpit.",
+  solutionTitle: "Tout ce qui fait gagner du temps à vos équipes, dans un seul cockpit.",
   workflow: [
-    "On crée votre site et votre identité de réservation.",
-    "Vous placez vos tables, services, horaires et règles métier.",
-    "Vos clients réservent en ligne, vous gardez le contrôle en direct."
+    "Lancez votre site ToqueTop en moins de 5 minutes.",
+    "Connectez réservations, Google, réseaux sociaux, rappels et fidélité.",
+    "Suivez vos services, rapports, no-shows et performances en temps réel."
   ],
   featuresEyebrow: "Fonctionnalités",
-  featuresTitle: "La réservation directe, mais avec une vraie vision de salle.",
+  featuresTitle: "Une réservation directe qui travaille aussi pour vos équipes.",
   featuresSubtitle:
-    "Inspiré des meilleurs outils de réservation, ToqueTop met l’accent sur la relation directe, l’expérience client visuelle et la simplicité d’exploitation au quotidien.",
+    "Réservations 24/7, rappels automatiques, analyses, fidélité, comptabilité et intégrations sociales : ToqueTop transforme chaque réservation en outil de croissance.",
   features: [
     {
-      title: "Réservations sans friction",
-      text: "Vos clients choisissent un créneau, leurs préférences et leur table depuis une expérience visuelle claire."
+      title: "Réservations en ligne 24/7",
+      text: "Vos clients réservent à tout moment depuis votre site, Google, Instagram ou vos réseaux sociaux, sans interrompre le service."
     },
     {
-      title: "Plan de salle vivant",
-      text: "Plan 2D/3D, tables, capacités, zones, blocages, rotations et disponibilités synchronisées en temps réel."
+      title: "Rappels automatiques",
+      text: "Réduisez les no-shows jusqu’à 35% grâce aux rappels SMS et e-mail envoyés automatiquement avant chaque réservation."
     },
     {
-      title: "Fichier client utile",
-      text: "Nom, contact, notes, anniversaires, demandes spéciales et historique pour reconnaître les habitués."
+      title: "Analyses et rapports",
+      text: "Suivez remplissage, annulations, no-shows, services, tables et performances pour prendre de meilleures décisions."
     },
     {
-      title: "Pilotage opérationnel",
-      text: "Occupation, services, tables libres, réservations du jour et indicateurs simples pour mieux remplir."
+      title: "Comptabilité et pilotage",
+      text: "Centralisez les informations utiles et préparez une lecture claire de votre activité, service après service."
     },
     {
-      title: "Site restaurant inclus",
-      text: "Un site rapide, moderne et adapté à votre identité, connecté directement à votre moteur de réservation."
+      title: "Service de fidélité",
+      text: "Construisez une relation durable avec vos clients grâce à l’historique, aux préférences et aux actions de fidélisation."
     },
     {
-      title: "Prêt à évoluer",
-      text: "Architecture pensée pour les futures intégrations : IA, fidélité, automatisations, CRM et multi-sites."
+      title: "Assistance 24h/24 7j/7",
+      text: "Gardez une solution fiable, accompagnée et prête à évoluer avec vos besoins opérationnels."
     }
   ],
   dashboardEyebrow: "Vue restaurateur",
@@ -314,54 +317,57 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
       title: "Règles métier",
       text: "Minimum avant réservation, durée de service, tables bloquées, vacances et restrictions de capacité."
     },
-    { title: "Expérience client", text: "Demandes PMR, chaise haute, dîner romantique, anniversaire, notes et préférences." },
-    { title: "Notifications", text: "Confirmation d’inscription, réservation, annulation et messages transactionnels." }
+    { title: "Intégrations Google et réseaux", text: "Ajoutez votre module de réservation sur Google, Instagram, Facebook et vos liens de bio." },
+    { title: "Notifications", text: "Confirmations, rappels, annulations et messages transactionnels envoyés automatiquement." }
   ],
   pricingEyebrow: "Forfaits",
-  pricingTitle: "Une offre lisible, sans commission cachée.",
+  pricingTitle: "Mensuel ou annuel, choisissez le rythme qui vous convient.",
   pricingSubtitle:
-    "Les forfaits peuvent être adaptés selon le nombre d’établissements, le niveau de personnalisation et l’accompagnement souhaité.",
+    "Profitez d’une réduction sur le plan annuel, avec 30 jours gratuits, sans carte bancaire et annulable à tout moment.",
   plans: [
     {
       name: "Essentiel",
       price: "49€",
+      annualPrice: "39€",
       highlight: "Pour lancer la réservation en ligne",
       featured: false,
       active: true,
-      buttonLabel: "Choisir Essentiel",
-      features: ["Site vitrine ToqueTop", "Module de réservation", "Plan de salle 2D", "E-mails de confirmation", "Support de démarrage"]
+      buttonLabel: "Commencer gratuitement",
+      features: ["Site vitrine ToqueTop", "Réservations en ligne 24/7", "Intégration Google et réseaux sociaux", "E-mails de confirmation", "Support de démarrage"]
     },
     {
       name: "Pro",
       price: "89€",
+      annualPrice: "69€",
       highlight: "Le meilleur choix pour un restaurant actif",
       featured: true,
       active: true,
-      buttonLabel: "Choisir Pro",
+      buttonLabel: "Essayer Pro gratuitement",
       features: [
         "Tout Essentiel",
         "Plan 3D immersif",
-        "Dashboard temps réel",
-        "Blocages et services avancés",
-        "Personnalisation de marque",
-        "Statistiques d’occupation"
+        "Rappels SMS et e-mail",
+        "Réduction des no-shows jusqu’à 35%",
+        "Analyses et rapports",
+        "Service de fidélité"
       ]
     },
     {
       name: "Signature",
       price: "Sur mesure",
+      annualPrice: "Sur mesure",
       highlight: "Pour groupes, lieux premium et multi-sites",
       featured: false,
       active: true,
       buttonLabel: "Nous contacter",
-      features: ["Multi-restaurants", "Accompagnement prioritaire", "Design sur mesure", "Automatisations avancées", "Préparation IA et CRM", "Stratégie conversion"]
+      features: ["Multi-restaurants", "Accompagnement prioritaire", "Comptabilité et reporting avancé", "Automatisations avancées", "Préparation IA et CRM", "Assistance 24h/24 7j/7"]
     }
   ],
   demoEyebrow: "Lancer ToqueTop",
-  demoTitle: "Prêt à transformer votre réservation directe ?",
+  demoTitle: "Commencez aujourd’hui.",
   demoSubtitle:
-    "On peut préparer une première version de votre site, votre plan de salle et vos règles de réservation pour vous montrer concrètement le rendu.",
-  demoSteps: ["Audit rapide du site actuel", "Configuration des horaires et services", "Intégration du plan de salle", "Mise en ligne et formation"],
+    "Offrez à vos clients une expérience de réservation unique : 30 jours gratuits, sans carte bancaire, annulable à tout moment.",
+  demoSteps: ["Création du site en moins de 5 minutes", "Configuration des réservations 24/7", "Activation des rappels automatiques", "Connexion Google et réseaux sociaux"],
   faqEyebrow: "Questions fréquentes",
   faqTitle: "Simple à comprendre, solide à exploiter.",
   faqs: [
@@ -534,6 +540,7 @@ function normalizePlans(value: unknown, fallback: PlatformLandingPlan[]) {
       const record = item as Record<string, unknown>;
       const name = typeof record.name === "string" ? record.name.trim() : "";
       const price = typeof record.price === "string" ? record.price.trim() : "";
+      const annualPrice = typeof record.annualPrice === "string" ? record.annualPrice.trim() : "";
       const highlight = typeof record.highlight === "string" ? record.highlight.trim() : "";
       const features = normalizeStringList(record.features, []);
 
@@ -541,6 +548,7 @@ function normalizePlans(value: unknown, fallback: PlatformLandingPlan[]) {
         ? {
             name,
             price,
+            annualPrice: annualPrice || price,
             highlight,
             featured: Boolean(record.featured),
             active: typeof record.active === "boolean" ? record.active : true,
@@ -748,6 +756,9 @@ function normalizePlatformLandingSettings(value: unknown): PlatformLandingSettin
     visibleSections: normalizeVisibleSections(record.visibleSections),
     customBlocks: normalizeCustomBlocks(record.customBlocks, defaultPlatformLandingSettings.customBlocks),
     brandName: normalizeString(record.brandName, defaultPlatformLandingSettings.brandName),
+    heroImageUrl: typeof record.heroImageUrl === "string" && record.heroImageUrl.trim()
+      ? record.heroImageUrl.trim()
+      : defaultPlatformLandingSettings.heroImageUrl,
     heroEyebrow: normalizeString(record.heroEyebrow, defaultPlatformLandingSettings.heroEyebrow),
     heroTitle: normalizeString(record.heroTitle, defaultPlatformLandingSettings.heroTitle),
     heroSubtitle: normalizeString(record.heroSubtitle, defaultPlatformLandingSettings.heroSubtitle),

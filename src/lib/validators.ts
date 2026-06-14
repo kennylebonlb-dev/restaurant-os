@@ -192,6 +192,7 @@ const platformLandingProofPointSchema = z.object({
 const platformLandingPlanSchema = z.object({
   name: z.string().trim().min(1).max(80),
   price: z.string().trim().min(1).max(40),
+  annualPrice: z.string().trim().min(1).max(40),
   highlight: z.string().trim().min(1).max(180),
   featured: z.boolean().default(false),
   active: z.boolean().default(true),
@@ -282,6 +283,7 @@ export const platformLandingSchema = z.object({
   visibleSections: platformLandingVisibleSectionsSchema,
   customBlocks: z.array(platformLandingCustomBlockSchema).max(24),
   brandName: z.string().trim().min(1).max(80),
+  heroImageUrl: landingImageSchema,
   heroEyebrow: z.string().trim().min(1).max(180),
   heroTitle: z.string().trim().min(1).max(180),
   heroSubtitle: z.string().trim().min(1).max(800),

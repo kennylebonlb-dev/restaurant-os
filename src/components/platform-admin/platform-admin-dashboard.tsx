@@ -176,37 +176,41 @@ const initialLandingForm: PlatformLandingSettings = {
     }
   ],
   brandName: "ToqueTop",
-  heroEyebrow: "Site, réservations et plan de salle pour restaurants ambitieux",
-  heroTitle: "Remplissez vos tables sans perdre le contrôle de votre salle.",
+  heroImageUrl: "/login-restaurant-visual.png",
+  heroEyebrow: "Réservations 24/7, rappels automatiques et site restaurant prêt en moins de 5 minutes",
+  heroTitle: "Gagnez du temps en salle et réduisez les no-shows jusqu’à 35%.",
   heroSubtitle:
-    "ToqueTop crée votre site restaurant et centralise les réservations, le plan de salle, les disponibilités, les préférences clients et les statistiques dans un espace fluide, premium et temps réel.",
-  primaryCtaLabel: "Voir les forfaits",
+    "ToqueTop crée votre site, centralise les réservations, automatise les rappels SMS et e-mail, connecte vos réseaux sociaux et Google, et donne à vos équipes un cockpit simple pour piloter chaque service.",
+  primaryCtaLabel: "Commencer 30 jours gratuits",
   primaryCtaHref: "#forfaits",
   secondaryCtaLabel: "Démo gratuite sans inscription",
   secondaryCtaHref: "/reservation",
   demoCtaLabel: "Demander une démo",
   demoCtaHref: "#demo",
   proofPoints: [
-    { value: "0%", label: "commission sur vos réservations directes" },
-    { value: "15 min", label: "créneaux configurables pour chaque service" },
-    { value: "2D + 3D", label: "plans de salle pensés pour convertir" },
-    { value: "24/7", label: "prise de réservation même quand l’équipe est occupée" }
+    { value: "-35%", label: "de no-shows grâce aux rappels automatiques" },
+    { value: "24/7", label: "réservations en ligne même quand l’équipe est occupée" },
+    { value: "5 min", label: "pour lancer un site ToqueTop opérationnel" },
+    { value: "30 j", label: "gratuits, sans carte bancaire, annulable à tout moment" }
   ],
   solutionEyebrow: "Une plateforme complète",
-  solutionTitle: "Tout ce qu’un restaurant doit piloter, dans un seul cockpit.",
+  solutionTitle: "Tout ce qui fait gagner du temps à vos équipes, dans un seul cockpit.",
   workflow: [
-    "On crée votre site et votre identité de réservation.",
-    "Vous placez vos tables, services, horaires et règles métier.",
-    "Vos clients réservent en ligne, vous gardez le contrôle en direct."
+    "Lancez votre site ToqueTop en moins de 5 minutes.",
+    "Connectez réservations, Google, réseaux sociaux, rappels et fidélité.",
+    "Suivez vos services, rapports, no-shows et performances en temps réel."
   ],
   featuresEyebrow: "Fonctionnalités",
-  featuresTitle: "La réservation directe, mais avec une vraie vision de salle.",
+  featuresTitle: "Une réservation directe qui travaille aussi pour vos équipes.",
   featuresSubtitle:
-    "Inspiré des meilleurs outils de réservation, ToqueTop met l’accent sur la relation directe, l’expérience client visuelle et la simplicité d’exploitation au quotidien.",
+    "Réservations 24/7, rappels automatiques, analyses, fidélité, comptabilité et intégrations sociales : ToqueTop transforme chaque réservation en outil de croissance.",
   features: [
-    { title: "Réservations sans friction", text: "Vos clients choisissent un créneau, leurs préférences et leur table depuis une expérience visuelle claire.", icon: "Calendar", category: "Réservations", order: 1, visible: true },
-    { title: "Plan de salle vivant", text: "Plan 2D/3D, tables, capacités, zones, blocages, rotations et disponibilités synchronisées en temps réel.", icon: "Table", category: "Salle", order: 2, visible: true },
-    { title: "Fichier client utile", text: "Nom, contact, notes, anniversaires, demandes spéciales et historique pour reconnaître les habitués.", icon: "Users", category: "CRM", order: 3, visible: true }
+    { title: "Réservations en ligne 24/7", text: "Vos clients réservent à tout moment depuis votre site, Google, Instagram ou vos réseaux sociaux, sans interrompre le service.", icon: "Calendar", category: "Réservations", order: 1, visible: true },
+    { title: "Rappels automatiques", text: "Réduisez les no-shows jusqu’à 35% grâce aux rappels SMS et e-mail envoyés automatiquement avant chaque réservation.", icon: "Bell", category: "Automatisation", order: 2, visible: true },
+    { title: "Analyses et rapports", text: "Suivez remplissage, annulations, no-shows, services, tables et performances pour prendre de meilleures décisions.", icon: "Chart", category: "Pilotage", order: 3, visible: true },
+    { title: "Comptabilité et pilotage", text: "Centralisez les informations utiles et préparez une lecture claire de votre activité, service après service.", icon: "Calculator", category: "Gestion", order: 4, visible: true },
+    { title: "Service de fidélité", text: "Construisez une relation durable avec vos clients grâce à l’historique, aux préférences et aux actions de fidélisation.", icon: "Heart", category: "Fidélité", order: 5, visible: true },
+    { title: "Assistance 24h/24 7j/7", text: "Gardez une solution fiable, accompagnée et prête à évoluer avec vos besoins opérationnels.", icon: "Headset", category: "Support", order: 6, visible: true }
   ],
   dashboardEyebrow: "Vue restaurateur",
   dashboardTitle: "Un dashboard pensé pour les services réels, pas pour les tableurs.",
@@ -221,17 +225,17 @@ const initialLandingForm: PlatformLandingSettings = {
     { title: "Règles métier", text: "Minimum avant réservation, durée de service, tables bloquées, vacances et restrictions de capacité." }
   ],
   pricingEyebrow: "Forfaits",
-  pricingTitle: "Une offre lisible, sans commission cachée.",
-  pricingSubtitle: "Les forfaits peuvent être adaptés selon le nombre d’établissements, le niveau de personnalisation et l’accompagnement souhaité.",
+  pricingTitle: "Mensuel ou annuel, choisissez le rythme qui vous convient.",
+  pricingSubtitle: "Profitez d’une réduction sur le plan annuel, avec 30 jours gratuits, sans carte bancaire et annulable à tout moment.",
   plans: [
-    { name: "Essentiel", price: "49€", highlight: "Pour lancer la réservation en ligne", featured: false, active: true, buttonLabel: "Choisir Essentiel", features: ["Site vitrine ToqueTop", "Module de réservation", "Plan de salle 2D"] },
-    { name: "Pro", price: "89€", highlight: "Le meilleur choix pour un restaurant actif", featured: true, active: true, buttonLabel: "Choisir Pro", features: ["Tout Essentiel", "Plan 3D immersif", "Dashboard temps réel"] },
-    { name: "Signature", price: "Sur mesure", highlight: "Pour groupes, lieux premium et multi-sites", featured: false, active: true, buttonLabel: "Nous contacter", features: ["Multi-restaurants", "Design sur mesure", "Préparation IA et CRM"] }
+    { name: "Essentiel", price: "49€", annualPrice: "39€", highlight: "Pour lancer la réservation en ligne", featured: false, active: true, buttonLabel: "Commencer gratuitement", features: ["Site vitrine ToqueTop", "Réservations en ligne 24/7", "Intégration Google et réseaux sociaux"] },
+    { name: "Pro", price: "89€", annualPrice: "69€", highlight: "Le meilleur choix pour un restaurant actif", featured: true, active: true, buttonLabel: "Essayer Pro gratuitement", features: ["Tout Essentiel", "Plan 3D immersif", "Rappels SMS et e-mail", "Réduction des no-shows jusqu’à 35%"] },
+    { name: "Signature", price: "Sur mesure", annualPrice: "Sur mesure", highlight: "Pour groupes, lieux premium et multi-sites", featured: false, active: true, buttonLabel: "Nous contacter", features: ["Multi-restaurants", "Comptabilité et reporting avancé", "Automatisations avancées", "Assistance 24h/24 7j/7"] }
   ],
   demoEyebrow: "Lancer ToqueTop",
-  demoTitle: "Prêt à transformer votre réservation directe ?",
-  demoSubtitle: "On peut préparer une première version de votre site, votre plan de salle et vos règles de réservation pour vous montrer concrètement le rendu.",
-  demoSteps: ["Audit rapide du site actuel", "Configuration des horaires et services", "Intégration du plan de salle", "Mise en ligne et formation"],
+  demoTitle: "Commencez aujourd’hui.",
+  demoSubtitle: "Offrez à vos clients une expérience de réservation unique : 30 jours gratuits, sans carte bancaire, annulable à tout moment.",
+  demoSteps: ["Création du site en moins de 5 minutes", "Configuration des réservations 24/7", "Activation des rappels automatiques", "Connexion Google et réseaux sociaux"],
   faqEyebrow: "Questions fréquentes",
   faqTitle: "Simple à comprendre, solide à exploiter.",
   faqs: [
@@ -294,6 +298,15 @@ const blockTypes = [
   "VIDEO",
   "FORM"
 ] as const;
+
+const fontOptions = [
+  { label: "Inter — ancienne version", value: "Inter" },
+  { label: "Poppins — moderne", value: "Poppins" },
+  { label: "Montserrat — premium", value: "Montserrat" },
+  { label: "Manrope — SaaS", value: "Manrope" },
+  { label: "Playfair Display — élégant", value: "Playfair Display" },
+  { label: "Raleway — sobre", value: "Raleway" }
+];
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -573,7 +586,7 @@ export function PlatformAdminDashboard() {
       ...current,
       plans: [
         ...current.plans,
-        { name: "Nouveau forfait", price: "Sur mesure", highlight: "Description du forfait", featured: false, active: true, buttonLabel: "Demander une démo", features: ["Fonctionnalité à compléter"] }
+        { name: "Nouveau forfait", price: "Sur mesure", annualPrice: "Sur mesure", highlight: "Description du forfait", featured: false, active: true, buttonLabel: "Demander une démo", features: ["Fonctionnalité à compléter"] }
       ]
     }));
     markDirty();
@@ -773,6 +786,14 @@ export function PlatformAdminDashboard() {
     }
   }
 
+  async function updateHeroVisual(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      updateLandingField("heroImageUrl", dataUrl);
+    }
+  }
+
   async function saveAll() {
     try {
       const [brandData, landingData] = await Promise.all([saveBrandMutation.mutateAsync(), saveLandingMutation.mutateAsync()]);
@@ -937,8 +958,8 @@ export function PlatformAdminDashboard() {
                   <ColorField label="Couleur des boutons" value={landingForm.appearance.buttonColor} onChange={(value) => updateAppearance("buttonColor", value)} />
                   <ColorField label="Couleur du texte" value={landingForm.appearance.textColor} onChange={(value) => updateAppearance("textColor", value)} />
                   <ColorField label="Couleur de fond" value={landingForm.appearance.backgroundColor} onChange={(value) => updateAppearance("backgroundColor", value)} />
-                  <Field label="Police des titres" value={landingForm.appearance.headingFont} onChange={(value) => updateAppearance("headingFont", value)} />
-                  <Field label="Police des textes" value={landingForm.appearance.bodyFont} onChange={(value) => updateAppearance("bodyFont", value)} />
+                  <FontSelect label="Police des titres" value={landingForm.appearance.headingFont} onChange={(value) => updateAppearance("headingFont", value)} />
+                  <FontSelect label="Police des textes" value={landingForm.appearance.bodyFont} onChange={(value) => updateAppearance("bodyFont", value)} />
                   <label className="text-sm font-semibold">
                     Arrondis des boutons : {landingForm.appearance.buttonRadius}px
                     <input className="mt-3 w-full accent-moss" type="range" min={0} max={32} value={landingForm.appearance.buttonRadius} onChange={(event) => updateAppearance("buttonRadius", Number(event.target.value))} />
@@ -1023,6 +1044,15 @@ export function PlatformAdminDashboard() {
 
             {activeSection === "content" ? (
               <AdminSectionLayout description="Modifie le contenu principal de la page vitrine, les CTA et l’ordre visible des grandes sections." icon={<FileText className="h-5 w-5" />} panelClass={panelClass} title="Pages & contenus">
+                <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+                  <AssetCard alt="Visuel de première page" buttonLabel="Remplacer le visuel" image={landingForm.heroImageUrl} imageClassName="aspect-video h-auto w-full object-cover" title="Photo / visuel de première page" onUpload={updateHeroVisual} />
+                  <div className="rounded-md border border-ink/10 bg-linen p-4 text-ink">
+                    <Field label="URL du visuel de première page" value={landingForm.heroImageUrl} onChange={(value) => updateLandingField("heroImageUrl", value)} />
+                    <p className="mt-3 text-sm font-semibold leading-6 text-ink/60">
+                      Tu peux importer une image ou renseigner une URL. Ce visuel est utilisé en arrière-plan de la première section du site.
+                    </p>
+                  </div>
+                </div>
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Field label="Nom affiché" value={landingForm.brandName} onChange={(value) => updateLandingField("brandName", value)} />
                   <Field label="Titre principal" value={landingForm.heroTitle} onChange={(value) => updateLandingField("heroTitle", value)} />
@@ -1125,7 +1155,8 @@ export function PlatformAdminDashboard() {
                   {landingForm.plans.map((plan, index) => (
                     <div key={`${plan.name}-${index}`} className={`rounded-md border p-4 ${panelClass}`}>
                       <Field label="Nom" value={plan.name} onChange={(value) => updatePlan(index, "name", value)} />
-                      <Field label="Prix" value={plan.price} onChange={(value) => updatePlan(index, "price", value)} />
+                      <Field label="Prix mensuel" value={plan.price} onChange={(value) => updatePlan(index, "price", value)} />
+                      <Field label="Prix annuel / mois" value={plan.annualPrice} onChange={(value) => updatePlan(index, "annualPrice", value)} />
                       <Field label="Texte du bouton" value={plan.buttonLabel} onChange={(value) => updatePlan(index, "buttonLabel", value)} />
                       <Textarea label="Description" value={plan.highlight} onChange={(value) => updatePlan(index, "highlight", value)} />
                       <Toggle label="Mettre ce forfait en avant" checked={plan.featured} onChange={(value) => updatePlan(index, "featured", value)} />
@@ -1363,6 +1394,29 @@ function ColorField({
         />
         <input className="control w-full" value={value} onChange={(event) => onChange(event.target.value)} placeholder={allowTransparent ? "transparent ou #000000" : "#000000"} />
       </span>
+    </label>
+  );
+}
+
+function FontSelect({
+  label,
+  onChange,
+  value
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="text-sm font-semibold">
+      {label}
+      <select className="control mt-1 w-full" value={value} onChange={(event) => onChange(event.target.value)}>
+        {fontOptions.map((font) => (
+          <option key={font.value} value={font.value}>
+            {font.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

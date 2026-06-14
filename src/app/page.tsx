@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BarChart3,
   CalendarCheck,
-  Check,
   ChevronRight,
   Cuboid,
   Globe2,
@@ -21,6 +20,7 @@ import {
   Zap
 } from "lucide-react";
 import { LandingAnchorLink } from "@/components/marketing/landing-anchor-link";
+import { PricingToggle } from "@/components/marketing/pricing-toggle";
 import {
   defaultPlatformBrand,
   defaultPlatformLandingSettings,
@@ -117,7 +117,7 @@ export default async function HomePage() {
     >
       <section className="relative min-h-screen">
         <img
-          src="/login-restaurant-visual.png"
+          src={landing.heroImageUrl}
           alt=""
           className="absolute inset-0 h-full w-full scale-105 object-cover object-center landing-hero-image"
         />
@@ -329,45 +329,7 @@ export default async function HomePage() {
             </SmartLink>
           </div>
 
-          <div className="mt-10 grid gap-5 lg:grid-cols-3">
-            {visiblePlans.map((plan) => (
-              <article
-                key={plan.name}
-                className={`rounded-md border p-6 shadow-sm ${
-                  plan.featured
-                    ? "border-moss bg-ink text-white shadow-soft"
-                    : "border-ink/10 bg-[#fbf8f2] text-ink"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-2xl font-black">{plan.name}</h3>
-                    <p className={`mt-2 text-sm font-semibold leading-6 ${plan.featured ? "text-white/60" : "text-ink/60"}`}>
-                      {plan.highlight}
-                    </p>
-                  </div>
-                  {plan.featured ? (
-                    <span className="rounded bg-[#ead6bd] px-2 py-1 text-xs font-black text-ink">Populaire</span>
-                  ) : null}
-                </div>
-                <p className="mt-8 flex items-end gap-2">
-                  <span className="text-4xl font-black">{plan.price}</span>
-                  {plan.price !== "Sur mesure" ? <span className={plan.featured ? "mb-1 text-sm font-bold text-white/60" : "mb-1 text-sm font-bold text-ink/50"}>/ mois</span> : null}
-                </p>
-                <ul className="mt-7 grid gap-3">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex gap-3 text-sm font-semibold leading-6">
-                      <Check className={`mt-0.5 h-4 w-4 shrink-0 ${plan.featured ? "text-[#ead6bd]" : "text-moss"}`} />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-                <SmartLink className={`mt-7 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md text-sm font-black ${plan.featured ? "bg-[#ead6bd] text-ink" : "bg-ink text-white"}`} href={landing.demoCtaHref}>
-                  {plan.buttonLabel}
-                </SmartLink>
-              </article>
-            ))}
-          </div>
+          <PricingToggle ctaHref={landing.demoCtaHref} plans={visiblePlans} />
         </div>
       </section>
       ) : null}
