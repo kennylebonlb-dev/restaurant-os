@@ -35,6 +35,7 @@ export type AvailabilityInput = {
   endTime?: string;
   numberOfGuests: number;
   tablePreferences?: TableFeature[];
+  ignoreReservationId?: string;
 };
 
 export type CreateReservationInput = AvailabilityInput & {
@@ -55,6 +56,19 @@ export type CreateReservationInput = AvailabilityInput & {
 export type GuestReservationLookupInput = {
   referenceName: string;
   phone: string;
+};
+
+export type CustomerReservationUpdateInput = {
+  date?: string;
+  startTime?: string;
+  numberOfGuests?: number;
+  tableId?: string | null;
+  autoAssignTable?: boolean;
+  tablePreferences?: TableFeature[];
+  highChair?: boolean;
+  birthday?: boolean;
+  romanticDinner?: boolean;
+  notes?: string | null;
 };
 
 type ReservationWindow = {
@@ -475,7 +489,8 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
       ...window
     },
     tableIds,
-    policy.releaseTableAfterDuration
+    policy.releaseTableAfterDuration,
+    input.ignoreReservationId
   );
 
   return filterByPreferredCapacity(
@@ -518,6 +533,11 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
       : await Promise.all([
           db.reservation.findMany({
             where: {
+              id: input.ignoreReservationId
+                ? {
+                    not: input.ignoreReservationId
+                  }
+                : undefined,
               restaurantId: input.restaurantId,
               tableId: {
                 in: tableIds
@@ -526,6 +546,7 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
               status: activeReservationWhere()
             },
             select: {
+              id: true,
               tableId: true,
               startTime: true,
               endTime: true
@@ -690,7 +711,8 @@ export async function assertTableAvailable(db: DbClient, input: AssertTableAvail
       startTime: input.startTime,
       endTime: input.endTime,
       numberOfGuests: input.numberOfGuests,
-      tablePreferences: input.tablePreferences
+      tablePreferences: input.tablePreferences,
+      ignoreReservationId: input.ignoreReservationId
     });
 
     if (preferredTables.some((availableTable) => availableTable.capacity === input.numberOfGuests)) {
@@ -816,6 +838,10 @@ function normalizePhone(value: string | null | undefined) {
 }
 
 export function reservationGuestReference(input: { guestFirstName?: string | null; guestLastName?: string | null }) {
+  return normalizeLookupName(`${input.guestLastName ?? ""}${input.guestFirstName ?? ""}`);
+}
+
+function legacyReservationGuestReference(input: { guestFirstName?: string | null; guestLastName?: string | null }) {
   return normalizeLookupName(`${input.guestFirstName ?? ""}${input.guestLastName ?? ""}`);
 }
 
@@ -849,12 +875,14 @@ export async function listGuestReservations(input: GuestReservationLookupInput) 
     include: {
       restaurant: {
         select: {
+          id: true,
           name: true,
           address: true
         }
       },
       table: {
         select: {
+          id: true,
           label: true
         }
       }
@@ -865,7 +893,8 @@ export async function listGuestReservations(input: GuestReservationLookupInput) 
     const reservationPhone = normalizePhone(reservation.guestPhone);
 
     return (
-      reservationGuestReference(reservation) === reference &&
+      (reservationGuestReference(reservation) === reference ||
+        legacyReservationGuestReference(reservation) === reference) &&
       (reservationPhone === phone || reservationPhone.endsWith(phone) || phone.endsWith(reservationPhone))
     );
   });
@@ -885,9 +914,7 @@ export async function cancelGuestReservation(reservationId: string, input: Guest
 export async function updateGuestReservation(
   reservationId: string,
   input: GuestReservationLookupInput,
-  data: {
-    notes?: string | null;
-  }
+  data: CustomerReservationUpdateInput
 ) {
   const reservations = await listGuestReservations(input);
   const reservation = reservations.find((item) => item.id === reservationId);
@@ -896,15 +923,13 @@ export async function updateGuestReservation(
     throw new NotFoundError("Reservation not found.");
   }
 
-  return updateReservation(reservationId, data);
+  return updateCustomerReservation(reservationId, data);
 }
 
 export async function updateUserReservation(
   reservationId: string,
   userId: string,
-  data: {
-    notes?: string | null;
-  }
+  data: CustomerReservationUpdateInput
 ) {
   const reservation = await prisma.reservation.findUnique({
     where: {
@@ -919,7 +944,126 @@ export async function updateUserReservation(
     throw new NotFoundError("Reservation not found.");
   }
 
-  return updateReservation(reservationId, data);
+  return updateCustomerReservation(reservationId, data);
+}
+
+export async function updateCustomerReservation(
+  reservationId: string,
+  data: CustomerReservationUpdateInput
+) {
+  const reservation = await prisma.$transaction(
+    async (tx) => {
+      const existing = await tx.reservation.findUnique({
+        where: {
+          id: reservationId
+        }
+      });
+
+      if (!existing) {
+        throw new NotFoundError("Reservation not found.");
+      }
+
+      if (existing.status === "CANCELLED") {
+        throw new BadRequestError("Cancelled reservations cannot be modified.");
+      }
+
+      const date = data.date ?? existing.date.toISOString().slice(0, 10);
+      const startTime = data.startTime ?? existing.startTime;
+      const numberOfGuests = data.numberOfGuests ?? existing.numberOfGuests;
+      const policy = await getRestaurantPolicy(tx, existing.restaurantId);
+      const window = reservationWindow(
+        {
+          restaurantId: existing.restaurantId,
+          date,
+          startTime,
+          numberOfGuests,
+          tablePreferences: data.tablePreferences ?? []
+        },
+        policy
+      );
+      let tableId =
+        data.tableId === null
+          ? null
+          : data.tableId !== undefined
+            ? data.tableId
+            : existing.tableId;
+
+      if (data.autoAssignTable) {
+        const availableTables = await getAvailableTables(tx, {
+          restaurantId: existing.restaurantId,
+          date,
+          startTime: window.startTime,
+          endTime: window.endTime,
+          numberOfGuests,
+          tablePreferences: data.tablePreferences ?? [],
+          ignoreReservationId: reservationId
+        });
+
+        if (availableTables.length === 0) {
+          throw new ConflictError("No table is available for this time.");
+        }
+
+        tableId = pickAutoAssignedTable(availableTables, policy.tableAutoAssignPriorities).id;
+      }
+
+      if (tableId) {
+        await assertTableAvailable(tx, {
+          restaurantId: existing.restaurantId,
+          date,
+          startTime: window.startTime,
+          endTime: window.endTime,
+          numberOfGuests,
+          tablePreferences: data.tablePreferences ?? [],
+          tableId,
+          ignoreReservationId: reservationId
+        });
+      } else {
+        assertLeadTime(date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+        assertRestaurantOpen(policy, date, window.startTime, window.endTime);
+      }
+
+      return tx.reservation.update({
+        where: {
+          id: reservationId
+        },
+        data: {
+          date: toDateOnly(date),
+          startTime: window.startTime,
+          endTime: window.endTime,
+          numberOfGuests,
+          tableId,
+          highChair: data.highChair,
+          birthday: data.birthday,
+          romanticDinner: data.romanticDinner,
+          notes: data.notes
+        },
+        include: {
+          restaurant: true,
+          table: {
+            select: {
+              id: true,
+              label: true
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              contactEmail: true
+            }
+          }
+        }
+      });
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      timeout: 15000
+    }
+  );
+
+  emitRestaurantEvent(reservation.restaurantId, "reservation:updated", reservation);
+  return reservation;
 }
 
 export async function listRestaurantReservations(restaurantId: string, date?: string) {

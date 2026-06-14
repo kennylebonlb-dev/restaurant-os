@@ -33,6 +33,7 @@ export async function GET() {
         address: true,
         phone: true,
         timezone: true,
+        settings: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
         address: true,
         phone: true,
         timezone: true,
+        settings: true,
         createdAt: true,
         updatedAt: true,
         _count: {

@@ -104,7 +104,7 @@ function LoginContent() {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(360px,0.7fr)] lg:items-center lg:px-8">
+    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(460px,0.85fr)] lg:items-center lg:px-8">
       <section className="login-visual-panel relative w-full overflow-hidden rounded-lg bg-ink shadow-soft">
         <img
           src={loginVisualUrl}
@@ -114,7 +114,7 @@ function LoginContent() {
       </section>
 
       <section className="flex items-center justify-center py-2 lg:py-8">
-        <div className="w-full max-w-md space-y-4">
+        <div className="w-full max-w-xl space-y-4">
         <form className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-7" onSubmit={handleSubmit}>
           <div>
             <h1 className="text-2xl font-black text-ink">
@@ -263,7 +263,7 @@ function LoginContent() {
             </span>
             <div>
               <h2 className="text-base font-black text-ink">{t("login.findReservation")}</h2>
-              <p className="mt-1 text-sm font-medium leading-6 text-ink/60">
+              <p className="mt-1 text-sm font-medium leading-6 text-ink/60 lg:whitespace-nowrap">
                 {t("login.findReservationHint")}
               </p>
             </div>
@@ -277,10 +277,13 @@ function LoginContent() {
                   className="control with-leading-icon w-full"
                   value={guestReferenceName}
                   onChange={(event) => setGuestReferenceName(event.target.value)}
-                  placeholder="Jean Dupont"
+                  placeholder="dupontjean"
                   required
                 />
               </div>
+              <span className="mt-1 block text-xs font-semibold text-ink/50">
+                {t("login.referenceExample")}
+              </span>
             </label>
             <label className="text-sm font-semibold text-ink">
               {t("login.reservationPhone")}

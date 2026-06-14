@@ -97,6 +97,15 @@ export const updateReservationSchema = z.object({
 });
 
 export const customerReservationUpdateSchema = z.object({
+  date: dateStringSchema.optional(),
+  startTime: timeStringSchema.optional(),
+  numberOfGuests: z.coerce.number().int().min(1).max(40).optional(),
+  tableId: z.string().trim().min(1).nullable().optional(),
+  autoAssignTable: z.boolean().default(false).optional(),
+  tablePreferences: z.array(z.enum(tableFeatures)).default([]).optional(),
+  highChair: z.boolean().optional(),
+  birthday: z.boolean().optional(),
+  romanticDinner: z.boolean().optional(),
   notes: z.string().trim().max(1000).nullable().optional()
 });
 
@@ -360,4 +369,12 @@ export const createManagedRestaurantSchema = z.object({
     .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
     .optional(),
   slug: z.string().trim().regex(/^[a-z0-9-]+$/).optional()
+});
+
+export const updateManagedRestaurantSchema = createManagedRestaurantSchema.partial().extend({
+  subscriptionPlan: z.string().trim().max(80).optional(),
+  subscriptionStatus: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELLED"]).optional(),
+  subscriptionBilling: z.enum(["MONTHLY", "ANNUAL"]).optional(),
+  subscriptionAmount: z.string().trim().max(40).optional(),
+  subscriptionNextBillingDate: z.string().trim().max(40).optional()
 });

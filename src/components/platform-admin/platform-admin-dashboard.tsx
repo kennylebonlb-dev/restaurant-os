@@ -51,12 +51,26 @@ type ManagedRestaurant = {
   address: string | null;
   phone: string | null;
   timezone: string;
+  settings: unknown;
   createdAt: string;
   updatedAt: string;
   _count: {
     tables: number;
     reservations: number;
   };
+};
+
+type SiteEditForm = {
+  name: string;
+  description: string;
+  address: string;
+  phone: string;
+  ownerEmail: string;
+  subscriptionPlan: string;
+  subscriptionStatus: "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELLED";
+  subscriptionBilling: "MONTHLY" | "ANNUAL";
+  subscriptionAmount: string;
+  subscriptionNextBillingDate: string;
 };
 
 type BrandResponse = {
@@ -330,6 +344,37 @@ const fontOptions = [
   { label: "Raleway — sobre", value: "Raleway" }
 ];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function siteEditFormFromRestaurant(site?: ManagedRestaurant): SiteEditForm {
+  const settings = isRecord(site?.settings) ? site.settings : {};
+  const subscription = isRecord(settings.subscription) ? settings.subscription : {};
+
+  return {
+    name: site?.name ?? "",
+    description: site?.description ?? "",
+    address: site?.address ?? "",
+    phone: site?.phone ?? "",
+    ownerEmail: readString(settings.ownerEmail),
+    subscriptionPlan: readString(subscription.plan) || "Essentiel",
+    subscriptionStatus:
+      subscription.status === "ACTIVE" ||
+      subscription.status === "PAUSED" ||
+      subscription.status === "CANCELLED"
+        ? subscription.status
+        : "TRIAL",
+    subscriptionBilling: subscription.billing === "ANNUAL" ? "ANNUAL" : "MONTHLY",
+    subscriptionAmount: readString(subscription.amount),
+    subscriptionNextBillingDate: readString(subscription.nextBillingDate)
+  };
+}
+
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -374,6 +419,8 @@ export function PlatformAdminDashboard() {
     phone: "",
     ownerEmail: ""
   });
+  const [selectedSiteId, setSelectedSiteId] = useState<string>();
+  const [siteEditForm, setSiteEditForm] = useState<SiteEditForm>(() => siteEditFormFromRestaurant());
 
   const brandQuery = useQuery({
     queryKey: ["platform-admin", "brand"],
@@ -453,6 +500,38 @@ export function PlatformAdminDashboard() {
     }
   });
 
+  const updateSiteMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedSiteId) {
+        throw new Error("Aucun restaurant sélectionné.");
+      }
+
+      return apiFetch<{ restaurant: ManagedRestaurant }>(`/api/platform-admin/sites/${selectedSiteId}`, {
+        method: "PATCH",
+        body: JSON.stringify(siteEditForm)
+      });
+    },
+    onSuccess: (data) => {
+      setMessage(`Restaurant modifié : ${data.restaurant.name}`);
+      queryClient.invalidateQueries({ queryKey: ["platform-admin", "sites"] });
+      window.setTimeout(() => setMessage(undefined), 3500);
+    }
+  });
+
+  const deleteSiteMutation = useMutation({
+    mutationFn: (restaurantId: string) =>
+      apiFetch<void>(`/api/platform-admin/sites/${restaurantId}`, {
+        method: "DELETE"
+      }),
+    onSuccess: () => {
+      setMessage("Restaurant supprimé");
+      setSelectedSiteId(undefined);
+      queryClient.invalidateQueries({ queryKey: ["platform-admin", "sites"] });
+      queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+      window.setTimeout(() => setMessage(undefined), 3500);
+    }
+  });
+
   const logoutMutation = useMutation({
     mutationFn: () =>
       apiFetch<{ authenticated: boolean }>("/api/platform-admin/logout", {
@@ -462,6 +541,7 @@ export function PlatformAdminDashboard() {
   });
 
   const sites = sitesQuery.data?.restaurants ?? [];
+  const selectedSite = sites.find((site) => site.id === selectedSiteId);
   const activePlans = landingForm.plans.filter((plan) => plan.active);
   const visibleFeatures = landingForm.features.filter((feature) => feature.visible !== false);
   const currentSection = sections.find((section) => section.id === activeSection) ?? sections[0];
@@ -475,6 +555,16 @@ export function PlatformAdminDashboard() {
     ],
     [activePlans.length, landingForm.customBlocks, landingForm.general.maintenanceMode, sites.length]
   );
+
+  useEffect(() => {
+    if (!selectedSite && sites[0]) {
+      setSelectedSiteId(sites[0].id);
+    }
+  }, [selectedSite, sites]);
+
+  useEffect(() => {
+    setSiteEditForm(siteEditFormFromRestaurant(selectedSite));
+  }, [selectedSite?.id]);
 
   function markDirty() {
     setDirty(true);
@@ -1321,7 +1411,7 @@ export function PlatformAdminDashboard() {
             ) : null}
 
             {activeSection === "restaurants" ? (
-              <AdminSectionLayout description="Crée et consulte les sites restaurants rattachés à la plateforme." icon={<Building2 className="h-5 w-5" />} panelClass={panelClass} title="Restaurants">
+              <AdminSectionLayout description="Crée, modifie et pilote les restaurants clients rattachés à la plateforme." icon={<Building2 className="h-5 w-5" />} panelClass={panelClass} title="Restaurants">
                 <form className={`rounded-md border p-4 ${panelClass}`} onSubmit={submitSite}>
                   <h3 className="text-lg font-black">Créer un nouveau site restaurant</h3>
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -1338,28 +1428,141 @@ export function PlatformAdminDashboard() {
                   </button>
                 </form>
 
-                <div className={`overflow-hidden rounded-md border ${panelClass}`}>
-                  <div className="grid grid-cols-[1.3fr_1fr_120px_140px] gap-3 bg-linen px-3 py-2 text-xs font-black uppercase text-ink/55">
-                    <span>Restaurant</span>
-                    <span>URL</span>
-                    <span>Tables</span>
-                    <span>Réservations</span>
-                  </div>
-                  {sites.map((site) => (
-                    <div key={site.id} className="grid grid-cols-[1.3fr_1fr_120px_140px] gap-3 border-t border-ink/10 px-3 py-3 text-sm font-semibold">
-                      <div className="min-w-0">
-                        <p className="truncate font-black">{site.name}</p>
-                        <p className={`mt-1 truncate text-xs font-medium ${mutedText}`}>{site.address || "Adresse à compléter"}</p>
-                      </div>
-                      <Link className="inline-flex min-w-0 items-center gap-2 text-moss hover:underline" href={`/sites/${site.slug}`}>
-                        <ExternalLink className="h-4 w-4 shrink-0" />
-                        <span className="truncate">/sites/{site.slug}</span>
-                      </Link>
-                      <span>{site._count.tables}</span>
-                      <span>{site._count.reservations}</span>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                  <div className={`overflow-hidden rounded-md border ${panelClass}`}>
+                    <div className="grid grid-cols-[1fr_96px_118px] gap-3 bg-linen px-3 py-2 text-xs font-black uppercase text-ink/55">
+                      <span>Restaurant</span>
+                      <span>Tables</span>
+                      <span>Réservations</span>
                     </div>
-                  ))}
-                  {sites.length === 0 ? <p className={`border-t px-3 py-8 text-center text-sm font-semibold ${mutedText}`}>Aucun site restaurant pour le moment.</p> : null}
+                    {sites.map((site) => {
+                      const selected = selectedSiteId === site.id;
+
+                      return (
+                        <button
+                          key={site.id}
+                          className={`grid w-full grid-cols-[1fr_96px_118px] gap-3 border-t border-ink/10 px-3 py-3 text-left text-sm font-semibold transition ${
+                            selected
+                              ? "bg-[#ead6bd]/45"
+                              : darkAdmin
+                                ? "hover:bg-white/10"
+                                : "hover:bg-linen"
+                          }`}
+                          type="button"
+                          onClick={() => setSelectedSiteId(site.id)}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-black">{site.name}</span>
+                            <span className={`mt-1 block truncate text-xs font-medium ${mutedText}`}>
+                              {site.address || "Adresse à compléter"}
+                            </span>
+                            <span className="mt-1 block truncate text-xs font-bold text-moss">
+                              {site.slug}.toquetop.com
+                            </span>
+                          </span>
+                          <span>{site._count.tables}</span>
+                          <span>{site._count.reservations}</span>
+                        </button>
+                      );
+                    })}
+                    {sites.length === 0 ? <p className={`border-t px-3 py-8 text-center text-sm font-semibold ${mutedText}`}>Aucun site restaurant pour le moment.</p> : null}
+                  </div>
+
+                  <div className={`rounded-md border p-4 ${panelClass}`}>
+                    {selectedSite ? (
+                      <div className="grid gap-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className={`text-xs font-black uppercase ${mutedText}`}>Fiche client</p>
+                            <h3 className="mt-1 text-xl font-black">{selectedSite.name}</h3>
+                            <p className={`mt-1 text-sm font-semibold ${mutedText}`}>
+                              Créé le {new Intl.DateTimeFormat("fr-FR").format(new Date(selectedSite.createdAt))}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Link className="secondary-button" href={`/sites/${selectedSite.slug}`} target="_blank">
+                              <ExternalLink className="h-4 w-4" />
+                              Voir
+                            </Link>
+                            <Link className="secondary-button" href="/admin" target="_blank">
+                              <Settings className="h-4 w-4" />
+                              Gérer
+                            </Link>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <Field label="Nom du restaurant" required value={siteEditForm.name} onChange={(value) => setSiteEditForm((current) => ({ ...current, name: value }))} />
+                          <Field label="E-mail du restaurant" type="email" value={siteEditForm.ownerEmail} onChange={(value) => setSiteEditForm((current) => ({ ...current, ownerEmail: value }))} />
+                          <Field label="Téléphone" value={siteEditForm.phone} onChange={(value) => setSiteEditForm((current) => ({ ...current, phone: value }))} />
+                          <Field label="Adresse" value={siteEditForm.address} onChange={(value) => setSiteEditForm((current) => ({ ...current, address: value }))} />
+                          <Textarea label="Description courte" value={siteEditForm.description} onChange={(value) => setSiteEditForm((current) => ({ ...current, description: value }))} />
+                        </div>
+
+                        <div className="rounded-md border border-ink/10 bg-linen p-4 text-ink">
+                          <div className="mb-4 flex items-center gap-2">
+                            <BadgeEuro className="h-5 w-5 text-moss" />
+                            <h4 className="text-lg font-black">Abonnement</h4>
+                          </div>
+                          <div className="grid gap-4 lg:grid-cols-2">
+                            <Field label="Forfait" value={siteEditForm.subscriptionPlan} onChange={(value) => setSiteEditForm((current) => ({ ...current, subscriptionPlan: value }))} />
+                            <Field label="Montant" value={siteEditForm.subscriptionAmount} onChange={(value) => setSiteEditForm((current) => ({ ...current, subscriptionAmount: value }))} />
+                            <label className="text-sm font-semibold">
+                              Statut
+                              <select className="control mt-1 w-full" value={siteEditForm.subscriptionStatus} onChange={(event) => setSiteEditForm((current) => ({ ...current, subscriptionStatus: event.target.value as SiteEditForm["subscriptionStatus"] }))}>
+                                <option value="TRIAL">Essai</option>
+                                <option value="ACTIVE">Actif</option>
+                                <option value="PAUSED">En pause</option>
+                                <option value="CANCELLED">Annulé</option>
+                              </select>
+                            </label>
+                            <label className="text-sm font-semibold">
+                              Facturation
+                              <select className="control mt-1 w-full" value={siteEditForm.subscriptionBilling} onChange={(event) => setSiteEditForm((current) => ({ ...current, subscriptionBilling: event.target.value as SiteEditForm["subscriptionBilling"] }))}>
+                                <option value="MONTHLY">Mensuelle</option>
+                                <option value="ANNUAL">Annuelle</option>
+                              </select>
+                            </label>
+                            <Field label="Prochaine échéance" type="date" value={siteEditForm.subscriptionNextBillingDate} onChange={(value) => setSiteEditForm((current) => ({ ...current, subscriptionNextBillingDate: value }))} />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 rounded-md border border-ink/10 bg-white/50 p-4 md:grid-cols-3">
+                          <MetricCard label="Tables" value={selectedSite._count.tables.toString()} />
+                          <MetricCard label="Réservations" value={selectedSite._count.reservations.toString()} />
+                          <MetricCard label="Fuseau horaire" value={selectedSite.timezone} />
+                        </div>
+
+                        {(updateSiteMutation.error || deleteSiteMutation.error) ? (
+                          <p className="rounded-md bg-red-50 p-3 text-sm font-bold text-red-700">
+                            {updateSiteMutation.error?.message ?? deleteSiteMutation.error?.message}
+                          </p>
+                        ) : null}
+
+                        <div className="flex flex-wrap justify-between gap-3">
+                          <button className="primary-button" type="button" disabled={updateSiteMutation.isPending} onClick={() => updateSiteMutation.mutate()}>
+                            <Save className="h-4 w-4" />
+                            Enregistrer le restaurant
+                          </button>
+                          <button
+                            className="danger-button"
+                            type="button"
+                            disabled={deleteSiteMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm("Supprimer ce restaurant ? Cette action supprimera aussi ses tables, réservations et blocages.")) {
+                                deleteSiteMutation.mutate(selectedSite.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Supprimer le restaurant
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className={`py-8 text-center text-sm font-semibold ${mutedText}`}>Sélectionne un restaurant pour accéder à sa gestion.</p>
+                    )}
+                  </div>
                 </div>
               </AdminSectionLayout>
             ) : null}
@@ -1425,6 +1628,15 @@ function Field({
       {label}
       <input className="control mt-1 w-full" required={required} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-ink/10 bg-white p-3 text-ink">
+      <p className="text-xs font-black uppercase text-ink/45">{label}</p>
+      <p className="mt-2 break-words text-lg font-black">{value}</p>
+    </div>
   );
 }
 
