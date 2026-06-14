@@ -78,6 +78,7 @@ type ProfileResponse = {
 type ReservationResponse = {
   reservation: {
     id: string;
+    referenceCode: string | null;
   };
 };
 
@@ -343,7 +344,7 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
         })
     }),
     onSuccess: (data) => {
-      setMessage(t("booking.confirmed", { id: data.reservation.id }));
+      setMessage(t("booking.confirmed", { id: data.reservation.referenceCode ?? data.reservation.id }));
       queryClient.invalidateQueries({ queryKey: ["availability", restaurant?.id] });
       queryClient.invalidateQueries({ queryKey: ["availability-slots", restaurant?.id] });
       queryClient.invalidateQueries({ queryKey: ["me", "reservations"] });

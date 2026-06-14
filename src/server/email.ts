@@ -1,8 +1,14 @@
 import { Resend } from "resend";
-import { getPlatformBrand } from "@/server/platform-settings";
+import {
+  defaultPlatformEmailSettings,
+  getPlatformBrand,
+  getPlatformEmailSettings,
+  type PlatformEmailTemplateKey
+} from "@/server/platform-settings";
 
 type ReservationEmailData = {
   id: string;
+  referenceCode?: string | null;
   restaurant: {
     name: string;
     address: string | null;
@@ -68,39 +74,98 @@ function formatDate(date: Date) {
   }).format(date);
 }
 
-function reservationHtml(reservation: ReservationEmailData, title: string) {
-  const tableLabel = reservation.table?.label ?? "À attribuer";
-  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const reservationUrl = `${appUrl.replace(/\/$/, "")}/my-reservations`;
-
-  return `
-    <div style="margin:0;background:#f7f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#16201d">
-      <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:8px;background:#ffffff;padding:28px">
-        <p style="margin:0 0 12px;color:#14735d;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">ToqueTop</p>
-        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:#16201d">${escapeHtml(title)}</h1>
-        <p style="margin:0 0 18px;font-size:15px;line-height:1.6">
-          Votre réservation chez <strong>${escapeHtml(reservation.restaurant.name)}</strong> est détaillée ci-dessous.
-        </p>
-        <table style="border-collapse:collapse;margin-top:16px;width:100%;font-size:14px">
-          <tr><td style="border-top:1px solid rgba(22,32,29,.1);padding:12px 18px 8px 0;color:rgba(22,32,29,.65)">Date</td><td style="border-top:1px solid rgba(22,32,29,.1);padding:12px 0 8px"><strong>${escapeHtml(formatDate(reservation.date))}</strong></td></tr>
-          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Heure</td><td style="padding:8px 0"><strong>${escapeHtml(reservation.startTime)}</strong></td></tr>
-          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Couverts</td><td style="padding:8px 0"><strong>${reservation.numberOfGuests}</strong></td></tr>
-          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Table</td><td style="padding:8px 0"><strong>${escapeHtml(tableLabel)}</strong></td></tr>
-          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Référence</td><td style="padding:8px 0"><strong>${escapeHtml(reservation.id)}</strong></td></tr>
-        </table>
-        ${reservation.restaurant.address ? `<p style="margin:18px 0 0;font-size:14px;line-height:1.5">${escapeHtml(reservation.restaurant.address)}</p>` : ""}
-        <div style="margin:22px 0 0">
-          <a href="${escapeHtml(reservationUrl)}" style="display:inline-block;border-radius:6px;background:#14735d;padding:12px 18px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">
-            Voir ma réservation
-          </a>
-        </div>
-      </div>
-    </div>
-  `;
+function nl2br(value: string) {
+  return escapeHtml(value).replace(/\n/g, "<br />");
 }
 
-async function sendEmail(to: string, subject: string, html: string) {
-  const from = process.env.EMAIL_FROM || "ToqueTop <reservations@toquetop.com>";
+function replaceTemplateVariables(value: string, variables: Record<string, string | number | null | undefined>) {
+  return value.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) =>
+    variables[key] === undefined || variables[key] === null ? "" : String(variables[key])
+  );
+}
+
+async function renderEmailTemplate(
+  templateKey: PlatformEmailTemplateKey,
+  variables: Record<string, string | number | null | undefined>,
+  buttonHref?: string
+) {
+  const [brand, settings] = await Promise.all([getPlatformBrand(), getPlatformEmailSettings()]);
+  const template = settings.templates[templateKey] ?? defaultPlatformEmailSettings.templates[templateKey];
+  const mergedVariables = {
+    siteName: brand.siteName,
+    ...variables
+  };
+  const subject = replaceTemplateVariables(template.subject, mergedVariables);
+  const title = replaceTemplateVariables(template.title, mergedVariables);
+  const body = replaceTemplateVariables(template.body, mergedVariables);
+  const footerText = replaceTemplateVariables(template.footerText, mergedVariables);
+  const preheader = replaceTemplateVariables(template.preheader, mergedVariables);
+  const buttonLabel = replaceTemplateVariables(template.buttonLabel, mergedVariables);
+  const logoUrl = settings.logoUrl || brand.logoUrl;
+  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const absoluteLogoUrl = logoUrl.startsWith("http")
+    ? logoUrl
+    : `${appUrl.replace(/\/$/, "")}${logoUrl.startsWith("/") ? logoUrl : `/${logoUrl}`}`;
+
+  return {
+    enabled: template.enabled,
+    subject,
+    fromName: settings.senderName,
+    replyTo: settings.replyTo,
+    html: `
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}</div>
+    <div style="margin:0;background:${settings.backgroundColor};padding:32px 16px;font-family:Arial,sans-serif;color:${settings.textColor}">
+      <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:${settings.borderRadius}px;background:${settings.cardColor};padding:28px">
+        <img src="${escapeHtml(absoluteLogoUrl)}" alt="${escapeHtml(brand.logoAlt)}" style="display:block;height:${settings.logoHeight}px;max-width:220px;object-fit:contain;margin:0 0 18px" />
+        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:${settings.textColor}">${escapeHtml(title)}</h1>
+        <p style="margin:0 0 18px;font-size:15px;line-height:1.7">${nl2br(body)}</p>
+        ${buttonHref && buttonLabel ? `<div style="margin:22px 0 0">
+          <a href="${escapeHtml(buttonHref)}" style="display:inline-block;border-radius:6px;background:${settings.accentColor};padding:12px 18px;color:${settings.buttonTextColor};font-size:14px;font-weight:700;text-decoration:none">
+            ${escapeHtml(buttonLabel)}
+          </a>
+        </div>` : ""}
+        ${footerText ? `<p style="margin:22px 0 0;font-size:12px;line-height:1.5;color:rgba(22,32,29,.58)">${nl2br(footerText)}</p>` : ""}
+      </div>
+    </div>
+  `
+  };
+}
+
+function reservationTemplateVariables(reservation: ReservationEmailData) {
+  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const reservationUrl = `${appUrl.replace(/\/$/, "")}/my-reservations`;
+  const customerName =
+    reservation.user.name ||
+    [reservation.guestEmail, reservation.user.email].filter(Boolean)[0] ||
+    "Bonjour";
+
+  return {
+    customerName,
+    restaurantName: reservation.restaurant.name,
+    restaurantAddress: reservation.restaurant.address ?? "",
+    reservationDate: formatDate(reservation.date),
+    reservationTime: reservation.startTime,
+    reservationEndTime: reservation.endTime,
+    guests: reservation.numberOfGuests,
+    tableLabel: reservation.table?.label ?? "À attribuer",
+    reservationReference: reservation.referenceCode ?? reservation.id,
+    reservationUrl
+  };
+}
+
+function formatFromAddress(name?: string) {
+  const configuredFrom = process.env.EMAIL_FROM || "ToqueTop <reservations@toquetop.com>";
+  const match = configuredFrom.match(/<([^>]+)>/);
+
+  if (!name || !match?.[1]) {
+    return configuredFrom;
+  }
+
+  return `${name.replace(/[<>]/g, "").trim()} <${match[1]}>`;
+}
+
+async function sendEmail(to: string, subject: string, html: string, options?: { fromName?: string; replyTo?: string }) {
+  const from = formatFromAddress(options?.fromName);
   const emailClient = getResend();
 
   if (!emailClient) {
@@ -111,6 +176,7 @@ async function sendEmail(to: string, subject: string, html: string) {
   try {
     const { data, error } = await emailClient.emails.send({
       from,
+      replyTo: options?.replyTo || undefined,
       to,
       subject,
       html
@@ -145,120 +211,121 @@ async function sendEmail(to: string, subject: string, html: string) {
 }
 
 export async function sendReservationConfirmation(reservation: ReservationEmailData) {
+  const variables = reservationTemplateVariables(reservation);
+  const rendered = await renderEmailTemplate("reservationConfirmation", variables, String(variables.reservationUrl));
+
+  if (!rendered.enabled) {
+    return true;
+  }
+
   return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
-    `Réservation confirmée chez ${reservation.restaurant.name}`,
-    reservationHtml(reservation, "Réservation confirmée")
+    rendered.subject,
+    rendered.html,
+    rendered
   );
 }
 
 export async function sendReservationCancellation(reservation: ReservationEmailData) {
+  const variables = reservationTemplateVariables(reservation);
+  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const rendered = await renderEmailTemplate("reservationCancellation", variables, `${appUrl.replace(/\/$/, "")}/reservation`);
+
+  if (!rendered.enabled) {
+    return true;
+  }
+
   return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
-    `Réservation annulée chez ${reservation.restaurant.name}`,
-    reservationHtml(reservation, "Réservation annulée")
+    rendered.subject,
+    rendered.html,
+    rendered
   );
 }
 
 export async function sendReservationUpdate(reservation: ReservationEmailData) {
+  const variables = reservationTemplateVariables(reservation);
+  const rendered = await renderEmailTemplate("reservationUpdate", variables, String(variables.reservationUrl));
+
+  if (!rendered.enabled) {
+    return true;
+  }
+
   return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
-    `Réservation modifiée chez ${reservation.restaurant.name}`,
-    reservationHtml(reservation, "Réservation modifiée")
+    rendered.subject,
+    rendered.html,
+    rendered
   );
 }
 
 export async function sendReservationReminder(reservation: ReservationEmailData) {
+  const variables = reservationTemplateVariables(reservation);
+  const rendered = await renderEmailTemplate("reservationReminder", variables, String(variables.reservationUrl));
+
+  if (!rendered.enabled) {
+    return true;
+  }
+
   return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
-    `Rappel de réservation chez ${reservation.restaurant.name}`,
-    reservationHtml(reservation, "Votre réservation approche")
+    rendered.subject,
+    rendered.html,
+    rendered
   );
-}
-
-function registrationHtml(user: RegistrationEmailData, siteName: string, appUrl: string) {
-  const displayName = user.firstName || user.name || "Bonjour";
-  const loginUrl = `${appUrl.replace(/\/$/, "")}/login`;
-
-  return `
-    <div style="margin:0;background:#f7f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#16201d">
-      <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:8px;background:#ffffff;padding:28px">
-        <p style="margin:0 0 12px;color:#14735d;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(siteName)}</p>
-        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:#16201d">Inscription confirmée</h1>
-        <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Bonjour ${escapeHtml(displayName)},</p>
-        <p style="margin:0 0 18px;font-size:15px;line-height:1.6">
-          Votre compte a bien été créé. Vous pouvez maintenant réserver une table, suivre vos réservations et annuler une réservation depuis votre espace.
-        </p>
-        <div style="margin:22px 0">
-          <a href="${escapeHtml(loginUrl)}" style="display:inline-block;border-radius:6px;background:#14735d;padding:12px 18px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">
-            Accéder à mon espace
-          </a>
-        </div>
-        <table style="border-collapse:collapse;margin-top:18px;width:100%;font-size:14px">
-          <tr>
-            <td style="border-top:1px solid rgba(22,32,29,.1);padding:12px 12px 8px 0;color:rgba(22,32,29,.65)">E-mail</td>
-            <td style="border-top:1px solid rgba(22,32,29,.1);padding:12px 0 8px"><strong>${escapeHtml(user.email)}</strong></td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px 8px 0;color:rgba(22,32,29,.65)">Référence compte</td>
-            <td style="padding:8px 0"><strong>${escapeHtml(user.id)}</strong></td>
-          </tr>
-        </table>
-        <p style="margin:22px 0 0;font-size:12px;line-height:1.5;color:rgba(22,32,29,.58)">
-          Si vous n’êtes pas à l’origine de cette inscription, vous pouvez ignorer cet e-mail.
-        </p>
-      </div>
-    </div>
-  `;
 }
 
 export async function sendRegistrationConfirmation(user: RegistrationEmailData) {
-  const brand = await getPlatformBrand();
   const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const loginUrl = `${appUrl.replace(/\/$/, "")}/login`;
+  const rendered = await renderEmailTemplate(
+    "registration",
+    {
+      customerName: user.firstName || user.name || "Bonjour",
+      customerEmail: user.email,
+      accountReference: user.id,
+      loginUrl
+    },
+    loginUrl
+  );
+
+  if (!rendered.enabled) {
+    return true;
+  }
 
   return sendEmail(
     user.email,
-    `Bienvenue chez ${brand.siteName}`,
-    registrationHtml(user, brand.siteName, appUrl)
+    rendered.subject,
+    rendered.html,
+    rendered
   );
 }
 
-function passwordResetHtml(user: PasswordResetEmailData, siteName: string) {
-  const displayName = user.firstName || user.name || "Bonjour";
+export async function sendPasswordResetEmail(user: PasswordResetEmailData) {
   const expiration = new Intl.DateTimeFormat("fr-FR", {
     dateStyle: "short",
     timeStyle: "short",
     timeZone: "Europe/Paris"
   }).format(user.expiresAt);
+  const rendered = await renderEmailTemplate(
+    "passwordReset",
+    {
+      customerName: user.firstName || user.name || "Bonjour",
+      customerEmail: user.email,
+      resetUrl: user.resetUrl,
+      expiration
+    },
+    user.resetUrl
+  );
 
-  return `
-    <div style="margin:0;background:#f7f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#16201d">
-      <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:8px;background:#ffffff;padding:28px">
-        <p style="margin:0 0 12px;color:#14735d;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(siteName)}</p>
-        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:#16201d">Réinitialisation du mot de passe</h1>
-        <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Bonjour ${escapeHtml(displayName)},</p>
-        <p style="margin:0 0 18px;font-size:15px;line-height:1.6">
-          Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe. Ce lien expire le ${escapeHtml(expiration)}.
-        </p>
-        <div style="margin:22px 0">
-          <a href="${escapeHtml(user.resetUrl)}" style="display:inline-block;border-radius:6px;background:#14735d;padding:12px 18px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">
-            Réinitialiser mon mot de passe
-          </a>
-        </div>
-        <p style="margin:22px 0 0;font-size:12px;line-height:1.5;color:rgba(22,32,29,.58)">
-          Si vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer cet e-mail.
-        </p>
-      </div>
-    </div>
-  `;
-}
-
-export async function sendPasswordResetEmail(user: PasswordResetEmailData) {
-  const brand = await getPlatformBrand();
+  if (!rendered.enabled) {
+    return true;
+  }
 
   return sendEmail(
     user.email,
-    `Réinitialisation de votre mot de passe ${brand.siteName}`,
-    passwordResetHtml(user, brand.siteName)
+    rendered.subject,
+    rendered.html,
+    rendered
   );
 }

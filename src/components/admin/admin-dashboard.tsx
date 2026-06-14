@@ -105,6 +105,7 @@ type Restaurant = {
 
 type Reservation = {
   id: string;
+  referenceCode: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -2962,6 +2963,9 @@ function ReservationRow({
         <p className="text-sm text-ink/65">
           {reservation.numberOfGuests} {t("common.guests")} ·{" "}
           {reservation.table?.label ?? t("admin.noTable")} · {t(`status.${reservation.status}`)}
+        </p>
+        <p className="mt-1 text-xs font-black uppercase text-moss">
+          Réf. {reservation.referenceCode ?? reservation.id}
         </p>
         <p className="mt-1 text-xs font-semibold text-ink/50">
           {guestEmail}

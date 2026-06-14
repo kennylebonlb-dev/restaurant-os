@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  Mail,
   MonitorSmartphone,
   Moon,
   Palette,
@@ -39,8 +40,11 @@ import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/hooks/use-api";
+import { defaultPlatformEmailSettings, emailTemplateKeys } from "@/server/platform-settings";
 import type {
   PlatformBrand,
+  PlatformEmailSettings,
+  PlatformEmailTemplateKey,
   PlatformLandingCustomBlock,
   PlatformLandingHeader,
   PlatformLandingLink,
@@ -116,6 +120,10 @@ type LandingResponse = {
   landing: PlatformLandingSettings;
 };
 
+type EmailSettingsResponse = {
+  emailSettings: PlatformEmailSettings;
+};
+
 type SitesResponse = {
   restaurants: ManagedRestaurant[];
 };
@@ -130,6 +138,7 @@ type AdminSection =
   | "plans"
   | "features"
   | "seo"
+  | "mailing"
   | "footer"
   | "general"
   | "restaurants";
@@ -353,6 +362,7 @@ const sections: Array<{ id: AdminSection; label: string; description: string; ic
   { id: "plans", label: "Forfaits", description: "Offres affichées", icon: BadgeEuro },
   { id: "features", label: "Fonctionnalités", description: "Cartes visibles", icon: ListChecks },
   { id: "seo", label: "SEO", description: "Référencement", icon: Search },
+  { id: "mailing", label: "Mailing", description: "Emails envoyés", icon: Mail },
   { id: "footer", label: "Footer", description: "Bas de page", icon: PanelBottom },
   { id: "general", label: "Paramètres", description: "Coordonnées", icon: Settings },
   { id: "restaurants", label: "Restaurants", description: "Sites clients", icon: Building2 }
@@ -491,6 +501,8 @@ export function PlatformAdminDashboard() {
   const [draggedBlockId, setDraggedBlockId] = useState<string>();
   const [brandForm, setBrandForm] = useState<PlatformBrand>(initialBrandForm);
   const [landingForm, setLandingForm] = useState<PlatformLandingSettings>(initialLandingForm);
+  const [emailForm, setEmailForm] = useState<PlatformEmailSettings>(defaultPlatformEmailSettings);
+  const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<PlatformEmailTemplateKey>("reservationConfirmation");
   const [siteForm, setSiteForm] = useState({
     name: "",
     description: "",
@@ -515,6 +527,11 @@ export function PlatformAdminDashboard() {
     queryFn: () => apiFetch<LandingResponse>("/api/platform-admin/landing")
   });
 
+  const emailSettingsQuery = useQuery({
+    queryKey: ["platform-admin", "email-settings"],
+    queryFn: () => apiFetch<EmailSettingsResponse>("/api/platform-admin/email-settings")
+  });
+
   const sitesQuery = useQuery({
     queryKey: ["platform-admin", "sites"],
     queryFn: () => apiFetch<SitesResponse>("/api/platform-admin/sites")
@@ -531,6 +548,12 @@ export function PlatformAdminDashboard() {
       setLandingForm(landingQuery.data.landing);
     }
   }, [landingQuery.data?.landing]);
+
+  useEffect(() => {
+    if (emailSettingsQuery.data?.emailSettings) {
+      setEmailForm(emailSettingsQuery.data.emailSettings);
+    }
+  }, [emailSettingsQuery.data?.emailSettings]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -559,6 +582,14 @@ export function PlatformAdminDashboard() {
       apiFetch<LandingResponse>("/api/platform-admin/landing", {
         method: "PATCH",
         body: JSON.stringify(landingForm)
+      })
+  });
+
+  const saveEmailSettingsMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<EmailSettingsResponse>("/api/platform-admin/email-settings", {
+        method: "PATCH",
+        body: JSON.stringify(emailForm)
       })
   });
 
@@ -722,6 +753,32 @@ export function PlatformAdminDashboard() {
 
   function updateGeneral<K extends keyof PlatformLandingSettings["general"]>(key: K, value: PlatformLandingSettings["general"][K]) {
     setLandingForm((current) => ({ ...current, general: { ...current.general, [key]: value } }));
+    markDirty();
+  }
+
+  function updateEmailField<K extends keyof Omit<PlatformEmailSettings, "templates">>(
+    key: K,
+    value: PlatformEmailSettings[K]
+  ) {
+    setEmailForm((current) => ({ ...current, [key]: value }));
+    markDirty();
+  }
+
+  function updateEmailTemplate<K extends keyof PlatformEmailSettings["templates"][PlatformEmailTemplateKey]>(
+    templateKey: PlatformEmailTemplateKey,
+    field: K,
+    value: PlatformEmailSettings["templates"][PlatformEmailTemplateKey][K]
+  ) {
+    setEmailForm((current) => ({
+      ...current,
+      templates: {
+        ...current.templates,
+        [templateKey]: {
+          ...current.templates[templateKey],
+          [field]: value
+        }
+      }
+    }));
     markDirty();
   }
 
@@ -1047,16 +1104,30 @@ export function PlatformAdminDashboard() {
     }
   }
 
+  async function updateEmailLogo(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      updateEmailField("logoUrl", dataUrl);
+    }
+  }
+
   async function saveAll() {
     try {
-      const [brandData, landingData] = await Promise.all([saveBrandMutation.mutateAsync(), saveLandingMutation.mutateAsync()]);
+      const [brandData, landingData, emailData] = await Promise.all([
+        saveBrandMutation.mutateAsync(),
+        saveLandingMutation.mutateAsync(),
+        saveEmailSettingsMutation.mutateAsync()
+      ]);
       setBrandForm(brandData.brand);
       setLandingForm(landingData.landing);
+      setEmailForm(emailData.emailSettings);
       setDirty(false);
       setLastSavedAt(new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date()));
       setMessage("Modification effectuée");
       queryClient.invalidateQueries({ queryKey: ["platform-admin", "brand"] });
       queryClient.invalidateQueries({ queryKey: ["platform-admin", "landing"] });
+      queryClient.invalidateQueries({ queryKey: ["platform-admin", "email-settings"] });
       router.refresh();
       window.setTimeout(() => setMessage(undefined), 3500);
     } catch (error) {
@@ -1534,6 +1605,75 @@ export function PlatformAdminDashboard() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <SeoPreview title="Aperçu Google" url={landingForm.seo.customUrl} heading={landingForm.seo.title} description={landingForm.seo.description} />
                   <SocialPreview landing={landingForm} />
+                </div>
+              </AdminSectionLayout>
+            ) : null}
+
+            {activeSection === "mailing" ? (
+              <AdminSectionLayout description="Modifie les emails envoyés automatiquement : inscription, mot de passe oublié, réservations, rappels et annulations." icon={<Mail className="h-5 w-5" />} panelClass={panelClass} title="Mailing">
+                <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="grid gap-4">
+                    <AssetCard alt="Logo email" buttonLabel="Remplacer le logo email" height={emailForm.logoHeight} image={emailForm.logoUrl} title="Logo des emails" onUpload={updateEmailLogo} />
+                    <div className="grid gap-4 rounded-md border border-ink/10 bg-linen p-4 text-ink">
+                      <Field label="Nom d’expéditeur affiché" value={emailForm.senderName} onChange={(value) => updateEmailField("senderName", value)} />
+                      <Field label="Adresse de réponse" type="email" value={emailForm.replyTo} onChange={(value) => updateEmailField("replyTo", value)} />
+                      <RangeField label="Taille du logo email" max={120} min={18} value={emailForm.logoHeight} onChange={(value) => updateEmailField("logoHeight", value)} />
+                      <RangeField label="Arrondi du bloc email" max={32} min={0} value={emailForm.borderRadius} onChange={(value) => updateEmailField("borderRadius", value)} />
+                      <ColorField label="Fond email" value={emailForm.backgroundColor} onChange={(value) => updateEmailField("backgroundColor", value)} />
+                      <ColorField label="Bloc email" value={emailForm.cardColor} onChange={(value) => updateEmailField("cardColor", value)} />
+                      <ColorField label="Couleur accent / bouton" value={emailForm.accentColor} onChange={(value) => updateEmailField("accentColor", value)} />
+                      <ColorField label="Couleur du texte" value={emailForm.textColor} onChange={(value) => updateEmailField("textColor", value)} />
+                      <ColorField label="Texte du bouton" value={emailForm.buttonTextColor} onChange={(value) => updateEmailField("buttonTextColor", value)} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <div className="grid gap-2 rounded-md border border-ink/10 bg-linen p-3 text-ink sm:grid-cols-2">
+                      {emailTemplateKeys.map((templateKey) => (
+                        <button
+                          key={templateKey}
+                          className={`rounded-md px-3 py-2 text-left text-sm font-black transition ${
+                            selectedEmailTemplate === templateKey ? "bg-[#ead6bd] text-ink" : "bg-white text-ink/70 hover:text-ink"
+                          }`}
+                          type="button"
+                          onClick={() => setSelectedEmailTemplate(templateKey)}
+                        >
+                          {emailTemplateLabel(templateKey)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className={`rounded-md border p-4 ${panelClass}`}>
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase text-moss">Modèle</p>
+                          <h3 className="text-lg font-black">{emailTemplateLabel(selectedEmailTemplate)}</h3>
+                        </div>
+                        <Toggle
+                          label="Actif"
+                          checked={emailForm.templates[selectedEmailTemplate].enabled}
+                          onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "enabled", value)}
+                        />
+                      </div>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <Field label="Objet du mail" value={emailForm.templates[selectedEmailTemplate].subject} onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "subject", value)} />
+                        <Field label="Pré-header" value={emailForm.templates[selectedEmailTemplate].preheader} onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "preheader", value)} />
+                        <Field label="Titre" value={emailForm.templates[selectedEmailTemplate].title} onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "title", value)} />
+                        <Field label="Texte du bouton" value={emailForm.templates[selectedEmailTemplate].buttonLabel} onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "buttonLabel", value)} />
+                        <Textarea label="Corps du mail" value={emailForm.templates[selectedEmailTemplate].body} onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "body", value)} />
+                        <Textarea label="Texte discret de bas de mail" value={emailForm.templates[selectedEmailTemplate].footerText} onChange={(value) => updateEmailTemplate(selectedEmailTemplate, "footerText", value)} />
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border border-ink/10 bg-linen p-4 text-ink">
+                      <p className="text-sm font-black">Variables disponibles</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-ink/60">
+                        {"{{siteName}}, {{customerName}}, {{customerEmail}}, {{restaurantName}}, {{restaurantAddress}}, {{reservationReference}}, {{reservationDate}}, {{reservationTime}}, {{reservationEndTime}}, {{guests}}, {{tableLabel}}, {{reservationUrl}}, {{resetUrl}}, {{loginUrl}}, {{expiration}}"}
+                      </p>
+                    </div>
+
+                    <EmailTemplatePreview emailSettings={emailForm} templateKey={selectedEmailTemplate} brand={brandForm} />
+                  </div>
                 </div>
               </AdminSectionLayout>
             ) : null}
@@ -2390,6 +2530,85 @@ function SocialPreview({ landing }: { landing: PlatformLandingSettings }) {
   );
 }
 
+function replacePreviewVariables(value: string) {
+  const variables: Record<string, string> = {
+    siteName: "ToqueTop",
+    customerName: "Jean Dupont",
+    customerEmail: "jean.dupont@email.fr",
+    restaurantName: "Al Gusto",
+    restaurantAddress: "902 rue de Bailleul, Nieppe",
+    reservationReference: "123456ABC123456",
+    reservationDate: "samedi 20 juin 2026",
+    reservationTime: "20:15",
+    reservationEndTime: "22:15",
+    guests: "2",
+    tableLabel: "Table 12",
+    reservationUrl: "https://www.toquetop.com/my-reservations",
+    resetUrl: "https://www.toquetop.com/login?resetToken=...",
+    loginUrl: "https://www.toquetop.com/login",
+    expiration: "20/06/2026 20:45"
+  };
+
+  return value.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => variables[key] ?? "");
+}
+
+function EmailTemplatePreview({
+  brand,
+  emailSettings,
+  templateKey
+}: {
+  brand: PlatformBrand;
+  emailSettings: PlatformEmailSettings;
+  templateKey: PlatformEmailTemplateKey;
+}) {
+  const template = emailSettings.templates[templateKey];
+  const body = replacePreviewVariables(template.body);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-ink/10 text-ink">
+      <div className="border-b border-ink/10 bg-white px-4 py-3">
+        <p className="text-xs font-black uppercase text-ink/45">Aperçu email</p>
+        <p className="mt-1 text-sm font-bold">{replacePreviewVariables(template.subject)}</p>
+      </div>
+      <div style={{ backgroundColor: emailSettings.backgroundColor }} className="p-4">
+        <div
+          className="mx-auto max-w-xl border border-ink/10 p-6"
+          style={{
+            backgroundColor: emailSettings.cardColor,
+            borderRadius: emailSettings.borderRadius,
+            color: emailSettings.textColor
+          }}
+        >
+          <img
+            src={emailSettings.logoUrl || brand.logoUrl}
+            alt={brand.logoAlt}
+            className="mb-5 max-w-[220px] object-contain"
+            style={{ height: emailSettings.logoHeight }}
+          />
+          <h3 className="text-2xl font-black leading-tight">{replacePreviewVariables(template.title)}</h3>
+          <p className="mt-4 whitespace-pre-line text-sm font-semibold leading-7 opacity-80">{body}</p>
+          {template.buttonLabel ? (
+            <span
+              className="mt-5 inline-flex rounded px-4 py-3 text-sm font-black"
+              style={{
+                backgroundColor: emailSettings.accentColor,
+                color: emailSettings.buttonTextColor
+              }}
+            >
+              {replacePreviewVariables(template.buttonLabel)}
+            </span>
+          ) : null}
+          {template.footerText ? (
+            <p className="mt-5 whitespace-pre-line text-xs font-semibold leading-5 opacity-55">
+              {replacePreviewVariables(template.footerText)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TimelineItem({ text, title }: { text: string; title: string }) {
   return (
     <div className="rounded-md border border-ink/10 bg-white/50 p-3">
@@ -2397,6 +2616,19 @@ function TimelineItem({ text, title }: { text: string; title: string }) {
       <p className="mt-1 text-sm font-semibold opacity-60">{text}</p>
     </div>
   );
+}
+
+function emailTemplateLabel(key: PlatformEmailTemplateKey) {
+  const labels: Record<PlatformEmailTemplateKey, string> = {
+    registration: "Inscription",
+    passwordReset: "Mot de passe oublié",
+    reservationConfirmation: "Confirmation réservation",
+    reservationUpdate: "Modification réservation",
+    reservationCancellation: "Annulation réservation",
+    reservationReminder: "Rappel réservation"
+  };
+
+  return labels[key];
 }
 
 function sectionLabel(key: string) {

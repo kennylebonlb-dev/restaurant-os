@@ -27,6 +27,7 @@ import { emitRestaurantEvent } from "@/server/realtime";
 type DbClient = Prisma.TransactionClient | typeof prisma;
 const DEFAULT_RESERVATION_DURATION_MINUTES = 120;
 const MIN_LEAD_TIME_MINUTES = 120;
+const REFERENCE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 export type AvailabilityInput = {
   restaurantId: string;
@@ -258,6 +259,41 @@ function pickAutoAssignedTable<TTable extends { id: string }>(
     : tables;
 
   return eligibleTables[Math.floor(Math.random() * eligibleTables.length)];
+}
+
+function randomDigits(length: number) {
+  return Array.from({ length }, () => Math.floor(Math.random() * 10)).join("");
+}
+
+function randomLetters(length: number) {
+  return Array.from(
+    { length },
+    () => REFERENCE_LETTERS[Math.floor(Math.random() * REFERENCE_LETTERS.length)]
+  ).join("");
+}
+
+function generateReservationReferenceCode() {
+  return `${randomDigits(6)}${randomLetters(3)}${randomDigits(6)}`;
+}
+
+async function generateUniqueReservationReferenceCode(db: DbClient) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const referenceCode = generateReservationReferenceCode();
+    const existing = await db.reservation.findUnique({
+      where: {
+        referenceCode
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (!existing) {
+      return referenceCode;
+    }
+  }
+
+  throw new ConflictError("Unable to generate reservation reference.");
 }
 
 function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy): ReservationWindow {
@@ -779,6 +815,7 @@ export async function createReservation(input: CreateReservationInput) {
 
       return tx.reservation.create({
         data: {
+          referenceCode: await generateUniqueReservationReferenceCode(tx),
           restaurantId: input.restaurantId,
           userId: input.userId,
           tableId,

@@ -19,6 +19,7 @@ export type PlatformBrand = {
 
 const BRAND_KEY = "brand";
 const LANDING_KEY = "landing";
+const EMAIL_SETTINGS_KEY = "email-settings";
 
 export const defaultPlatformBrand: PlatformBrand = {
   siteName: "C’est ma table",
@@ -34,6 +35,122 @@ export const defaultPlatformBrand: PlatformBrand = {
   faviconUrl: "/cest-ma-table-favicon.png",
   logoAlt: "C’est ma table",
   supportEmail: ""
+};
+
+export type PlatformEmailTemplateKey =
+  | "registration"
+  | "passwordReset"
+  | "reservationConfirmation"
+  | "reservationUpdate"
+  | "reservationCancellation"
+  | "reservationReminder";
+
+export type PlatformEmailTemplate = {
+  enabled: boolean;
+  subject: string;
+  preheader: string;
+  title: string;
+  body: string;
+  buttonLabel: string;
+  footerText: string;
+};
+
+export type PlatformEmailSettings = {
+  senderName: string;
+  replyTo: string;
+  logoUrl: string;
+  logoHeight: number;
+  backgroundColor: string;
+  cardColor: string;
+  accentColor: string;
+  textColor: string;
+  buttonTextColor: string;
+  borderRadius: number;
+  templates: Record<PlatformEmailTemplateKey, PlatformEmailTemplate>;
+};
+
+export const emailTemplateKeys: PlatformEmailTemplateKey[] = [
+  "registration",
+  "passwordReset",
+  "reservationConfirmation",
+  "reservationUpdate",
+  "reservationCancellation",
+  "reservationReminder"
+];
+
+export const defaultPlatformEmailSettings: PlatformEmailSettings = {
+  senderName: "ToqueTop",
+  replyTo: "contact@toquetop.com",
+  logoUrl: "/cest-ma-table-logo.png",
+  logoHeight: 44,
+  backgroundColor: "#f7f1e8",
+  cardColor: "#ffffff",
+  accentColor: "#14735d",
+  textColor: "#16201d",
+  buttonTextColor: "#ffffff",
+  borderRadius: 8,
+  templates: {
+    registration: {
+      enabled: true,
+      subject: "Bienvenue chez {{siteName}}",
+      preheader: "Votre compte a bien été créé.",
+      title: "Inscription confirmée",
+      body:
+        "Bonjour {{customerName}},\n\nVotre compte a bien été créé. Vous pouvez maintenant réserver une table, suivre vos réservations et annuler une réservation depuis votre espace.",
+      buttonLabel: "Accéder à mon espace",
+      footerText: "Si vous n’êtes pas à l’origine de cette inscription, vous pouvez ignorer cet e-mail."
+    },
+    passwordReset: {
+      enabled: true,
+      subject: "Réinitialisation de votre mot de passe {{siteName}}",
+      preheader: "Choisissez un nouveau mot de passe.",
+      title: "Réinitialisation du mot de passe",
+      body:
+        "Bonjour {{customerName}},\n\nCliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe. Ce lien expire le {{expiration}}.",
+      buttonLabel: "Réinitialiser mon mot de passe",
+      footerText: "Si vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer cet e-mail."
+    },
+    reservationConfirmation: {
+      enabled: true,
+      subject: "Réservation confirmée chez {{restaurantName}}",
+      preheader: "Votre table est réservée.",
+      title: "Réservation confirmée",
+      body:
+        "Bonjour {{customerName}},\n\nVotre réservation chez {{restaurantName}} est confirmée.\n\nDate : {{reservationDate}}\nHeure : {{reservationTime}}\nCouverts : {{guests}}\nTable : {{tableLabel}}\nRéférence : {{reservationReference}}",
+      buttonLabel: "Voir ma réservation",
+      footerText: "Merci pour votre réservation."
+    },
+    reservationUpdate: {
+      enabled: true,
+      subject: "Réservation modifiée chez {{restaurantName}}",
+      preheader: "Votre réservation a été mise à jour.",
+      title: "Réservation modifiée",
+      body:
+        "Bonjour {{customerName}},\n\nVotre réservation chez {{restaurantName}} a été mise à jour.\n\nDate : {{reservationDate}}\nHeure : {{reservationTime}}\nCouverts : {{guests}}\nTable : {{tableLabel}}\nRéférence : {{reservationReference}}",
+      buttonLabel: "Voir ma réservation",
+      footerText: "Vous pouvez retrouver les détails depuis votre espace."
+    },
+    reservationCancellation: {
+      enabled: true,
+      subject: "Réservation annulée chez {{restaurantName}}",
+      preheader: "Votre réservation a été annulée.",
+      title: "Réservation annulée",
+      body:
+        "Bonjour {{customerName}},\n\nVotre réservation chez {{restaurantName}} a bien été annulée.\n\nRéférence : {{reservationReference}}",
+      buttonLabel: "Réserver à nouveau",
+      footerText: "Nous espérons vous revoir bientôt."
+    },
+    reservationReminder: {
+      enabled: true,
+      subject: "Rappel de réservation chez {{restaurantName}}",
+      preheader: "Votre réservation approche.",
+      title: "Votre réservation approche",
+      body:
+        "Bonjour {{customerName}},\n\nPetit rappel : votre réservation chez {{restaurantName}} est prévue le {{reservationDate}} à {{reservationTime}}.\n\nCouverts : {{guests}}\nTable : {{tableLabel}}\nRéférence : {{reservationReference}}",
+      buttonLabel: "Voir ma réservation",
+      footerText: "À très vite."
+    }
+  }
 };
 
 export type PlatformLandingLink = {
@@ -875,6 +992,61 @@ function normalizePlatformLandingSettings(value: unknown): PlatformLandingSettin
   };
 }
 
+function normalizeEmailTemplate(
+  value: unknown,
+  fallback: PlatformEmailTemplate
+): PlatformEmailTemplate {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    enabled: typeof record.enabled === "boolean" ? record.enabled : fallback.enabled,
+    subject: normalizeString(record.subject, fallback.subject),
+    preheader: typeof record.preheader === "string" ? record.preheader : fallback.preheader,
+    title: normalizeString(record.title, fallback.title),
+    body: normalizeString(record.body, fallback.body),
+    buttonLabel: typeof record.buttonLabel === "string" ? record.buttonLabel : fallback.buttonLabel,
+    footerText: typeof record.footerText === "string" ? record.footerText : fallback.footerText
+  };
+}
+
+function normalizePlatformEmailSettings(value: unknown): PlatformEmailSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultPlatformEmailSettings;
+  }
+
+  const record = value as Record<string, unknown>;
+  const templatesRecord =
+    record.templates && typeof record.templates === "object" && !Array.isArray(record.templates)
+      ? (record.templates as Record<string, unknown>)
+      : {};
+
+  return {
+    senderName: normalizeString(record.senderName, defaultPlatformEmailSettings.senderName),
+    replyTo: typeof record.replyTo === "string" ? record.replyTo : defaultPlatformEmailSettings.replyTo,
+    logoUrl: typeof record.logoUrl === "string" && record.logoUrl.trim()
+      ? record.logoUrl.trim()
+      : defaultPlatformEmailSettings.logoUrl,
+    logoHeight: normalizeNumber(record.logoHeight, defaultPlatformEmailSettings.logoHeight, 18, 120),
+    backgroundColor: normalizeColor(record.backgroundColor, defaultPlatformEmailSettings.backgroundColor),
+    cardColor: normalizeColor(record.cardColor, defaultPlatformEmailSettings.cardColor),
+    accentColor: normalizeColor(record.accentColor, defaultPlatformEmailSettings.accentColor),
+    textColor: normalizeColor(record.textColor, defaultPlatformEmailSettings.textColor),
+    buttonTextColor: normalizeColor(record.buttonTextColor, defaultPlatformEmailSettings.buttonTextColor),
+    borderRadius: normalizeNumber(record.borderRadius, defaultPlatformEmailSettings.borderRadius, 0, 32),
+    templates: emailTemplateKeys.reduce(
+      (templates, key) => ({
+        ...templates,
+        [key]: normalizeEmailTemplate(templatesRecord[key], defaultPlatformEmailSettings.templates[key])
+      }),
+      {} as Record<PlatformEmailTemplateKey, PlatformEmailTemplate>
+    )
+  };
+}
+
 export async function getPlatformBrand() {
   const setting = await prisma.platformSetting.findUnique({
     where: {
@@ -927,4 +1099,31 @@ export async function updatePlatformLandingSettings(settings: PlatformLandingSet
   });
 
   return normalizePlatformLandingSettings(setting.value);
+}
+
+export async function getPlatformEmailSettings() {
+  const setting = await prisma.platformSetting.findUnique({
+    where: {
+      key: EMAIL_SETTINGS_KEY
+    }
+  });
+
+  return normalizePlatformEmailSettings(setting?.value);
+}
+
+export async function updatePlatformEmailSettings(settings: PlatformEmailSettings) {
+  const setting = await prisma.platformSetting.upsert({
+    where: {
+      key: EMAIL_SETTINGS_KEY
+    },
+    update: {
+      value: settings as unknown as Prisma.InputJsonValue
+    },
+    create: {
+      key: EMAIL_SETTINGS_KEY,
+      value: settings as unknown as Prisma.InputJsonValue
+    }
+  });
+
+  return normalizePlatformEmailSettings(setting.value);
 }

@@ -23,6 +23,7 @@ import { useI18n } from "@/lib/i18n";
 
 type Reservation = {
   id: string;
+  referenceCode: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -527,6 +528,9 @@ function ReservationList({
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-sm font-bold text-ink">{reservation.restaurant.name}</p>
+                  <p className="mt-1 text-xs font-black uppercase text-moss">
+                    Réf. {reservation.referenceCode ?? reservation.id}
+                  </p>
                   <p className="text-sm text-ink/65">
                     {dateOnly(reservation.date)} · {reservation.startTime}-{reservation.endTime} ·{" "}
                     {reservation.numberOfGuests} {t("common.guests")} ·{" "}

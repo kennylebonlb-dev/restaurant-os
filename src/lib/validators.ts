@@ -369,6 +369,37 @@ export const platformLandingSchema = z.object({
   companyLinks: z.array(platformLandingLinkSchema).min(1).max(16)
 });
 
+const platformEmailTemplateSchema = z.object({
+  enabled: z.boolean(),
+  subject: z.string().trim().min(1).max(180),
+  preheader: z.string().trim().max(220),
+  title: z.string().trim().min(1).max(160),
+  body: z.string().trim().min(1).max(3000),
+  buttonLabel: z.string().trim().max(80),
+  footerText: z.string().trim().max(500)
+});
+
+export const platformEmailSettingsSchema = z.object({
+  senderName: z.string().trim().min(1).max(80),
+  replyTo: z.union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")]),
+  logoUrl: imageUrlSchema,
+  logoHeight: z.coerce.number().int().min(18).max(120),
+  backgroundColor: colorSchema,
+  cardColor: colorSchema,
+  accentColor: colorSchema,
+  textColor: colorSchema,
+  buttonTextColor: colorSchema,
+  borderRadius: z.coerce.number().int().min(0).max(32),
+  templates: z.object({
+    registration: platformEmailTemplateSchema,
+    passwordReset: platformEmailTemplateSchema,
+    reservationConfirmation: platformEmailTemplateSchema,
+    reservationUpdate: platformEmailTemplateSchema,
+    reservationCancellation: platformEmailTemplateSchema,
+    reservationReminder: platformEmailTemplateSchema
+  })
+});
+
 export const createManagedRestaurantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000).optional(),
