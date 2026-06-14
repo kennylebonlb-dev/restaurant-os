@@ -17,7 +17,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const hideChrome = chromeHiddenRoutes.has(pathname);
+  const hideChrome = chromeHiddenRoutes.has(pathname) || pathname.startsWith("/legal");
 
   return (
     <div className="flex min-h-screen flex-col">

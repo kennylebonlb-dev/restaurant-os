@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   ArrowRight,
   BarChart3,
@@ -18,95 +19,49 @@ import {
   UsersRound,
   Zap
 } from "lucide-react";
+import { LandingAnchorLink } from "@/components/marketing/landing-anchor-link";
+import { defaultPlatformLandingSettings, getPlatformLandingSettings } from "@/server/platform-settings";
 
-const capabilities = [
-  {
-    icon: CalendarCheck,
-    title: "Réservations sans friction",
-    text: "Vos clients choisissent un créneau, leurs préférences et leur table depuis une expérience visuelle claire."
-  },
-  {
-    icon: Table2,
-    title: "Plan de salle vivant",
-    text: "Plan 2D/3D, tables, capacités, zones, blocages, rotations et disponibilités synchronisées en temps réel."
-  },
-  {
-    icon: UsersRound,
-    title: "Fichier client utile",
-    text: "Nom, contact, notes, anniversaires, demandes spéciales et historique pour reconnaître les habitués."
-  },
-  {
-    icon: BarChart3,
-    title: "Pilotage opérationnel",
-    text: "Occupation, services, tables libres, réservations du jour et indicateurs simples pour mieux remplir."
-  },
-  {
-    icon: Globe2,
-    title: "Site restaurant inclus",
-    text: "Un site rapide, moderne et adapté à votre identité, connecté directement à votre moteur de réservation."
-  },
-  {
-    icon: PlugZap,
-    title: "Prêt à évoluer",
-    text: "Architecture pensée pour les futures intégrations : IA, fidélité, automatisations, CRM et multi-sites."
+export const dynamic = "force-dynamic";
+
+const featureIcons = [CalendarCheck, Table2, UsersRound, BarChart3, Globe2, PlugZap];
+const secondaryFeatureIcons = [Cuboid, LockKeyhole, HeartHandshake, Mail];
+
+function SmartLink({
+  href,
+  className,
+  children
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (href.startsWith("#")) {
+    return (
+      <LandingAnchorLink className={className} href={href}>
+        {children}
+      </LandingAnchorLink>
+    );
   }
-];
 
-const workflow = [
-  "On crée votre site et votre identité de réservation.",
-  "Vous placez vos tables, services, horaires et règles métier.",
-  "Vos clients réservent en ligne, vous gardez le contrôle en direct."
-];
-
-const plans = [
-  {
-    name: "Essentiel",
-    price: "49€",
-    highlight: "Pour lancer la réservation en ligne",
-    features: ["Site vitrine ToqueTop", "Module de réservation", "Plan de salle 2D", "E-mails de confirmation", "Support de démarrage"]
-  },
-  {
-    name: "Pro",
-    price: "89€",
-    highlight: "Le meilleur choix pour un restaurant actif",
-    featured: true,
-    features: ["Tout Essentiel", "Plan 3D immersif", "Dashboard temps réel", "Blocages et services avancés", "Personnalisation de marque", "Statistiques d’occupation"]
-  },
-  {
-    name: "Signature",
-    price: "Sur mesure",
-    highlight: "Pour groupes, lieux premium et multi-sites",
-    features: ["Multi-restaurants", "Accompagnement prioritaire", "Design sur mesure", "Automatisations avancées", "Préparation IA et CRM", "Stratégie conversion"]
+  if (href.startsWith("http") || href.startsWith("mailto:")) {
+    return (
+      <a className={className} href={href}>
+        {children}
+      </a>
+    );
   }
-];
 
-const proofPoints = [
-  { value: "0%", label: "commission sur vos réservations directes" },
-  { value: "15 min", label: "créneaux configurables pour chaque service" },
-  { value: "2D + 3D", label: "plans de salle pensés pour convertir" },
-  { value: "24/7", label: "prise de réservation même quand l’équipe est occupée" }
-];
+  return (
+    <Link className={className} href={href}>
+      {children}
+    </Link>
+  );
+}
 
-const faqs = [
-  {
-    question: "Est-ce que ToqueTop remplace mon site actuel ?",
-    answer: "Oui si vous le souhaitez. ToqueTop peut devenir votre site principal, ou simplement ajouter une réservation moderne à votre site existant."
-  },
-  {
-    question: "Puis-je garder la main sur les horaires et les tables ?",
-    answer: "Oui. Vous gérez les services, vacances, blocages, capacités, préférences de tables et règles de réservation depuis l’espace admin."
-  },
-  {
-    question: "Le client peut-il choisir sa table ?",
-    answer: "Oui. Vous pouvez proposer une sélection visuelle, laisser le restaurant choisir, ou utiliser une attribution automatique selon vos règles."
-  },
-  {
-    question: "Est-ce adapté à plusieurs restaurants ?",
-    answer: "La base est prête pour le multi-sites : chaque restaurant peut avoir ses informations, son plan, ses horaires et ses réservations."
-  }
-];
+export default async function HomePage() {
+  const landing = await getPlatformLandingSettings().catch(() => defaultPlatformLandingSettings);
 
-export default function HomePage() {
   return (
     <div className="min-h-screen overflow-hidden bg-[#fbf8f2] text-ink">
       <section className="relative min-h-screen">
@@ -122,22 +77,30 @@ export default function HomePage() {
               <span className="flex h-11 w-11 items-center justify-center rounded-md bg-white text-ink shadow-soft">
                 <Sparkles className="h-5 w-5 text-clay" />
               </span>
-              <span className="text-2xl font-black tracking-normal">ToqueTop</span>
+              <span className="text-2xl font-black tracking-normal">{landing.brandName}</span>
             </Link>
             <div className="hidden items-center gap-6 text-sm font-bold text-white/80 lg:flex">
-              <a className="transition hover:text-white" href="#solution">Solution</a>
-              <a className="transition hover:text-white" href="#fonctionnalites">Fonctionnalités</a>
-              <a className="transition hover:text-white" href="#forfaits">Forfaits</a>
-              <a className="transition hover:text-white" href="#faq">FAQ</a>
+              <LandingAnchorLink className="transition hover:text-white" href="#solution">
+                Solutions
+              </LandingAnchorLink>
+              <LandingAnchorLink className="transition hover:text-white" href="#fonctionnalites">
+                Fonctionnalités
+              </LandingAnchorLink>
+              <LandingAnchorLink className="transition hover:text-white" href="#forfaits">
+                Forfaits
+              </LandingAnchorLink>
+              <LandingAnchorLink className="transition hover:text-white" href="#faq">
+                FAQ
+              </LandingAnchorLink>
             </div>
             <div className="flex items-center gap-2">
               <Link className="hidden h-10 items-center rounded-md px-4 text-sm font-bold text-white/85 transition hover:bg-white/10 sm:inline-flex" href="/login">
                 Connexion
               </Link>
-              <Link className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-4 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-linen" href="#demo">
-                Demander une démo
+              <SmartLink className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-4 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-linen" href={landing.demoCtaHref}>
+                {landing.demoCtaLabel}
                 <ArrowRight className="h-4 w-4" />
-              </Link>
+              </SmartLink>
             </div>
           </nav>
         </div>
@@ -146,26 +109,26 @@ export default function HomePage() {
           <div className="max-w-3xl landing-fade-up">
             <p className="inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 py-2 text-xs font-black uppercase text-white/80 backdrop-blur">
               <Zap className="h-4 w-4 text-[#ead6bd]" />
-              Site, réservations et plan de salle pour restaurants ambitieux
+              {landing.heroEyebrow}
             </p>
             <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[0.95] text-white sm:text-6xl lg:text-7xl">
-              Remplissez vos tables sans perdre le contrôle de votre salle.
+              {landing.heroTitle}
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-white/80">
-              ToqueTop crée votre site restaurant et centralise les réservations, le plan de salle, les disponibilités, les préférences clients et les statistiques dans un espace fluide, premium et temps réel.
+              {landing.heroSubtitle}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link className="inline-flex h-12 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-white" href="#forfaits">
-                Voir les forfaits
+              <SmartLink className="inline-flex h-12 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-white" href={landing.primaryCtaHref}>
+                {landing.primaryCtaLabel}
                 <ChevronRight className="h-4 w-4" />
-              </Link>
-              <Link className="inline-flex h-12 items-center gap-2 rounded-md border border-white/25 bg-white/10 px-5 text-sm font-black text-white backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/20" href="/reservation">
-                Voir l’expérience client
+              </SmartLink>
+              <SmartLink className="inline-flex h-12 items-center gap-2 rounded-md border border-white/25 bg-white/10 px-5 text-sm font-black text-white backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/20" href={landing.secondaryCtaHref}>
+                {landing.secondaryCtaLabel}
                 <MousePointer2 className="h-4 w-4" />
-              </Link>
+              </SmartLink>
             </div>
             <div className="mt-10 grid gap-3 sm:grid-cols-4">
-              {proofPoints.map((point) => (
+              {landing.proofPoints.map((point) => (
                 <div key={point.label} className="rounded-md border border-white/15 bg-white/10 p-3 backdrop-blur landing-fade-up-stagger">
                   <p className="text-2xl font-black text-white">{point.value}</p>
                   <p className="mt-1 text-xs font-semibold leading-5 text-white/70">{point.label}</p>
@@ -176,16 +139,16 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="solution" className="bg-ink px-4 py-16 text-white sm:px-6 lg:px-8">
+      <section id="solution" className="landing-section-target bg-ink px-4 py-16 text-white sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
           <div>
-            <p className="text-sm font-black uppercase text-[#ead6bd]">Une plateforme complète</p>
+            <p className="text-sm font-black uppercase text-[#ead6bd]">{landing.solutionEyebrow}</p>
             <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
-              Tout ce qu’un restaurant doit piloter, dans un seul cockpit.
+              {landing.solutionTitle}
             </h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            {workflow.map((step, index) => (
+            {landing.workflow.map((step, index) => (
               <div key={step} className="rounded-md border border-white/10 bg-white/[0.06] p-5">
                 <span className="text-3xl font-black text-[#ead6bd]">0{index + 1}</span>
                 <p className="mt-5 text-sm font-semibold leading-6 text-white/75">{step}</p>
@@ -195,20 +158,20 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="fonctionnalites" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="fonctionnalites" className="landing-section-target px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <p className="text-sm font-black uppercase text-moss">Fonctionnalités</p>
+            <p className="text-sm font-black uppercase text-moss">{landing.featuresEyebrow}</p>
             <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
-              La réservation directe, mais avec une vraie vision de salle.
+              {landing.featuresTitle}
             </h2>
             <p className="mt-4 text-base font-medium leading-7 text-ink/70">
-              Inspiré des meilleurs outils de réservation, ToqueTop met l’accent sur la relation directe, l’expérience client visuelle et la simplicité d’exploitation au quotidien.
+              {landing.featuresSubtitle}
             </p>
           </div>
           <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {capabilities.map((feature) => {
-              const Icon = feature.icon;
+            {landing.features.map((feature, index) => {
+              const Icon = featureIcons[index % featureIcons.length];
 
               return (
                 <article key={feature.title} className="group rounded-md border border-ink/10 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-soft">
@@ -229,21 +192,16 @@ export default function HomePage() {
           <div className="relative min-h-[520px] overflow-hidden rounded-lg bg-ink p-6 text-white shadow-soft">
             <div className="absolute inset-0 opacity-40 landing-grid-bg" />
             <div className="relative z-10">
-              <p className="text-sm font-black uppercase text-[#ead6bd]">Vue restaurateur</p>
+              <p className="text-sm font-black uppercase text-[#ead6bd]">{landing.dashboardEyebrow}</p>
               <h2 className="mt-3 max-w-2xl text-4xl font-black leading-tight">
-                Un dashboard pensé pour les services réels, pas pour les tableurs.
+                {landing.dashboardTitle}
               </h2>
             </div>
             <div className="relative z-10 mt-8 grid gap-4 md:grid-cols-2">
-              {[
-                ["Réservations du jour", "12:30 · 4 couverts · anniversaire"],
-                ["Occupation", "68% au déjeuner · 81% au dîner"],
-                ["Tables disponibles", "2 places: 4 · 4 places: 3 · 6+: 1"],
-                ["Alertes", "Table VIP bloquée à 20:00"]
-              ].map(([title, text]) => (
-                <div key={title} className="rounded-md border border-white/10 bg-white/10 p-5 backdrop-blur">
-                  <p className="text-xs font-black uppercase text-white/50">{title}</p>
-                  <p className="mt-3 text-lg font-black text-white">{text}</p>
+              {landing.dashboardCards.map((card) => (
+                <div key={card.title} className="rounded-md border border-white/10 bg-white/10 p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase text-white/50">{card.title}</p>
+                  <p className="mt-3 text-lg font-black text-white">{card.text}</p>
                 </div>
               ))}
             </div>
@@ -269,13 +227,8 @@ export default function HomePage() {
           </div>
 
           <div className="grid gap-4">
-            {[
-              { icon: Cuboid, title: "Plans 2D et 3D", text: "Offrez une sélection de table plus rassurante, visuelle et différenciante." },
-              { icon: LockKeyhole, title: "Règles métier", text: "Minimum avant réservation, durée de service, tables bloquées, vacances et restrictions de capacité." },
-              { icon: HeartHandshake, title: "Expérience client", text: "Demandes PMR, chaise haute, dîner romantique, anniversaire, notes et préférences." },
-              { icon: Mail, title: "Notifications", text: "Confirmation d’inscription, réservation, annulation et messages transactionnels." }
-            ].map((item) => {
-              const Icon = item.icon;
+            {landing.secondaryFeatures.map((item, index) => {
+              const Icon = secondaryFeatureIcons[index % secondaryFeatureIcons.length];
 
               return (
                 <article key={item.title} className="rounded-md border border-ink/10 bg-white p-6 shadow-sm">
@@ -295,24 +248,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="forfaits" className="bg-white px-4 py-20 sm:px-6 lg:px-8">
+      <section id="forfaits" className="landing-section-target bg-white px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div className="max-w-3xl">
-              <p className="text-sm font-black uppercase text-moss">Forfaits</p>
-              <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">Une offre lisible, sans commission cachée.</h2>
+              <p className="text-sm font-black uppercase text-moss">{landing.pricingEyebrow}</p>
+              <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">{landing.pricingTitle}</h2>
               <p className="mt-4 text-base font-medium leading-7 text-ink/70">
-                Les forfaits peuvent être adaptés selon le nombre d’établissements, le niveau de personnalisation et l’accompagnement souhaité.
+                {landing.pricingSubtitle}
               </p>
             </div>
-            <Link className="secondary-button" href="#demo">
+            <SmartLink className="secondary-button" href={landing.demoCtaHref}>
               Recevoir une proposition
               <ArrowRight className="h-4 w-4" />
-            </Link>
+            </SmartLink>
           </div>
 
           <div className="mt-10 grid gap-5 lg:grid-cols-3">
-            {plans.map((plan) => (
+            {landing.plans.map((plan) => (
               <article
                 key={plan.name}
                 className={`rounded-md border p-6 shadow-sm ${
@@ -350,27 +303,27 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="demo" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="demo" className="landing-section-target px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 rounded-lg bg-ink p-6 text-white shadow-soft md:grid-cols-[1fr_0.8fr] md:p-10">
           <div>
-            <p className="text-sm font-black uppercase text-[#ead6bd]">Lancer ToqueTop</p>
-            <h2 className="mt-3 text-4xl font-black leading-tight">Prêt à transformer votre réservation directe ?</h2>
+            <p className="text-sm font-black uppercase text-[#ead6bd]">{landing.demoEyebrow}</p>
+            <h2 className="mt-3 text-4xl font-black leading-tight">{landing.demoTitle}</h2>
             <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-white/70">
-              On peut préparer une première version de votre site, votre plan de salle et vos règles de réservation pour vous montrer concrètement le rendu.
+              {landing.demoSubtitle}
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link className="inline-flex h-11 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink transition hover:bg-white" href="mailto:contact@toquetop.com?subject=Démo ToqueTop">
-                Demander une démo
+              <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink transition hover:bg-white" href={landing.demoCtaHref}>
+                {landing.demoCtaLabel}
                 <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link className="inline-flex h-11 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 text-sm font-black text-white transition hover:bg-white/20" href="/reservation">
-                Tester la réservation
+              </SmartLink>
+              <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 text-sm font-black text-white transition hover:bg-white/20" href={landing.secondaryCtaHref}>
+                {landing.secondaryCtaLabel}
                 <CalendarCheck className="h-4 w-4" />
-              </Link>
+              </SmartLink>
             </div>
           </div>
           <div className="grid gap-3">
-            {["Audit rapide du site actuel", "Configuration des horaires et services", "Intégration du plan de salle", "Mise en ligne et formation"].map((item) => (
+            {landing.demoSteps.map((item) => (
               <div key={item} className="flex items-center gap-3 rounded-md border border-white/10 bg-white/[0.06] px-4 py-3">
                 <Star className="h-4 w-4 text-[#ead6bd]" />
                 <span className="text-sm font-bold text-white/80">{item}</span>
@@ -380,36 +333,53 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="faq" className="bg-[#f1e7d8] px-4 py-20 sm:px-6 lg:px-8">
+      <section id="faq" className="landing-section-target bg-[#f1e7d8] px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl">
           <div className="text-center">
-            <p className="text-sm font-black uppercase text-moss">Questions fréquentes</p>
-            <h2 className="mt-3 text-4xl font-black leading-tight">Simple à comprendre, solide à exploiter.</h2>
+            <p className="text-sm font-black uppercase text-moss">{landing.faqEyebrow}</p>
+            <h2 className="mt-3 text-4xl font-black leading-tight">{landing.faqTitle}</h2>
           </div>
           <div className="mt-10 grid gap-4 md:grid-cols-2">
-            {faqs.map((faq) => (
-              <article key={faq.question} className="rounded-md border border-ink/10 bg-white p-6 shadow-sm">
-                <h3 className="text-lg font-black text-ink">{faq.question}</h3>
-                <p className="mt-3 text-sm font-medium leading-6 text-ink/60">{faq.answer}</p>
+            {landing.faqs.map((faq) => (
+              <article key={faq.title} className="rounded-md border border-ink/10 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-black text-ink">{faq.title}</h3>
+                <p className="mt-3 text-sm font-medium leading-6 text-ink/60">{faq.text}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <footer className="bg-ink px-4 py-8 text-white sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+      <footer className="bg-ink px-4 py-12 text-white sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1fr_2fr]">
           <div>
-            <p className="text-xl font-black">ToqueTop</p>
-            <p className="mt-1 text-sm font-semibold text-white/60">Sites et réservations directes pour restaurants.</p>
+            <p className="text-2xl font-black">{landing.brandName}</p>
+            <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/60">{landing.footerTagline}</p>
           </div>
-          <div className="flex flex-wrap gap-3 text-sm font-bold text-white/60">
-            <Link className="hover:text-white" href="/login">Connexion</Link>
-            <Link className="hover:text-white" href="/reservation">Réservation</Link>
-            <Link className="hover:text-white" href="/cmt-admin/login">Admin plateforme</Link>
+          <div className="grid gap-8 sm:grid-cols-3">
+            <FooterColumn title="Légal" links={landing.legalLinks} />
+            <FooterColumn title="Solutions ToqueTop" links={landing.solutionLinks} />
+            <FooterColumn title="L’entreprise" links={landing.companyLinks} />
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function FooterColumn({ title, links }: { title: string; links: Array<{ label: string; href: string }> }) {
+  return (
+    <div>
+      <h3 className="text-sm font-black uppercase text-[#ead6bd]">{title}</h3>
+      <ul className="mt-4 grid gap-2">
+        {links.map((link) => (
+          <li key={`${link.href}-${link.label}`}>
+            <SmartLink className="text-sm font-semibold leading-6 text-white/60 transition hover:text-white" href={link.href}>
+              {link.label}
+            </SmartLink>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

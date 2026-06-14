@@ -154,6 +154,83 @@ export const platformBrandSchema = z.object({
     .optional()
 });
 
+const landingHrefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(240)
+  .refine(
+    (value) =>
+      value.startsWith("/") ||
+      value.startsWith("#") ||
+      value.startsWith("mailto:") ||
+      /^https?:\/\//.test(value),
+    "Link must be an anchor, relative, mailto, or http URL."
+  );
+
+const platformLandingLinkSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  href: landingHrefSchema
+});
+
+const platformLandingTextBlockSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  text: z.string().trim().min(1).max(800)
+});
+
+const platformLandingProofPointSchema = z.object({
+  value: z.string().trim().min(1).max(24),
+  label: z.string().trim().min(1).max(160)
+});
+
+const platformLandingPlanSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  price: z.string().trim().min(1).max(40),
+  highlight: z.string().trim().min(1).max(180),
+  featured: z.boolean().default(false),
+  features: z.array(z.string().trim().min(1).max(160)).min(1).max(10)
+});
+
+export const platformLandingSchema = z.object({
+  brandName: z.string().trim().min(1).max(80),
+  heroEyebrow: z.string().trim().min(1).max(180),
+  heroTitle: z.string().trim().min(1).max(180),
+  heroSubtitle: z.string().trim().min(1).max(800),
+  primaryCtaLabel: z.string().trim().min(1).max(80),
+  primaryCtaHref: landingHrefSchema,
+  secondaryCtaLabel: z.string().trim().min(1).max(80),
+  secondaryCtaHref: landingHrefSchema,
+  demoCtaLabel: z.string().trim().min(1).max(80),
+  demoCtaHref: landingHrefSchema,
+  proofPoints: z.array(platformLandingProofPointSchema).min(1).max(6),
+  solutionEyebrow: z.string().trim().min(1).max(80),
+  solutionTitle: z.string().trim().min(1).max(220),
+  workflow: z.array(z.string().trim().min(1).max(180)).min(1).max(6),
+  featuresEyebrow: z.string().trim().min(1).max(80),
+  featuresTitle: z.string().trim().min(1).max(220),
+  featuresSubtitle: z.string().trim().min(1).max(800),
+  features: z.array(platformLandingTextBlockSchema).min(1).max(12),
+  dashboardEyebrow: z.string().trim().min(1).max(80),
+  dashboardTitle: z.string().trim().min(1).max(220),
+  dashboardCards: z.array(platformLandingTextBlockSchema).min(1).max(8),
+  secondaryFeatures: z.array(platformLandingTextBlockSchema).min(1).max(8),
+  pricingEyebrow: z.string().trim().min(1).max(80),
+  pricingTitle: z.string().trim().min(1).max(220),
+  pricingSubtitle: z.string().trim().min(1).max(800),
+  plans: z.array(platformLandingPlanSchema).min(1).max(4),
+  demoEyebrow: z.string().trim().min(1).max(80),
+  demoTitle: z.string().trim().min(1).max(220),
+  demoSubtitle: z.string().trim().min(1).max(800),
+  demoSteps: z.array(z.string().trim().min(1).max(140)).min(1).max(8),
+  faqEyebrow: z.string().trim().min(1).max(80),
+  faqTitle: z.string().trim().min(1).max(220),
+  faqs: z.array(platformLandingTextBlockSchema).min(1).max(12),
+  footerTagline: z.string().trim().min(1).max(220),
+  legalLinks: z.array(platformLandingLinkSchema).min(1).max(8),
+  solutionLinks: z.array(platformLandingLinkSchema).min(1).max(16),
+  companyLinks: z.array(platformLandingLinkSchema).min(1).max(16)
+});
+
 export const createManagedRestaurantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000).optional(),
