@@ -91,6 +91,11 @@ textarea {
 
 .landing-hero-image {
   animation: landingHeroDrift 18s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.landing-balanced-title {
+  text-wrap: balance;
 }
 
 .landing-fade-up {
@@ -151,6 +156,23 @@ textarea {
   }
   to {
     transform: scale(1.1) translate3d(0.8rem, -0.6rem, 0);
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .landing-hero-image {
+    animation: landingHeroScroll linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 100vh;
+  }
+}
+
+@keyframes landingHeroScroll {
+  from {
+    transform: scale(1.08) translate3d(0, -1rem, 0);
+  }
+  to {
+    transform: scale(1.08) translate3d(0, 4rem, 0);
   }
 }
 

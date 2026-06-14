@@ -234,6 +234,15 @@ const platformLandingAppearanceSchema = z.object({
   stylePreset: z.enum(["MODERN", "PREMIUM", "SOBER", "WARM"])
 });
 
+const platformLandingTypographySchema = z.object({
+  heroTitleSize: z.coerce.number().int().min(42).max(96),
+  heroSubtitleSize: z.coerce.number().int().min(14).max(28),
+  sectionTitleSize: z.coerce.number().int().min(28).max(72),
+  sectionTextSize: z.coerce.number().int().min(13).max(24),
+  cardTitleSize: z.coerce.number().int().min(14).max(34),
+  cardTextSize: z.coerce.number().int().min(12).max(22)
+});
+
 const platformLandingHeaderSchema = z.object({
   logoPosition: z.enum(["LEFT", "CENTER"]),
   menuLinks: z.array(platformLandingLinkSchema).min(1).max(8),
@@ -300,6 +309,7 @@ export const platformLandingSchema = z.object({
   visibleSections: platformLandingVisibleSectionsSchema,
   customBlocks: z.array(platformLandingCustomBlockSchema).max(24),
   brandName: z.string().trim().min(1).max(80),
+  typography: platformLandingTypographySchema,
   heroImageUrl: landingImageSchema,
   heroEyebrow: z.string().trim().min(1).max(180),
   heroTitle: z.string().trim().min(1).max(180),
@@ -325,6 +335,7 @@ export const platformLandingSchema = z.object({
   pricingEyebrow: z.string().trim().min(1).max(80),
   pricingTitle: z.string().trim().min(1).max(220),
   pricingSubtitle: z.string().trim().min(1).max(800),
+  annualDiscountLabel: z.string().trim().min(1).max(80),
   plans: z.array(platformLandingPlanSchema).min(1).max(4),
   demoEyebrow: z.string().trim().min(1).max(80),
   demoTitle: z.string().trim().min(1).max(220),
@@ -334,6 +345,7 @@ export const platformLandingSchema = z.object({
   faqTitle: z.string().trim().min(1).max(220),
   faqs: z.array(platformLandingTextBlockSchema).min(1).max(12),
   footerTagline: z.string().trim().min(1).max(220),
+  footerCopyright: z.string().trim().min(1).max(180),
   legalLinks: z.array(platformLandingLinkSchema).min(1).max(8),
   solutionLinks: z.array(platformLandingLinkSchema).min(1).max(16),
   companyLinks: z.array(platformLandingLinkSchema).min(1).max(16)

@@ -14,9 +14,11 @@ type PricingPlan = {
 };
 
 export function PricingToggle({
+  annualDiscountLabel,
   ctaHref,
   plans
 }: {
+  annualDiscountLabel: string;
   ctaHref: string;
   plans: PricingPlan[];
 }) {
@@ -43,7 +45,7 @@ export function PricingToggle({
           </button>
         </div>
         <span className="rounded-md bg-[#ead6bd] px-3 py-2 text-xs font-black text-ink">
-          Réduction incluse sur le plan annuel
+          {annualDiscountLabel}
         </span>
       </div>
 

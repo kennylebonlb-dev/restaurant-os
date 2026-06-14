@@ -180,6 +180,14 @@ const initialLandingForm: PlatformLandingSettings = {
     }
   ],
   brandName: "ToqueTop",
+  typography: {
+    heroTitleSize: 72,
+    heroSubtitleSize: 18,
+    sectionTitleSize: 48,
+    sectionTextSize: 16,
+    cardTitleSize: 20,
+    cardTextSize: 14
+  },
   heroImageUrl: "/login-restaurant-visual.png",
   heroEyebrow: "Réservations 24/7, rappels automatiques et site restaurant prêt en moins de 5 minutes",
   heroTitle: "Gagnez du temps en salle et réduisez les no-shows jusqu’à 35%.",
@@ -231,22 +239,32 @@ const initialLandingForm: PlatformLandingSettings = {
   pricingEyebrow: "Forfaits",
   pricingTitle: "Mensuel ou annuel, choisissez le rythme qui vous convient.",
   pricingSubtitle: "Profitez d’une réduction sur le plan annuel, avec 30 jours gratuits, sans carte bancaire et annulable à tout moment.",
+  annualDiscountLabel: "-15% de réduction",
   plans: [
     { name: "Essentiel", price: "49€", annualPrice: "39€", highlight: "Pour lancer la réservation en ligne", featured: false, active: true, buttonLabel: "Commencer gratuitement", features: ["Site vitrine ToqueTop", "Réservations en ligne 24/7", "Intégration Google et réseaux sociaux"] },
     { name: "Pro", price: "89€", annualPrice: "69€", highlight: "Le meilleur choix pour un restaurant actif", featured: true, active: true, buttonLabel: "Essayer Pro gratuitement", features: ["Tout Essentiel", "Plan 3D immersif", "Rappels SMS et e-mail", "Réduction des no-shows jusqu’à 35%"] },
     { name: "Signature", price: "Sur mesure", annualPrice: "Sur mesure", highlight: "Pour groupes, lieux premium et multi-sites", featured: false, active: true, buttonLabel: "Nous contacter", features: ["Multi-restaurants", "Comptabilité et reporting avancé", "Automatisations avancées", "Assistance 24h/24 7j/7"] }
   ],
-  demoEyebrow: "Lancer ToqueTop",
-  demoTitle: "Commencez aujourd’hui.",
-  demoSubtitle: "Offrez à vos clients une expérience de réservation unique : 30 jours gratuits, sans carte bancaire, annulable à tout moment.",
-  demoSteps: ["Création du site en moins de 5 minutes", "Configuration des réservations 24/7", "Activation des rappels automatiques", "Connexion Google et réseaux sociaux"],
+  demoEyebrow: "Migration accompagnée",
+  demoTitle: "Changez pour ToqueTop, on s’occupe de tout !",
+  demoSubtitle: "Grâce à une migration simple, reprenez le contrôle de vos réservations et ne payez plus de commission sur vos propres clients. Passez de TheFork, ZenChef, OpenTable ou d’autres systèmes de réservation vers ToqueTop sans interruption de service.",
+  demoSteps: [
+    "Parlez à un expert ToqueTop : nous analysons votre système actuel et vos besoins.",
+    "Migration des données : vos clients et réservations existantes sont transférés en sécurité.",
+    "Configuration : site web, réservations et plan 2D de votre établissement sont préparés.",
+    "Lancement accompagné : nous vous guidons à chaque étape.",
+    "Régalez vos clients avec ToqueTop !"
+  ],
   faqEyebrow: "Questions fréquentes",
-  faqTitle: "Simple à comprendre, solide à exploiter.",
+  faqTitle: "Questions fréquentes",
   faqs: [
-    { title: "Est-ce que ToqueTop remplace mon site actuel ?", text: "Oui si vous le souhaitez. ToqueTop peut devenir votre site principal, ou simplement ajouter une réservation moderne à votre site existant." },
-    { title: "Puis-je garder la main sur les horaires et les tables ?", text: "Oui. Vous gérez les services, vacances, blocages, capacités, préférences de tables et règles de réservation depuis l’espace admin." }
+    { title: "Vais-je perdre mes réservations actuelles ?", text: "Non, on récupère vos réservations en cours pour une transition sans interruption." },
+    { title: "Vais-je repartir de zéro ?", text: "Non. Nous nous occupons de migrer chaque élément sur votre nouvel espace ToqueTop : menu, plan de table et avis." },
+    { title: "L’outil est-il adapté à mon établissement ?", text: "ToqueTop s’adapte à tous types de restaurants, du bistrot au gastronomique." },
+    { title: "Changer de solution va-t-il interrompre mon service ?", text: "Non. La migration est fluide, rapide et encadrée par une équipe experte pendant que vous restez concentré sur votre service." }
   ],
   footerTagline: "Sites, réservations directes et outils de croissance pour restaurants.",
+  footerCopyright: "© 2026 ToqueTop by UCOM4YOU. Tous droits réservés.",
   legalLinks: [
     { label: "Conditions Générales d’Utilisation", href: "/legal/conditions-generales-utilisation" },
     { label: "Mentions Légales", href: "/legal/mentions-legales" },
@@ -474,6 +492,11 @@ export function PlatformAdminDashboard() {
 
   function updateAppearance<K extends keyof PlatformLandingSettings["appearance"]>(key: K, value: PlatformLandingSettings["appearance"][K]) {
     setLandingForm((current) => ({ ...current, appearance: { ...current.appearance, [key]: value } }));
+    markDirty();
+  }
+
+  function updateTypography<K extends keyof PlatformLandingSettings["typography"]>(key: K, value: PlatformLandingSettings["typography"][K]) {
+    setLandingForm((current) => ({ ...current, typography: { ...current.typography, [key]: value } }));
     markDirty();
   }
 
@@ -994,6 +1017,14 @@ export function PlatformAdminDashboard() {
                     </select>
                   </label>
                 </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <RangeField label="Taille du titre principal" max={96} min={42} value={landingForm.typography.heroTitleSize} onChange={(value) => updateTypography("heroTitleSize", value)} />
+                  <RangeField label="Taille du sous-titre principal" max={28} min={14} value={landingForm.typography.heroSubtitleSize} onChange={(value) => updateTypography("heroSubtitleSize", value)} />
+                  <RangeField label="Taille des titres de section" max={72} min={28} value={landingForm.typography.sectionTitleSize} onChange={(value) => updateTypography("sectionTitleSize", value)} />
+                  <RangeField label="Taille des textes de section" max={24} min={13} value={landingForm.typography.sectionTextSize} onChange={(value) => updateTypography("sectionTextSize", value)} />
+                  <RangeField label="Taille des titres de cartes" max={34} min={14} value={landingForm.typography.cardTitleSize} onChange={(value) => updateTypography("cardTitleSize", value)} />
+                  <RangeField label="Taille des textes de cartes" max={22} min={12} value={landingForm.typography.cardTextSize} onChange={(value) => updateTypography("cardTextSize", value)} />
+                </div>
 
                 <LiveStylePreview landing={landingForm} brand={brandForm} />
               </AdminSectionLayout>
@@ -1176,6 +1207,7 @@ export function PlatformAdminDashboard() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Field label="Eyebrow" value={landingForm.pricingEyebrow} onChange={(value) => updateLandingField("pricingEyebrow", value)} />
                   <Field label="Titre de section" value={landingForm.pricingTitle} onChange={(value) => updateLandingField("pricingTitle", value)} />
+                  <Field label="Libellé réduction annuelle" value={landingForm.annualDiscountLabel} onChange={(value) => updateLandingField("annualDiscountLabel", value)} />
                   <Textarea label="Description" value={landingForm.pricingSubtitle} onChange={(value) => updateLandingField("pricingSubtitle", value)} />
                 </div>
                 <div className="flex justify-end">
@@ -1260,6 +1292,7 @@ export function PlatformAdminDashboard() {
               <AdminSectionLayout description="Configure les logos, slogans, liens et informations du bas de page." icon={<PanelBottom className="h-5 w-5" />} panelClass={panelClass} title="Footer">
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Field label="Slogan du footer" value={landingForm.footerTagline} onChange={(value) => updateLandingField("footerTagline", value)} />
+                  <Field label="Copyright" value={landingForm.footerCopyright} onChange={(value) => updateLandingField("footerCopyright", value)} />
                   <Field label="Email de contact" value={landingForm.general.contactEmail} onChange={(value) => updateGeneral("contactEmail", value)} />
                   <ColorField label="Couleur du footer" value={landingForm.appearance.primaryColor} onChange={(value) => updateAppearance("primaryColor", value)} />
                 </div>
@@ -1400,6 +1433,34 @@ function Textarea({ label, onChange, value }: { label: string; onChange: (value:
     <label className="text-sm font-semibold lg:col-span-2">
       {label}
       <textarea className="control mt-1 min-h-24 w-full py-2" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function RangeField({
+  label,
+  max,
+  min,
+  onChange,
+  value
+}: {
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  return (
+    <label className="text-sm font-semibold">
+      {label} : {value}px
+      <input
+        className="mt-3 w-full accent-moss"
+        max={max}
+        min={min}
+        type="range"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
     </label>
   );
 }

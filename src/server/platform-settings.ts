@@ -66,6 +66,15 @@ export type PlatformLandingPlan = {
   features: string[];
 };
 
+export type PlatformLandingTypography = {
+  heroTitleSize: number;
+  heroSubtitleSize: number;
+  sectionTitleSize: number;
+  sectionTextSize: number;
+  cardTitleSize: number;
+  cardTextSize: number;
+};
+
 export type PlatformLandingAppearance = {
   primaryColor: string;
   secondaryColor: string;
@@ -144,6 +153,7 @@ export type PlatformLandingSettings = {
   visibleSections: PlatformLandingVisibleSections;
   customBlocks: PlatformLandingCustomBlock[];
   brandName: string;
+  typography: PlatformLandingTypography;
   heroImageUrl: string;
   heroEyebrow: string;
   heroTitle: string;
@@ -169,6 +179,7 @@ export type PlatformLandingSettings = {
   pricingEyebrow: string;
   pricingTitle: string;
   pricingSubtitle: string;
+  annualDiscountLabel: string;
   plans: PlatformLandingPlan[];
   demoEyebrow: string;
   demoTitle: string;
@@ -178,6 +189,7 @@ export type PlatformLandingSettings = {
   faqTitle: string;
   faqs: PlatformLandingTextBlock[];
   footerTagline: string;
+  footerCopyright: string;
   legalLinks: PlatformLandingLink[];
   solutionLinks: PlatformLandingLink[];
   companyLinks: PlatformLandingLink[];
@@ -257,6 +269,14 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
     }
   ],
   brandName: "ToqueTop",
+  typography: {
+    heroTitleSize: 72,
+    heroSubtitleSize: 18,
+    sectionTitleSize: 48,
+    sectionTextSize: 16,
+    cardTitleSize: 20,
+    cardTextSize: 14
+  },
   heroImageUrl: "/login-restaurant-visual.png",
   heroEyebrow: "Réservations 24/7, rappels automatiques et site restaurant prêt en moins de 5 minutes",
   heroTitle: "Gagnez du temps en salle et réduisez les no-shows jusqu’à 35%.",
@@ -332,6 +352,7 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
   pricingTitle: "Mensuel ou annuel, choisissez le rythme qui vous convient.",
   pricingSubtitle:
     "Profitez d’une réduction sur le plan annuel, avec 30 jours gratuits, sans carte bancaire et annulable à tout moment.",
+  annualDiscountLabel: "-15% de réduction",
   plans: [
     {
       name: "Essentiel",
@@ -371,32 +392,39 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
       features: ["Multi-restaurants", "Accompagnement prioritaire", "Comptabilité et reporting avancé", "Automatisations avancées", "Préparation IA et CRM", "Assistance 24h/24 7j/7"]
     }
   ],
-  demoEyebrow: "Lancer ToqueTop",
-  demoTitle: "Commencez aujourd’hui.",
+  demoEyebrow: "Migration accompagnée",
+  demoTitle: "Changez pour ToqueTop, on s’occupe de tout !",
   demoSubtitle:
-    "Offrez à vos clients une expérience de réservation unique : 30 jours gratuits, sans carte bancaire, annulable à tout moment.",
-  demoSteps: ["Création du site en moins de 5 minutes", "Configuration des réservations 24/7", "Activation des rappels automatiques", "Connexion Google et réseaux sociaux"],
+    "Grâce à une migration simple, reprenez le contrôle de vos réservations et ne payez plus de commission sur vos propres clients. Passez de TheFork, ZenChef, OpenTable ou d’autres systèmes de réservation vers ToqueTop sans interruption de service.",
+  demoSteps: [
+    "Parlez à un expert ToqueTop : nous analysons votre système actuel et vos besoins.",
+    "Migration des données : vos clients et réservations existantes sont transférés en sécurité.",
+    "Configuration : site web, réservations et plan 2D de votre établissement sont préparés.",
+    "Lancement accompagné : nous vous guidons à chaque étape.",
+    "Régalez vos clients avec ToqueTop !"
+  ],
   faqEyebrow: "Questions fréquentes",
-  faqTitle: "Simple à comprendre, solide à exploiter.",
+  faqTitle: "Questions fréquentes",
   faqs: [
     {
-      title: "Est-ce que ToqueTop remplace mon site actuel ?",
-      text: "Oui si vous le souhaitez. ToqueTop peut devenir votre site principal, ou simplement ajouter une réservation moderne à votre site existant."
+      title: "Vais-je perdre mes réservations actuelles ?",
+      text: "Non, on récupère vos réservations en cours pour une transition sans interruption."
     },
     {
-      title: "Puis-je garder la main sur les horaires et les tables ?",
-      text: "Oui. Vous gérez les services, vacances, blocages, capacités, préférences de tables et règles de réservation depuis l’espace admin."
+      title: "Vais-je repartir de zéro ?",
+      text: "Non. Nous nous occupons de migrer chaque élément sur votre nouvel espace ToqueTop : menu, plan de table et avis."
     },
     {
-      title: "Le client peut-il choisir sa table ?",
-      text: "Oui. Vous pouvez proposer une sélection visuelle, laisser le restaurant choisir, ou utiliser une attribution automatique selon vos règles."
+      title: "L’outil est-il adapté à mon établissement ?",
+      text: "ToqueTop s’adapte à tous types de restaurants, du bistrot au gastronomique."
     },
     {
-      title: "Est-ce adapté à plusieurs restaurants ?",
-      text: "La base est prête pour le multi-sites : chaque restaurant peut avoir ses informations, son plan, ses horaires et ses réservations."
+      title: "Changer de solution va-t-il interrompre mon service ?",
+      text: "Non. La migration est fluide, rapide et encadrée par une équipe experte pendant que vous restez concentré sur votre service."
     }
   ],
   footerTagline: "Sites, réservations directes et outils de croissance pour restaurants.",
+  footerCopyright: "© 2026 ToqueTop by UCOM4YOU. Tous droits réservés.",
   legalLinks: [
     { label: "Conditions Générales d’Utilisation", href: "/legal/conditions-generales-utilisation" },
     { label: "Mentions Légales", href: "/legal/mentions-legales" },
@@ -593,6 +621,23 @@ function normalizeAppearance(value: unknown, fallback = defaultPlatformLandingSe
   };
 }
 
+function normalizeTypography(value: unknown, fallback = defaultPlatformLandingSettings.typography): PlatformLandingTypography {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    heroTitleSize: normalizeNumber(record.heroTitleSize, fallback.heroTitleSize, 42, 96),
+    heroSubtitleSize: normalizeNumber(record.heroSubtitleSize, fallback.heroSubtitleSize, 14, 28),
+    sectionTitleSize: normalizeNumber(record.sectionTitleSize, fallback.sectionTitleSize, 28, 72),
+    sectionTextSize: normalizeNumber(record.sectionTextSize, fallback.sectionTextSize, 13, 24),
+    cardTitleSize: normalizeNumber(record.cardTitleSize, fallback.cardTitleSize, 14, 34),
+    cardTextSize: normalizeNumber(record.cardTextSize, fallback.cardTextSize, 12, 22)
+  };
+}
+
 function normalizeHeader(value: unknown, fallback = defaultPlatformLandingSettings.header): PlatformLandingHeader {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return fallback;
@@ -784,6 +829,7 @@ function normalizePlatformLandingSettings(value: unknown): PlatformLandingSettin
     visibleSections: normalizeVisibleSections(record.visibleSections),
     customBlocks: normalizeCustomBlocks(record.customBlocks, defaultPlatformLandingSettings.customBlocks),
     brandName: normalizeString(record.brandName, defaultPlatformLandingSettings.brandName),
+    typography: normalizeTypography(record.typography),
     heroImageUrl: typeof record.heroImageUrl === "string" && record.heroImageUrl.trim()
       ? record.heroImageUrl.trim()
       : defaultPlatformLandingSettings.heroImageUrl,
@@ -811,6 +857,7 @@ function normalizePlatformLandingSettings(value: unknown): PlatformLandingSettin
     pricingEyebrow: normalizeString(record.pricingEyebrow, defaultPlatformLandingSettings.pricingEyebrow),
     pricingTitle: normalizeString(record.pricingTitle, defaultPlatformLandingSettings.pricingTitle),
     pricingSubtitle: normalizeString(record.pricingSubtitle, defaultPlatformLandingSettings.pricingSubtitle),
+    annualDiscountLabel: normalizeString(record.annualDiscountLabel, defaultPlatformLandingSettings.annualDiscountLabel),
     plans: normalizePlans(record.plans, defaultPlatformLandingSettings.plans),
     demoEyebrow: normalizeString(record.demoEyebrow, defaultPlatformLandingSettings.demoEyebrow),
     demoTitle: normalizeString(record.demoTitle, defaultPlatformLandingSettings.demoTitle),
@@ -820,6 +867,7 @@ function normalizePlatformLandingSettings(value: unknown): PlatformLandingSettin
     faqTitle: normalizeString(record.faqTitle, defaultPlatformLandingSettings.faqTitle),
     faqs: normalizeTextBlocks(record.faqs, defaultPlatformLandingSettings.faqs),
     footerTagline: normalizeString(record.footerTagline, defaultPlatformLandingSettings.footerTagline),
+    footerCopyright: normalizeString(record.footerCopyright, defaultPlatformLandingSettings.footerCopyright),
     legalLinks: normalizeLinks(record.legalLinks, defaultPlatformLandingSettings.legalLinks),
     solutionLinks: normalizeLinks(record.solutionLinks, defaultPlatformLandingSettings.solutionLinks),
     companyLinks: normalizeLinks(record.companyLinks, defaultPlatformLandingSettings.companyLinks)

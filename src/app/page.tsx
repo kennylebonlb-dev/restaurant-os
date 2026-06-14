@@ -100,6 +100,27 @@ export default async function HomePage() {
     backgroundColor: landing.appearance.buttonColor,
     color: landing.appearance.primaryColor
   };
+  const heroTitleStyle: CSSProperties = {
+    fontFamily: landing.appearance.headingFont,
+    fontSize: landing.typography.heroTitleSize,
+    lineHeight: 0.95
+  };
+  const heroSubtitleStyle: CSSProperties = {
+    fontSize: landing.typography.heroSubtitleSize
+  };
+  const sectionTitleStyle: CSSProperties = {
+    fontFamily: landing.appearance.headingFont,
+    fontSize: landing.typography.sectionTitleSize
+  };
+  const sectionTextStyle: CSSProperties = {
+    fontSize: landing.typography.sectionTextSize
+  };
+  const cardTitleStyle: CSSProperties = {
+    fontSize: landing.typography.cardTitleSize
+  };
+  const cardTextStyle: CSSProperties = {
+    fontSize: landing.typography.cardTextSize
+  };
   const headerPositionClass = landing.header.sticky ? "fixed" : "absolute";
   const visibleFeatures = landing.features
     .filter((feature) => feature.visible !== false)
@@ -115,13 +136,14 @@ export default async function HomePage() {
         fontFamily: landing.appearance.bodyFont
       }}
     >
-      <section className="relative min-h-screen">
+      <section className="relative min-h-screen overflow-hidden bg-ink">
         <img
           src={landing.heroImageUrl}
           alt=""
           className="absolute inset-0 h-full w-full scale-105 object-cover object-center landing-hero-image"
         />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(12,18,16,0.92),rgba(12,18,16,0.62),rgba(12,18,16,0.18))]" />
+        <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-b from-transparent via-ink/70 to-ink" />
         <div
           className={`${headerPositionClass} inset-x-0 top-0 z-40`}
           style={{
@@ -167,10 +189,10 @@ export default async function HomePage() {
               <Zap className="h-4 w-4 text-[#ead6bd]" />
               {landing.heroEyebrow}
             </p>
-            <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[0.95] text-white sm:text-6xl lg:text-7xl" style={{ fontFamily: landing.appearance.headingFont }}>
+            <h1 className="mt-7 max-w-4xl font-black text-white landing-balanced-title" style={heroTitleStyle}>
               {landing.heroTitle}
             </h1>
-            <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-white/80">
+            <p className="mt-6 max-w-2xl font-semibold leading-8 text-white/80" style={heroSubtitleStyle}>
               {landing.heroSubtitle}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -200,7 +222,7 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
           <div>
             <p className="text-sm font-black uppercase text-[#ead6bd]">{landing.solutionEyebrow}</p>
-            <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
+            <h2 className="mt-3 max-w-xl font-black leading-tight landing-balanced-title" style={sectionTitleStyle}>
               {landing.solutionTitle}
             </h2>
           </div>
@@ -208,7 +230,7 @@ export default async function HomePage() {
             {landing.workflow.map((step, index) => (
               <div key={step} className="rounded-md border border-white/10 bg-white/[0.06] p-5">
                 <span className="text-3xl font-black text-[#ead6bd]">0{index + 1}</span>
-                <p className="mt-5 text-sm font-semibold leading-6 text-white/75">{step}</p>
+                <p className="mt-5 font-semibold leading-6 text-white/75" style={cardTextStyle}>{step}</p>
               </div>
             ))}
           </div>
@@ -221,10 +243,10 @@ export default async function HomePage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <p className="text-sm font-black uppercase text-moss">{landing.featuresEyebrow}</p>
-            <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
+            <h2 className="mt-3 max-w-2xl font-black leading-tight landing-balanced-title" style={sectionTitleStyle}>
               {landing.featuresTitle}
             </h2>
-            <p className="mt-4 text-base font-medium leading-7 text-ink/70">
+            <p className="mt-4 font-medium leading-7 text-ink/70" style={sectionTextStyle}>
               {landing.featuresSubtitle}
             </p>
           </div>
@@ -237,8 +259,8 @@ export default async function HomePage() {
                   <span className="flex h-12 w-12 items-center justify-center rounded-md bg-sage text-moss transition group-hover:bg-moss group-hover:text-white">
                     <Icon className="h-5 w-5" />
                   </span>
-                  <h3 className="mt-5 text-xl font-black text-ink">{feature.title}</h3>
-                  <p className="mt-3 text-sm font-medium leading-6 text-ink/60">{feature.text}</p>
+                  <h3 className="mt-5 font-black text-ink" style={cardTitleStyle}>{feature.title}</h3>
+                  <p className="mt-3 font-medium leading-6 text-ink/60" style={cardTextStyle}>{feature.text}</p>
                 </article>
               );
             })}
@@ -254,7 +276,7 @@ export default async function HomePage() {
             <div className="absolute inset-0 opacity-40 landing-grid-bg" />
             <div className="relative z-10">
               <p className="text-sm font-black uppercase text-[#ead6bd]">{landing.dashboardEyebrow}</p>
-              <h2 className="mt-3 max-w-2xl text-4xl font-black leading-tight">
+              <h2 className="mt-3 max-w-2xl font-black leading-tight landing-balanced-title" style={sectionTitleStyle}>
                 {landing.dashboardTitle}
               </h2>
             </div>
@@ -262,7 +284,7 @@ export default async function HomePage() {
               {landing.dashboardCards.map((card) => (
                 <div key={card.title} className="rounded-md border border-white/10 bg-white/10 p-5 backdrop-blur">
                   <p className="text-xs font-black uppercase text-white/50">{card.title}</p>
-                  <p className="mt-3 text-lg font-black text-white">{card.text}</p>
+                  <p className="mt-3 font-black text-white" style={cardTitleStyle}>{card.text}</p>
                 </div>
               ))}
             </div>
@@ -298,8 +320,8 @@ export default async function HomePage() {
                       <Icon className="h-5 w-5" />
                     </span>
                     <div>
-                      <h3 className="text-lg font-black">{item.title}</h3>
-                      <p className="mt-2 text-sm font-medium leading-6 text-ink/60">{item.text}</p>
+                      <h3 className="font-black" style={cardTitleStyle}>{item.title}</h3>
+                      <p className="mt-2 font-medium leading-6 text-ink/60" style={cardTextStyle}>{item.text}</p>
                     </div>
                   </div>
                 </article>
@@ -318,8 +340,8 @@ export default async function HomePage() {
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div className="max-w-3xl">
               <p className="text-sm font-black uppercase text-moss">{landing.pricingEyebrow}</p>
-              <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">{landing.pricingTitle}</h2>
-              <p className="mt-4 text-base font-medium leading-7 text-ink/70">
+              <h2 className="mt-3 max-w-2xl font-black leading-tight landing-balanced-title" style={sectionTitleStyle}>{landing.pricingTitle}</h2>
+              <p className="mt-4 font-medium leading-7 text-ink/70" style={sectionTextStyle}>
                 {landing.pricingSubtitle}
               </p>
             </div>
@@ -329,7 +351,7 @@ export default async function HomePage() {
             </SmartLink>
           </div>
 
-          <PricingToggle ctaHref={landing.demoCtaHref} plans={visiblePlans} />
+          <PricingToggle annualDiscountLabel={landing.annualDiscountLabel} ctaHref={landing.demoCtaHref} plans={visiblePlans} />
         </div>
       </section>
       ) : null}
@@ -339,8 +361,8 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-7xl gap-8 rounded-lg bg-ink p-6 text-white shadow-soft md:grid-cols-[1fr_0.8fr] md:p-10">
           <div>
             <p className="text-sm font-black uppercase text-[#ead6bd]">{landing.demoEyebrow}</p>
-            <h2 className="mt-3 text-4xl font-black leading-tight">{landing.demoTitle}</h2>
-            <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-white/70">
+            <h2 className="mt-3 max-w-2xl font-black leading-tight landing-balanced-title" style={sectionTitleStyle}>{landing.demoTitle}</h2>
+            <p className="mt-4 max-w-3xl font-semibold leading-7 text-white/70" style={sectionTextStyle}>
               {landing.demoSubtitle}
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
@@ -371,13 +393,13 @@ export default async function HomePage() {
         <div className="mx-auto max-w-5xl">
           <div className="text-center">
             <p className="text-sm font-black uppercase text-moss">{landing.faqEyebrow}</p>
-            <h2 className="mt-3 text-4xl font-black leading-tight">{landing.faqTitle}</h2>
+            <h2 className="mt-3 font-black leading-tight landing-balanced-title" style={sectionTitleStyle}>{landing.faqTitle}</h2>
           </div>
           <div className="mt-10 grid gap-4 md:grid-cols-2">
             {landing.faqs.map((faq) => (
               <article key={faq.title} className="rounded-md border border-ink/10 bg-white p-6 shadow-sm">
-                <h3 className="text-lg font-black text-ink">{faq.title}</h3>
-                <p className="mt-3 text-sm font-medium leading-6 text-ink/60">{faq.text}</p>
+                <h3 className="font-black text-ink" style={cardTitleStyle}>{faq.title}</h3>
+                <p className="mt-3 font-medium leading-6 text-ink/60" style={cardTextStyle}>{faq.text}</p>
               </article>
             ))}
           </div>
@@ -401,6 +423,9 @@ export default async function HomePage() {
             <FooterColumn title="Solutions ToqueTop" links={landing.solutionLinks} />
             <FooterColumn title="L’entreprise" links={landing.companyLinks} />
           </div>
+        </div>
+        <div className="mx-auto mt-10 max-w-7xl border-t border-white/10 pt-6 text-xs font-semibold text-white/45">
+          {landing.footerCopyright}
         </div>
       </footer>
     </div>
