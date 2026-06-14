@@ -30,6 +30,14 @@ type RegistrationEmailData = {
   email: string;
 };
 
+type PasswordResetEmailData = {
+  email: string;
+  name: string | null;
+  firstName: string | null;
+  resetUrl: string;
+  expiresAt: Date;
+};
+
 let resend: Resend | null | undefined;
 
 function getResend() {
@@ -51,7 +59,7 @@ function escapeHtml(value: string) {
 }
 
 function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("fr-FR", {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -61,26 +69,38 @@ function formatDate(date: Date) {
 }
 
 function reservationHtml(reservation: ReservationEmailData, title: string) {
-  const tableLabel = reservation.table?.label ?? "To be assigned";
+  const tableLabel = reservation.table?.label ?? "À attribuer";
+  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const reservationUrl = `${appUrl.replace(/\/$/, "")}/my-reservations`;
 
   return `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#16201d">
-      <h1 style="font-size:22px">${title}</h1>
-      <p>Your reservation at <strong>${reservation.restaurant.name}</strong> is listed below.</p>
-      <table style="border-collapse:collapse;margin-top:16px">
-        <tr><td style="padding:6px 18px 6px 0">Date</td><td><strong>${formatDate(reservation.date)}</strong></td></tr>
-        <tr><td style="padding:6px 18px 6px 0">Time</td><td><strong>${reservation.startTime} - ${reservation.endTime}</strong></td></tr>
-        <tr><td style="padding:6px 18px 6px 0">Guests</td><td><strong>${reservation.numberOfGuests}</strong></td></tr>
-        <tr><td style="padding:6px 18px 6px 0">Table</td><td><strong>${tableLabel}</strong></td></tr>
-        <tr><td style="padding:6px 18px 6px 0">Reference</td><td><strong>${reservation.id}</strong></td></tr>
-      </table>
-      ${reservation.restaurant.address ? `<p style="margin-top:18px">${reservation.restaurant.address}</p>` : ""}
+    <div style="margin:0;background:#f7f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#16201d">
+      <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:8px;background:#ffffff;padding:28px">
+        <p style="margin:0 0 12px;color:#14735d;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">ToqueTop</p>
+        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:#16201d">${escapeHtml(title)}</h1>
+        <p style="margin:0 0 18px;font-size:15px;line-height:1.6">
+          Votre réservation chez <strong>${escapeHtml(reservation.restaurant.name)}</strong> est détaillée ci-dessous.
+        </p>
+        <table style="border-collapse:collapse;margin-top:16px;width:100%;font-size:14px">
+          <tr><td style="border-top:1px solid rgba(22,32,29,.1);padding:12px 18px 8px 0;color:rgba(22,32,29,.65)">Date</td><td style="border-top:1px solid rgba(22,32,29,.1);padding:12px 0 8px"><strong>${escapeHtml(formatDate(reservation.date))}</strong></td></tr>
+          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Heure</td><td style="padding:8px 0"><strong>${escapeHtml(reservation.startTime)}</strong></td></tr>
+          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Couverts</td><td style="padding:8px 0"><strong>${reservation.numberOfGuests}</strong></td></tr>
+          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Table</td><td style="padding:8px 0"><strong>${escapeHtml(tableLabel)}</strong></td></tr>
+          <tr><td style="padding:8px 18px 8px 0;color:rgba(22,32,29,.65)">Référence</td><td style="padding:8px 0"><strong>${escapeHtml(reservation.id)}</strong></td></tr>
+        </table>
+        ${reservation.restaurant.address ? `<p style="margin:18px 0 0;font-size:14px;line-height:1.5">${escapeHtml(reservation.restaurant.address)}</p>` : ""}
+        <div style="margin:22px 0 0">
+          <a href="${escapeHtml(reservationUrl)}" style="display:inline-block;border-radius:6px;background:#14735d;padding:12px 18px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">
+            Voir ma réservation
+          </a>
+        </div>
+      </div>
     </div>
   `;
 }
 
 async function sendEmail(to: string, subject: string, html: string) {
-  const from = process.env.EMAIL_FROM || "C’est ma table <bookings@example.com>";
+  const from = process.env.EMAIL_FROM || "ToqueTop <reservations@toquetop.com>";
   const emailClient = getResend();
 
   if (!emailClient) {
@@ -99,16 +119,32 @@ async function sendEmail(to: string, subject: string, html: string) {
 export async function sendReservationConfirmation(reservation: ReservationEmailData) {
   await sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
-    `Reservation confirmed at ${reservation.restaurant.name}`,
-    reservationHtml(reservation, "Reservation confirmed")
+    `Réservation confirmée chez ${reservation.restaurant.name}`,
+    reservationHtml(reservation, "Réservation confirmée")
   );
 }
 
 export async function sendReservationCancellation(reservation: ReservationEmailData) {
   await sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
-    `Reservation cancelled at ${reservation.restaurant.name}`,
-    reservationHtml(reservation, "Reservation cancelled")
+    `Réservation annulée chez ${reservation.restaurant.name}`,
+    reservationHtml(reservation, "Réservation annulée")
+  );
+}
+
+export async function sendReservationUpdate(reservation: ReservationEmailData) {
+  await sendEmail(
+    reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
+    `Réservation modifiée chez ${reservation.restaurant.name}`,
+    reservationHtml(reservation, "Réservation modifiée")
+  );
+}
+
+export async function sendReservationReminder(reservation: ReservationEmailData) {
+  await sendEmail(
+    reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
+    `Rappel de réservation chez ${reservation.restaurant.name}`,
+    reservationHtml(reservation, "Votre réservation approche")
   );
 }
 
@@ -156,5 +192,45 @@ export async function sendRegistrationConfirmation(user: RegistrationEmailData) 
     user.email,
     `Bienvenue chez ${brand.siteName}`,
     registrationHtml(user, brand.siteName, appUrl)
+  );
+}
+
+function passwordResetHtml(user: PasswordResetEmailData, siteName: string) {
+  const displayName = user.firstName || user.name || "Bonjour";
+  const expiration = new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Europe/Paris"
+  }).format(user.expiresAt);
+
+  return `
+    <div style="margin:0;background:#f7f1e8;padding:32px 16px;font-family:Arial,sans-serif;color:#16201d">
+      <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:8px;background:#ffffff;padding:28px">
+        <p style="margin:0 0 12px;color:#14735d;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(siteName)}</p>
+        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:#16201d">Réinitialisation du mot de passe</h1>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Bonjour ${escapeHtml(displayName)},</p>
+        <p style="margin:0 0 18px;font-size:15px;line-height:1.6">
+          Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe. Ce lien expire le ${escapeHtml(expiration)}.
+        </p>
+        <div style="margin:22px 0">
+          <a href="${escapeHtml(user.resetUrl)}" style="display:inline-block;border-radius:6px;background:#14735d;padding:12px 18px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none">
+            Réinitialiser mon mot de passe
+          </a>
+        </div>
+        <p style="margin:22px 0 0;font-size:12px;line-height:1.5;color:rgba(22,32,29,.58)">
+          Si vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer cet e-mail.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+export async function sendPasswordResetEmail(user: PasswordResetEmailData) {
+  const brand = await getPlatformBrand();
+
+  await sendEmail(
+    user.email,
+    `Réinitialisation de votre mot de passe ${brand.siteName}`,
+    passwordResetHtml(user, brand.siteName)
   );
 }

@@ -29,9 +29,14 @@ function LoginContent() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [showForgotPassword, setShowForgotPassword] = useState(Boolean(searchParams.get("resetToken")));
+  const [forgotEmail, setForgotEmail] = useState(searchParams.get("email") ?? "");
+  const [resetPassword, setResetPassword] = useState("");
   const [guestReferenceName, setGuestReferenceName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [guestError, setGuestError] = useState<string>();
+  const [forgotMessage, setForgotMessage] = useState<string>();
+  const [resetMessage, setResetMessage] = useState<string>();
   const [error, setError] = useState<string>();
   const { t } = useI18n();
   const brandQuery = useQuery({
@@ -40,7 +45,7 @@ function LoginContent() {
     staleTime: 60_000
   });
   const loginVisualUrl = brandQuery.data?.brand.loginVisualUrl ?? "/login-restaurant-visual.png";
-  const supportEmail = brandQuery.data?.brand.supportEmail || "contact@toquetop.com";
+  const resetToken = searchParams.get("resetToken");
 
   const registerMutation = useMutation({
     mutationFn: () =>
@@ -48,6 +53,40 @@ function LoginContent() {
         method: "POST",
         body: JSON.stringify({ firstName, lastName, email, phone, password })
       })
+  });
+
+  const forgotPasswordMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ message: string }>("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: forgotEmail })
+      }),
+    onSuccess: (data) => {
+      setForgotMessage(data.message);
+    },
+    onError: (forgotError) => {
+      setForgotMessage(forgotError.message);
+    }
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ message: string }>("/api/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({
+          email: forgotEmail,
+          password: resetPassword,
+          token: resetToken
+        })
+      }),
+    onSuccess: (data) => {
+      setResetMessage(data.message);
+      setPassword(resetPassword);
+      setEmail(forgotEmail);
+    },
+    onError: (resetError) => {
+      setResetMessage(resetError.message);
+    }
   });
 
   const guestLookupMutation = useMutation({
@@ -232,9 +271,16 @@ function LoginContent() {
                 />
                 {t("login.rememberMe")}
               </label>
-              <a className="text-moss hover:underline" href={`mailto:${supportEmail}?subject=Mot de passe oublié`}>
+              <button
+                className="text-moss hover:underline"
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword((current) => !current);
+                  setForgotEmail(email);
+                }}
+              >
                 {t("login.forgotPassword")}
-              </a>
+              </button>
             </div>
           ) : null}
 
@@ -248,6 +294,78 @@ function LoginContent() {
             {mode === "login" ? t("login.signIn") : t("login.createAccount")}
           </button>
         </form>
+
+        {showForgotPassword ? (
+          <form
+            className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-6"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setForgotMessage(undefined);
+              setResetMessage(undefined);
+
+              if (resetToken) {
+                resetPasswordMutation.mutate();
+                return;
+              }
+
+              forgotPasswordMutation.mutate();
+            }}
+          >
+            <div>
+              <h2 className="text-base font-black text-ink">
+                {resetToken ? "Créer un nouveau mot de passe" : "Mot de passe oublié"}
+              </h2>
+              <p className="mt-1 text-sm font-medium leading-6 text-ink/60">
+                {resetToken
+                  ? "Choisissez un nouveau mot de passe pour votre compte."
+                  : "Recevez un lien sécurisé pour réinitialiser votre mot de passe."}
+              </p>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label className="text-sm font-semibold text-ink">
+                {t("login.email")}
+                <div className="relative mt-1">
+                  <Mail className="field-icon" />
+                  <input
+                    className="control with-leading-icon w-full"
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(event) => setForgotEmail(event.target.value)}
+                    required
+                  />
+                </div>
+              </label>
+              {resetToken ? (
+                <label className="text-sm font-semibold text-ink">
+                  Nouveau mot de passe
+                  <div className="relative mt-1">
+                    <LockKeyhole className="field-icon" />
+                    <input
+                      className="control with-leading-icon w-full"
+                      minLength={8}
+                      type="password"
+                      value={resetPassword}
+                      onChange={(event) => setResetPassword(event.target.value)}
+                      required
+                    />
+                  </div>
+                </label>
+              ) : null}
+            </div>
+            {forgotMessage || resetMessage ? (
+              <p className="mt-4 rounded-md bg-moss/10 p-3 text-sm font-semibold text-moss">
+                {resetMessage ?? forgotMessage}
+              </p>
+            ) : null}
+            <button
+              className="secondary-button mt-4 w-full"
+              disabled={forgotPasswordMutation.isPending || resetPasswordMutation.isPending}
+              type="submit"
+            >
+              {resetToken ? "Valider le nouveau mot de passe" : "Envoyer le lien"}
+            </button>
+          </form>
+        ) : null}
 
         <form
           className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-6"

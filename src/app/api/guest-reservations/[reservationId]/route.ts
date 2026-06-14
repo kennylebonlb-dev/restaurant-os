@@ -1,5 +1,5 @@
 import { customerReservationUpdateSchema, guestReservationLookupSchema } from "@/lib/validators";
-import { sendReservationCancellation } from "@/server/email";
+import { sendReservationCancellation, sendReservationUpdate } from "@/server/email";
 import { apiError, noContent, ok, parseJson } from "@/server/http";
 import { cancelGuestReservation, updateGuestReservation } from "@/server/services/reservation-service";
 
@@ -16,6 +16,8 @@ export async function PATCH(request: Request, context: Context) {
     const guest = guestReservationLookupSchema.parse(payload);
     const data = customerReservationUpdateSchema.parse(payload);
     const reservation = await updateGuestReservation(reservationId, guest, data);
+
+    await sendReservationUpdate(reservation);
 
     return ok({ reservation });
   } catch (error) {

@@ -885,6 +885,14 @@ export async function listGuestReservations(input: GuestReservationLookupInput) 
           id: true,
           label: true
         }
+      },
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          contactEmail: true
+        }
       }
     }
   });

@@ -1,6 +1,6 @@
 import { customerReservationUpdateSchema, updateReservationSchema } from "@/lib/validators";
 import { requireSession } from "@/server/auth/guards";
-import { sendReservationCancellation } from "@/server/email";
+import { sendReservationCancellation, sendReservationUpdate } from "@/server/email";
 import { apiError, noContent, ok, parseJson } from "@/server/http";
 import {
   cancelReservation,
@@ -23,6 +23,12 @@ export async function PATCH(request: Request, context: Context) {
     const reservation = isAdmin
       ? await updateReservation(reservationId, data)
       : await updateUserReservation(reservationId, session.user.id, data);
+
+    if (isAdmin && "status" in data && data.status === "CANCELLED") {
+      await sendReservationCancellation(reservation);
+    } else {
+      await sendReservationUpdate(reservation);
+    }
 
     return ok({ reservation });
   } catch (error) {
