@@ -286,8 +286,8 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
   primaryCtaHref: "#forfaits",
   secondaryCtaLabel: "Démo gratuite sans inscription",
   secondaryCtaHref: "/reservation",
-  demoCtaLabel: "Demander une démo",
-  demoCtaHref: "#demo",
+  demoCtaLabel: "Passez à ToqueTop",
+  demoCtaHref: "/passer-a-toquetop",
   proofPoints: [
     { value: "-35%", label: "de no-shows grâce aux rappels automatiques" },
     { value: "24/7", label: "réservations en ligne même quand l’équipe est occupée" },
@@ -447,6 +447,7 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
     { label: "Témoignages", href: "#demo" },
     { label: "Rejoignez-nous", href: "mailto:contact@toquetop.com?subject=Rejoindre ToqueTop" },
     { label: "Intégrations", href: "#fonctionnalites" },
+    { label: "Passez à ToqueTop", href: "/passer-a-toquetop" },
     { label: "Commencer", href: "#demo" },
     { label: "Contacter", href: "mailto:contact@toquetop.com" },
     { label: "Notes de version", href: "#faq" }

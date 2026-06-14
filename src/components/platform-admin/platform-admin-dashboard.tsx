@@ -211,8 +211,8 @@ const initialLandingForm: PlatformLandingSettings = {
   primaryCtaHref: "#forfaits",
   secondaryCtaLabel: "Démo gratuite sans inscription",
   secondaryCtaHref: "/reservation",
-  demoCtaLabel: "Demander une démo",
-  demoCtaHref: "#demo",
+  demoCtaLabel: "Passez à ToqueTop",
+  demoCtaHref: "/passer-a-toquetop",
   proofPoints: [
     { value: "-35%", label: "de no-shows grâce aux rappels automatiques" },
     { value: "24/7", label: "réservations en ligne même quand l’équipe est occupée" },
@@ -301,6 +301,7 @@ const initialLandingForm: PlatformLandingSettings = {
     { label: "Témoignages", href: "#demo" },
     { label: "Rejoignez-nous", href: "mailto:contact@toquetop.com?subject=Rejoindre ToqueTop" },
     { label: "Intégrations", href: "#fonctionnalites" },
+    { label: "Passez à ToqueTop", href: "/passer-a-toquetop" },
     { label: "Commencer", href: "#demo" },
     { label: "Contacter", href: "mailto:contact@toquetop.com" },
     { label: "Notes de version", href: "#faq" }
@@ -1227,7 +1228,21 @@ export function PlatformAdminDashboard() {
                 </Checklist>
 
                 <EditableProofPoints items={landingForm.proofPoints} onAdd={addProofPoint} onRemove={removeProofPoint} onUpdate={updateProofPoint} />
-                <EditableStringList title="Étapes Solutions" items={landingForm.workflow} onAdd={() => addStringListItem("workflow")} onRemove={(index) => removeStringListItem("workflow", index)} onUpdate={(index, value) => updateStringList("workflow", index, value)} />
+                <div className={`rounded-md border p-4 ${panelClass}`}>
+                  <div>
+                    <p className="text-sm font-black uppercase text-moss">Étapes Solutions</p>
+                    <p className="mt-1 text-sm font-semibold opacity-65">
+                      Modifie le bloc “Une plateforme complète” de la page d’accueil.
+                    </p>
+                  </div>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <Field label="Petit titre" value={landingForm.solutionEyebrow} onChange={(value) => updateLandingField("solutionEyebrow", value)} />
+                    <Textarea label="Titre du bloc" value={landingForm.solutionTitle} onChange={(value) => updateLandingField("solutionTitle", value)} />
+                  </div>
+                  <div className="mt-5">
+                    <EditableStringList title="Étapes Solutions" items={landingForm.workflow} onAdd={() => addStringListItem("workflow")} onRemove={(index) => removeStringListItem("workflow", index)} onUpdate={(index, value) => updateStringList("workflow", index, value)} />
+                  </div>
+                </div>
                 <EditableStringList title="Étapes Démo" items={landingForm.demoSteps} onAdd={() => addStringListItem("demoSteps")} onRemove={(index) => removeStringListItem("demoSteps", index)} onUpdate={(index, value) => updateStringList("demoSteps", index, value)} />
               </AdminSectionLayout>
             ) : null}

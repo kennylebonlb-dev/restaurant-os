@@ -7,7 +7,7 @@ import { LanguageFooter } from "@/components/layout/language-footer";
 import { TopNav } from "@/components/layout/top-nav";
 import type { PlatformBrand } from "@/server/platform-settings";
 
-const chromeHiddenRoutes = new Set(["/", "/login", "/cmt-admin/login"]);
+const chromeHiddenRoutes = new Set(["/", "/login", "/cmt-admin/login", "/passer-a-toquetop"]);
 
 export function AppShell({
   brand,

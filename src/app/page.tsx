@@ -14,7 +14,6 @@ import {
   MousePointer2,
   PlugZap,
   Sparkles,
-  Star,
   Table2,
   UsersRound,
   Zap
@@ -370,6 +369,12 @@ export default async function HomePage() {
                 {landing.demoCtaLabel}
                 <ArrowRight className="h-4 w-4" />
               </SmartLink>
+              {landing.demoCtaHref !== "/passer-a-toquetop" ? (
+                <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md border border-[#ead6bd]/40 bg-[#ead6bd]/10 px-5 text-sm font-black text-[#ead6bd] transition hover:bg-[#ead6bd] hover:text-ink" href="/passer-a-toquetop">
+                  Passez à ToqueTop
+                  <ChevronRight className="h-4 w-4" />
+                </SmartLink>
+              ) : null}
               <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 text-sm font-black text-white transition hover:bg-white/20" href={landing.secondaryCtaHref}>
                 {landing.secondaryCtaLabel}
                 <CalendarCheck className="h-4 w-4" />
@@ -377,9 +382,11 @@ export default async function HomePage() {
             </div>
           </div>
           <div className="grid gap-3">
-            {landing.demoSteps.map((item) => (
+            {landing.demoSteps.map((item, index) => (
               <div key={item} className="flex items-center gap-3 rounded-md border border-white/10 bg-white/[0.06] px-4 py-3">
-                <Star className="h-4 w-4 text-[#ead6bd]" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#ead6bd] text-sm font-black text-ink">
+                  {index + 1}
+                </span>
                 <span className="text-sm font-bold text-white/80">{item}</span>
               </div>
             ))}
