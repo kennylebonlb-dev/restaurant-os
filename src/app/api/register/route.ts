@@ -31,13 +31,9 @@ export async function POST(request: Request) {
       }
     });
 
-    try {
-      await sendRegistrationConfirmation(user);
-    } catch (error) {
-      console.error("Registration confirmation email failed.", error);
-    }
+    const emailSent = await sendRegistrationConfirmation(user);
 
-    return created({ user, emailSent: Boolean(process.env.RESEND_API_KEY) });
+    return created({ user, emailSent });
   } catch (error) {
     return apiError(error);
   }

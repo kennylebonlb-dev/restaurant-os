@@ -17,9 +17,9 @@ export async function PATCH(request: Request, context: Context) {
     const data = customerReservationUpdateSchema.parse(payload);
     const reservation = await updateGuestReservation(reservationId, guest, data);
 
-    await sendReservationUpdate(reservation);
+    const emailSent = await sendReservationUpdate(reservation);
 
-    return ok({ reservation });
+    return ok({ reservation, emailSent });
   } catch (error) {
     return apiError(error);
   }

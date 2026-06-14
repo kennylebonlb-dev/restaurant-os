@@ -104,20 +104,48 @@ async function sendEmail(to: string, subject: string, html: string) {
   const emailClient = getResend();
 
   if (!emailClient) {
-    console.info("Email skipped because RESEND_API_KEY is not configured.", { to, subject });
-    return;
+    console.error("Email skipped because RESEND_API_KEY is not configured.", { to, subject });
+    return false;
   }
 
-  await emailClient.emails.send({
-    from,
-    to,
-    subject,
-    html
-  });
+  try {
+    const { data, error } = await emailClient.emails.send({
+      from,
+      to,
+      subject,
+      html
+    });
+
+    if (error) {
+      console.error("Resend email failed.", {
+        error,
+        from,
+        subject,
+        to
+      });
+      return false;
+    }
+
+    console.info("Resend email sent.", {
+      emailId: data?.id,
+      from,
+      subject,
+      to
+    });
+    return true;
+  } catch (error) {
+    console.error("Resend email threw an exception.", {
+      error,
+      from,
+      subject,
+      to
+    });
+    return false;
+  }
 }
 
 export async function sendReservationConfirmation(reservation: ReservationEmailData) {
-  await sendEmail(
+  return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
     `Réservation confirmée chez ${reservation.restaurant.name}`,
     reservationHtml(reservation, "Réservation confirmée")
@@ -125,7 +153,7 @@ export async function sendReservationConfirmation(reservation: ReservationEmailD
 }
 
 export async function sendReservationCancellation(reservation: ReservationEmailData) {
-  await sendEmail(
+  return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
     `Réservation annulée chez ${reservation.restaurant.name}`,
     reservationHtml(reservation, "Réservation annulée")
@@ -133,7 +161,7 @@ export async function sendReservationCancellation(reservation: ReservationEmailD
 }
 
 export async function sendReservationUpdate(reservation: ReservationEmailData) {
-  await sendEmail(
+  return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
     `Réservation modifiée chez ${reservation.restaurant.name}`,
     reservationHtml(reservation, "Réservation modifiée")
@@ -141,7 +169,7 @@ export async function sendReservationUpdate(reservation: ReservationEmailData) {
 }
 
 export async function sendReservationReminder(reservation: ReservationEmailData) {
-  await sendEmail(
+  return sendEmail(
     reservation.guestEmail ?? reservation.user.contactEmail ?? reservation.user.email,
     `Rappel de réservation chez ${reservation.restaurant.name}`,
     reservationHtml(reservation, "Votre réservation approche")
@@ -188,7 +216,7 @@ export async function sendRegistrationConfirmation(user: RegistrationEmailData) 
   const brand = await getPlatformBrand();
   const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
 
-  await sendEmail(
+  return sendEmail(
     user.email,
     `Bienvenue chez ${brand.siteName}`,
     registrationHtml(user, brand.siteName, appUrl)
@@ -228,7 +256,7 @@ function passwordResetHtml(user: PasswordResetEmailData, siteName: string) {
 export async function sendPasswordResetEmail(user: PasswordResetEmailData) {
   const brand = await getPlatformBrand();
 
-  await sendEmail(
+  return sendEmail(
     user.email,
     `Réinitialisation de votre mot de passe ${brand.siteName}`,
     passwordResetHtml(user, brand.siteName)

@@ -24,13 +24,12 @@ export async function PATCH(request: Request, context: Context) {
       ? await updateReservation(reservationId, data)
       : await updateUserReservation(reservationId, session.user.id, data);
 
-    if (isAdmin && "status" in data && data.status === "CANCELLED") {
-      await sendReservationCancellation(reservation);
-    } else {
-      await sendReservationUpdate(reservation);
-    }
+    const emailSent =
+      isAdmin && "status" in data && data.status === "CANCELLED"
+        ? await sendReservationCancellation(reservation)
+        : await sendReservationUpdate(reservation);
 
-    return ok({ reservation });
+    return ok({ reservation, emailSent });
   } catch (error) {
     return apiError(error);
   }

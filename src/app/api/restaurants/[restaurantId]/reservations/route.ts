@@ -114,9 +114,9 @@ export async function POST(request: Request, context: Context) {
         status: data.status
       });
 
-      await sendReservationConfirmation(reservation);
+      const emailSent = await sendReservationConfirmation(reservation);
 
-      return created({ reservation });
+      return created({ reservation, emailSent });
     }
 
     const data = createReservationSchema.parse(payload);
@@ -148,9 +148,9 @@ export async function POST(request: Request, context: Context) {
       notes: data.notes
     });
 
-    await sendReservationConfirmation(reservation);
+    const emailSent = await sendReservationConfirmation(reservation);
 
-    return created({ reservation });
+    return created({ reservation, emailSent });
   } catch (error) {
     return apiError(error);
   }

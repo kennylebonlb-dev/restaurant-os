@@ -21,11 +21,10 @@ export async function POST(request: Request, context: Context) {
       throw new NotFoundError("Reservation not found.");
     }
 
-    await sendReservationReminder(reservation);
+    const emailSent = await sendReservationReminder(reservation);
 
-    return ok({ sent: true });
+    return ok({ sent: emailSent });
   } catch (error) {
     return apiError(error);
   }
 }
-

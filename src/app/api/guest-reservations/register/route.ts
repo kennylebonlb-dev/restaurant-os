@@ -48,13 +48,9 @@ export async function POST(request: Request) {
       }
     });
 
-    try {
-      await sendRegistrationConfirmation(updatedUser);
-    } catch (error) {
-      console.error("Guest registration confirmation email failed.", error);
-    }
+    const emailSent = await sendRegistrationConfirmation(updatedUser);
 
-    return ok({ user: updatedUser, emailSent: Boolean(process.env.RESEND_API_KEY) });
+    return ok({ user: updatedUser, emailSent });
   } catch (error) {
     return apiError(error);
   }
