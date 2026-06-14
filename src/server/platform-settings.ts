@@ -36,6 +36,10 @@ export type PlatformLandingLink = {
 export type PlatformLandingTextBlock = {
   title: string;
   text: string;
+  icon?: string;
+  category?: string;
+  order?: number;
+  visible?: boolean;
 };
 
 export type PlatformLandingProofPoint = {
@@ -48,10 +52,88 @@ export type PlatformLandingPlan = {
   price: string;
   highlight: string;
   featured: boolean;
+  active: boolean;
+  buttonLabel: string;
   features: string[];
 };
 
+export type PlatformLandingAppearance = {
+  primaryColor: string;
+  secondaryColor: string;
+  buttonColor: string;
+  textColor: string;
+  backgroundColor: string;
+  headingFont: string;
+  bodyFont: string;
+  buttonRadius: number;
+  stylePreset: "MODERN" | "PREMIUM" | "SOBER" | "WARM";
+};
+
+export type PlatformLandingHeader = {
+  logoPosition: "LEFT" | "CENTER";
+  menuLinks: PlatformLandingLink[];
+  primaryButtonLabel: string;
+  primaryButtonHref: string;
+  backgroundColor: string;
+  sticky: boolean;
+  mobileMenuLabel: string;
+  height: number;
+  logoSpacing: number;
+};
+
+export type PlatformLandingSeo = {
+  title: string;
+  description: string;
+  keywords: string;
+  shareImageUrl: string;
+  customUrl: string;
+};
+
+export type PlatformLandingGeneral = {
+  siteName: string;
+  contactEmail: string;
+  phone: string;
+  address: string;
+  facebookUrl: string;
+  instagramUrl: string;
+  linkedinUrl: string;
+  maintenanceMode: boolean;
+  maintenanceMessage: string;
+};
+
+export type PlatformLandingVisibleSections = {
+  solution: boolean;
+  features: boolean;
+  dashboard: boolean;
+  pricing: boolean;
+  demo: boolean;
+  faq: boolean;
+  customBlocks: boolean;
+};
+
+export type PlatformLandingCustomBlock = {
+  id: string;
+  type: "TEXT" | "IMAGE_TEXT" | "FEATURE_CARD" | "TESTIMONIAL" | "FAQ" | "PLAN" | "CTA" | "GALLERY" | "VIDEO" | "FORM";
+  title: string;
+  subtitle: string;
+  text: string;
+  imageUrl: string;
+  icon: string;
+  buttonLabel: string;
+  buttonHref: string;
+  backgroundColor: string;
+  alignment: "LEFT" | "CENTER" | "RIGHT";
+  visible: boolean;
+  order: number;
+};
+
 export type PlatformLandingSettings = {
+  appearance: PlatformLandingAppearance;
+  header: PlatformLandingHeader;
+  seo: PlatformLandingSeo;
+  general: PlatformLandingGeneral;
+  visibleSections: PlatformLandingVisibleSections;
+  customBlocks: PlatformLandingCustomBlock[];
   brandName: string;
   heroEyebrow: string;
   heroTitle: string;
@@ -92,6 +174,78 @@ export type PlatformLandingSettings = {
 };
 
 export const defaultPlatformLandingSettings: PlatformLandingSettings = {
+  appearance: {
+    primaryColor: "#1d2521",
+    secondaryColor: "#ead6bd",
+    buttonColor: "#ead6bd",
+    textColor: "#1f2228",
+    backgroundColor: "#fbf8f2",
+    headingFont: "Inter",
+    bodyFont: "Inter",
+    buttonRadius: 8,
+    stylePreset: "PREMIUM"
+  },
+  header: {
+    logoPosition: "LEFT",
+    menuLinks: [
+      { label: "Solutions", href: "#solution" },
+      { label: "Fonctionnalités", href: "#fonctionnalites" },
+      { label: "Forfaits", href: "#forfaits" },
+      { label: "FAQ", href: "#faq" }
+    ],
+    primaryButtonLabel: "Demander une démo",
+    primaryButtonHref: "#demo",
+    backgroundColor: "transparent",
+    sticky: false,
+    mobileMenuLabel: "Menu",
+    height: 80,
+    logoSpacing: 12
+  },
+  seo: {
+    title: "ToqueTop - Sites et réservations pour restaurants",
+    description:
+      "ToqueTop crée votre site restaurant et centralise réservations, plan de salle, disponibilités et préférences clients.",
+    keywords: "restaurant, réservation, site restaurant, plan de salle, ToqueTop",
+    shareImageUrl: "/login-restaurant-visual.png",
+    customUrl: "https://www.toquetop.com"
+  },
+  general: {
+    siteName: "ToqueTop",
+    contactEmail: "contact@toquetop.com",
+    phone: "",
+    address: "",
+    facebookUrl: "",
+    instagramUrl: "",
+    linkedinUrl: "",
+    maintenanceMode: false,
+    maintenanceMessage: "Le site est momentanément en maintenance."
+  },
+  visibleSections: {
+    solution: true,
+    features: true,
+    dashboard: true,
+    pricing: true,
+    demo: true,
+    faq: true,
+    customBlocks: true
+  },
+  customBlocks: [
+    {
+      id: "conversion",
+      type: "CTA",
+      title: "Une démo gratuite, sans inscription",
+      subtitle: "Testez l’expérience client en quelques secondes.",
+      text: "Vos visiteurs peuvent réserver, explorer un plan de salle et comprendre la valeur de ToqueTop immédiatement.",
+      imageUrl: "",
+      icon: "Sparkles",
+      buttonLabel: "Lancer la démo",
+      buttonHref: "/reservation",
+      backgroundColor: "#ffffff",
+      alignment: "CENTER",
+      visible: true,
+      order: 1
+    }
+  ],
   brandName: "ToqueTop",
   heroEyebrow: "Site, réservations et plan de salle pour restaurants ambitieux",
   heroTitle: "Remplissez vos tables sans perdre le contrôle de votre salle.",
@@ -173,6 +327,8 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
       price: "49€",
       highlight: "Pour lancer la réservation en ligne",
       featured: false,
+      active: true,
+      buttonLabel: "Choisir Essentiel",
       features: ["Site vitrine ToqueTop", "Module de réservation", "Plan de salle 2D", "E-mails de confirmation", "Support de démarrage"]
     },
     {
@@ -180,6 +336,8 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
       price: "89€",
       highlight: "Le meilleur choix pour un restaurant actif",
       featured: true,
+      active: true,
+      buttonLabel: "Choisir Pro",
       features: [
         "Tout Essentiel",
         "Plan 3D immersif",
@@ -194,6 +352,8 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
       price: "Sur mesure",
       highlight: "Pour groupes, lieux premium et multi-sites",
       featured: false,
+      active: true,
+      buttonLabel: "Nous contacter",
       features: ["Multi-restaurants", "Accompagnement prioritaire", "Design sur mesure", "Automatisations avancées", "Préparation IA et CRM", "Stratégie conversion"]
     }
   ],
@@ -265,13 +425,33 @@ function normalizeStringList(value: unknown, fallback: string[], minLength = 1) 
   return list.length >= minLength ? list : fallback;
 }
 
+function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
+  const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+
+  return Number.isFinite(numberValue) ? Math.min(max, Math.max(min, Math.round(numberValue))) : fallback;
+}
+
+function normalizeColor(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+
+  return /^#[0-9a-fA-F]{3,8}$/.test(trimmed) || trimmed === "transparent" ? trimmed : fallback;
+}
+
+function normalizeEnum<T extends string>(value: unknown, fallback: T, options: readonly T[]) {
+  return typeof value === "string" && options.includes(value as T) ? (value as T) : fallback;
+}
+
 function normalizeLinks(value: unknown, fallback: PlatformLandingLink[]) {
   if (!Array.isArray(value)) {
     return fallback;
   }
 
   const list = value
-    .map((item) => {
+    .map((item, index) => {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         return undefined;
       }
@@ -293,7 +473,7 @@ function normalizeTextBlocks(value: unknown, fallback: PlatformLandingTextBlock[
   }
 
   const list = value
-    .map((item) => {
+    .map((item, index): PlatformLandingTextBlock | undefined => {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         return undefined;
       }
@@ -302,7 +482,16 @@ function normalizeTextBlocks(value: unknown, fallback: PlatformLandingTextBlock[
       const title = typeof record.title === "string" ? record.title.trim() : "";
       const text = typeof record.text === "string" ? record.text.trim() : "";
 
-      return title && text ? { title, text } : undefined;
+      return title && text
+        ? {
+            title,
+            text,
+            icon: typeof record.icon === "string" ? record.icon.trim() : "",
+            category: typeof record.category === "string" ? record.category.trim() : "",
+            order: normalizeNumber(record.order, index + 1, 1, 999),
+            visible: typeof record.visible === "boolean" ? record.visible : true
+          }
+        : undefined;
     })
     .filter((item): item is PlatformLandingTextBlock => Boolean(item));
 
@@ -354,11 +543,155 @@ function normalizePlans(value: unknown, fallback: PlatformLandingPlan[]) {
             price,
             highlight,
             featured: Boolean(record.featured),
+            active: typeof record.active === "boolean" ? record.active : true,
+            buttonLabel:
+              typeof record.buttonLabel === "string" && record.buttonLabel.trim()
+                ? record.buttonLabel.trim()
+                : "Demander une démo",
             features
           }
         : undefined;
     })
     .filter((item): item is PlatformLandingPlan => Boolean(item));
+
+  return list.length ? list : fallback;
+}
+
+function normalizeAppearance(value: unknown, fallback = defaultPlatformLandingSettings.appearance): PlatformLandingAppearance {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    primaryColor: normalizeColor(record.primaryColor, fallback.primaryColor),
+    secondaryColor: normalizeColor(record.secondaryColor, fallback.secondaryColor),
+    buttonColor: normalizeColor(record.buttonColor, fallback.buttonColor),
+    textColor: normalizeColor(record.textColor, fallback.textColor),
+    backgroundColor: normalizeColor(record.backgroundColor, fallback.backgroundColor),
+    headingFont: normalizeString(record.headingFont, fallback.headingFont),
+    bodyFont: normalizeString(record.bodyFont, fallback.bodyFont),
+    buttonRadius: normalizeNumber(record.buttonRadius, fallback.buttonRadius, 0, 32),
+    stylePreset: normalizeEnum(record.stylePreset, fallback.stylePreset, ["MODERN", "PREMIUM", "SOBER", "WARM"] as const)
+  };
+}
+
+function normalizeHeader(value: unknown, fallback = defaultPlatformLandingSettings.header): PlatformLandingHeader {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    logoPosition: normalizeEnum(record.logoPosition, fallback.logoPosition, ["LEFT", "CENTER"] as const),
+    menuLinks: normalizeLinks(record.menuLinks, fallback.menuLinks),
+    primaryButtonLabel: normalizeString(record.primaryButtonLabel, fallback.primaryButtonLabel),
+    primaryButtonHref: normalizeString(record.primaryButtonHref, fallback.primaryButtonHref),
+    backgroundColor: normalizeColor(record.backgroundColor, fallback.backgroundColor),
+    sticky: typeof record.sticky === "boolean" ? record.sticky : fallback.sticky,
+    mobileMenuLabel: normalizeString(record.mobileMenuLabel, fallback.mobileMenuLabel),
+    height: normalizeNumber(record.height, fallback.height, 56, 120),
+    logoSpacing: normalizeNumber(record.logoSpacing, fallback.logoSpacing, 0, 40)
+  };
+}
+
+function normalizeSeo(value: unknown, fallback = defaultPlatformLandingSettings.seo): PlatformLandingSeo {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    title: normalizeString(record.title, fallback.title),
+    description: normalizeString(record.description, fallback.description),
+    keywords: typeof record.keywords === "string" ? record.keywords : fallback.keywords,
+    shareImageUrl: typeof record.shareImageUrl === "string" && record.shareImageUrl.trim() ? record.shareImageUrl : fallback.shareImageUrl,
+    customUrl: typeof record.customUrl === "string" && record.customUrl.trim() ? record.customUrl : fallback.customUrl
+  };
+}
+
+function normalizeGeneral(value: unknown, fallback = defaultPlatformLandingSettings.general): PlatformLandingGeneral {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    siteName: normalizeString(record.siteName, fallback.siteName),
+    contactEmail: typeof record.contactEmail === "string" ? record.contactEmail : fallback.contactEmail,
+    phone: typeof record.phone === "string" ? record.phone : fallback.phone,
+    address: typeof record.address === "string" ? record.address : fallback.address,
+    facebookUrl: typeof record.facebookUrl === "string" ? record.facebookUrl : fallback.facebookUrl,
+    instagramUrl: typeof record.instagramUrl === "string" ? record.instagramUrl : fallback.instagramUrl,
+    linkedinUrl: typeof record.linkedinUrl === "string" ? record.linkedinUrl : fallback.linkedinUrl,
+    maintenanceMode: typeof record.maintenanceMode === "boolean" ? record.maintenanceMode : fallback.maintenanceMode,
+    maintenanceMessage: normalizeString(record.maintenanceMessage, fallback.maintenanceMessage)
+  };
+}
+
+function normalizeVisibleSections(value: unknown, fallback = defaultPlatformLandingSettings.visibleSections): PlatformLandingVisibleSections {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    solution: typeof record.solution === "boolean" ? record.solution : fallback.solution,
+    features: typeof record.features === "boolean" ? record.features : fallback.features,
+    dashboard: typeof record.dashboard === "boolean" ? record.dashboard : fallback.dashboard,
+    pricing: typeof record.pricing === "boolean" ? record.pricing : fallback.pricing,
+    demo: typeof record.demo === "boolean" ? record.demo : fallback.demo,
+    faq: typeof record.faq === "boolean" ? record.faq : fallback.faq,
+    customBlocks: typeof record.customBlocks === "boolean" ? record.customBlocks : fallback.customBlocks
+  };
+}
+
+function normalizeCustomBlocks(value: unknown, fallback: PlatformLandingCustomBlock[]) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const list = value
+    .map((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return undefined;
+      }
+
+      const record = item as Record<string, unknown>;
+      const title = typeof record.title === "string" ? record.title.trim() : "";
+
+      return title
+        ? {
+            id:
+              typeof record.id === "string" && record.id.trim()
+                ? record.id.trim()
+                : `block-${index + 1}`,
+            type: normalizeEnum(
+              record.type,
+              "TEXT",
+              ["TEXT", "IMAGE_TEXT", "FEATURE_CARD", "TESTIMONIAL", "FAQ", "PLAN", "CTA", "GALLERY", "VIDEO", "FORM"] as const
+            ),
+            title,
+            subtitle: typeof record.subtitle === "string" ? record.subtitle.trim() : "",
+            text: typeof record.text === "string" ? record.text.trim() : "",
+            imageUrl: typeof record.imageUrl === "string" ? record.imageUrl.trim() : "",
+            icon: typeof record.icon === "string" ? record.icon.trim() : "",
+            buttonLabel: typeof record.buttonLabel === "string" ? record.buttonLabel.trim() : "",
+            buttonHref: typeof record.buttonHref === "string" ? record.buttonHref.trim() : "#",
+            backgroundColor: normalizeColor(record.backgroundColor, "#ffffff"),
+            alignment: normalizeEnum(record.alignment, "LEFT", ["LEFT", "CENTER", "RIGHT"] as const),
+            visible: typeof record.visible === "boolean" ? record.visible : true,
+            order: normalizeNumber(record.order, index + 1, 1, 999)
+          }
+        : undefined;
+    })
+    .filter((item): item is PlatformLandingCustomBlock => Boolean(item))
+    .sort((first, second) => first.order - second.order);
 
   return list.length ? list : fallback;
 }
@@ -408,6 +741,12 @@ function normalizePlatformLandingSettings(value: unknown): PlatformLandingSettin
   const record = value as Record<string, unknown>;
 
   return {
+    appearance: normalizeAppearance(record.appearance),
+    header: normalizeHeader(record.header),
+    seo: normalizeSeo(record.seo),
+    general: normalizeGeneral(record.general),
+    visibleSections: normalizeVisibleSections(record.visibleSections),
+    customBlocks: normalizeCustomBlocks(record.customBlocks, defaultPlatformLandingSettings.customBlocks),
     brandName: normalizeString(record.brandName, defaultPlatformLandingSettings.brandName),
     heroEyebrow: normalizeString(record.heroEyebrow, defaultPlatformLandingSettings.heroEyebrow),
     heroTitle: normalizeString(record.heroTitle, defaultPlatformLandingSettings.heroTitle),

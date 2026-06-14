@@ -1,5 +1,6 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { Metadata } from "next";
+import type { CSSProperties, ReactNode } from "react";
 import {
   ArrowRight,
   BarChart3,
@@ -20,25 +21,55 @@ import {
   Zap
 } from "lucide-react";
 import { LandingAnchorLink } from "@/components/marketing/landing-anchor-link";
-import { defaultPlatformLandingSettings, getPlatformLandingSettings } from "@/server/platform-settings";
+import {
+  defaultPlatformBrand,
+  defaultPlatformLandingSettings,
+  getPlatformBrand,
+  getPlatformLandingSettings,
+  type PlatformLandingSettings
+} from "@/server/platform-settings";
 
 export const dynamic = "force-dynamic";
 
 const featureIcons = [CalendarCheck, Table2, UsersRound, BarChart3, Globe2, PlugZap];
 const secondaryFeatureIcons = [Cuboid, LockKeyhole, HeartHandshake, Mail];
 
+export async function generateMetadata(): Promise<Metadata> {
+  const landing = await getPlatformLandingSettings().catch(() => defaultPlatformLandingSettings);
+
+  return {
+    title: landing.seo.title,
+    description: landing.seo.description,
+    keywords: landing.seo.keywords,
+    openGraph: {
+      title: landing.seo.title,
+      description: landing.seo.description,
+      url: landing.seo.customUrl,
+      images: landing.seo.shareImageUrl ? [landing.seo.shareImageUrl] : undefined
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: landing.seo.title,
+      description: landing.seo.description,
+      images: landing.seo.shareImageUrl ? [landing.seo.shareImageUrl] : undefined
+    }
+  };
+}
+
 function SmartLink({
   href,
   className,
+  style,
   children
 }: {
   href: string;
   className?: string;
+  style?: CSSProperties;
   children: ReactNode;
 }) {
   if (href.startsWith("#")) {
     return (
-      <LandingAnchorLink className={className} href={href}>
+      <LandingAnchorLink className={className} href={href} style={style}>
         {children}
       </LandingAnchorLink>
     );
@@ -46,24 +77,44 @@ function SmartLink({
 
   if (href.startsWith("http") || href.startsWith("mailto:")) {
     return (
-      <a className={className} href={href}>
+      <a className={className} href={href} style={style}>
         {children}
       </a>
     );
   }
 
   return (
-    <Link className={className} href={href}>
+    <Link className={className} href={href} style={style}>
       {children}
     </Link>
   );
 }
 
 export default async function HomePage() {
-  const landing = await getPlatformLandingSettings().catch(() => defaultPlatformLandingSettings);
+  const [landing, brand] = await Promise.all([
+    getPlatformLandingSettings().catch(() => defaultPlatformLandingSettings),
+    getPlatformBrand().catch(() => defaultPlatformBrand)
+  ]);
+  const buttonStyle = {
+    borderRadius: landing.appearance.buttonRadius,
+    backgroundColor: landing.appearance.buttonColor,
+    color: landing.appearance.primaryColor
+  };
+  const headerPositionClass = landing.header.sticky ? "fixed" : "absolute";
+  const visibleFeatures = landing.features
+    .filter((feature) => feature.visible !== false)
+    .sort((first, second) => (first.order ?? 999) - (second.order ?? 999));
+  const visiblePlans = landing.plans.filter((plan) => plan.active);
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#fbf8f2] text-ink">
+    <div
+      className="min-h-screen overflow-hidden text-ink"
+      style={{
+        backgroundColor: landing.appearance.backgroundColor,
+        color: landing.appearance.textColor,
+        fontFamily: landing.appearance.bodyFont
+      }}
+    >
       <section className="relative min-h-screen">
         <img
           src="/login-restaurant-visual.png"
@@ -71,31 +122,39 @@ export default async function HomePage() {
           className="absolute inset-0 h-full w-full scale-105 object-cover object-center landing-hero-image"
         />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(12,18,16,0.92),rgba(12,18,16,0.62),rgba(12,18,16,0.18))]" />
-        <div className="absolute inset-x-0 top-0 z-40">
-          <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+        <div
+          className={`${headerPositionClass} inset-x-0 top-0 z-40`}
+          style={{
+            backgroundColor: landing.header.backgroundColor === "transparent" ? undefined : landing.header.backgroundColor
+          }}
+        >
+          <nav
+            className={`mx-auto flex max-w-7xl items-center px-4 sm:px-6 lg:px-8 ${
+              landing.header.logoPosition === "CENTER" ? "justify-center gap-8" : "justify-between"
+            }`}
+            style={{ minHeight: landing.header.height }}
+          >
             <Link className="group inline-flex min-w-0 items-center text-white" href="/">
-              <ToqueTopLogo brandName={landing.brandName} />
+              <img
+                src={brand.logoUrl}
+                alt={brand.logoAlt}
+                className="max-w-[220px] object-contain"
+                style={{ height: brand.logoHeight, padding: landing.header.logoSpacing }}
+              />
             </Link>
             <div className="hidden items-center gap-6 text-sm font-bold text-white/80 lg:flex">
-              <LandingAnchorLink className="transition hover:text-white" href="#solution">
-                Solutions
-              </LandingAnchorLink>
-              <LandingAnchorLink className="transition hover:text-white" href="#fonctionnalites">
-                Fonctionnalités
-              </LandingAnchorLink>
-              <LandingAnchorLink className="transition hover:text-white" href="#forfaits">
-                Forfaits
-              </LandingAnchorLink>
-              <LandingAnchorLink className="transition hover:text-white" href="#faq">
-                FAQ
-              </LandingAnchorLink>
+              {landing.header.menuLinks.map((link) => (
+                <SmartLink key={`${link.href}-${link.label}`} className="transition hover:text-white" href={link.href}>
+                  {link.label}
+                </SmartLink>
+              ))}
             </div>
             <div className="flex items-center gap-2">
               <Link className="hidden h-10 items-center rounded-md px-4 text-sm font-bold text-white/85 transition hover:bg-white/10 sm:inline-flex" href="/login">
                 Connexion
               </Link>
-              <SmartLink className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-4 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-linen" href={landing.demoCtaHref}>
-                {landing.demoCtaLabel}
+              <SmartLink className="inline-flex h-10 items-center gap-2 px-4 text-sm font-black shadow-soft transition hover:-translate-y-0.5 hover:bg-linen" href={landing.header.primaryButtonHref} style={buttonStyle}>
+                {landing.header.primaryButtonLabel}
                 <ArrowRight className="h-4 w-4" />
               </SmartLink>
             </div>
@@ -108,14 +167,14 @@ export default async function HomePage() {
               <Zap className="h-4 w-4 text-[#ead6bd]" />
               {landing.heroEyebrow}
             </p>
-            <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[0.95] text-white sm:text-6xl lg:text-7xl">
+            <h1 className="mt-7 max-w-4xl text-5xl font-black leading-[0.95] text-white sm:text-6xl lg:text-7xl" style={{ fontFamily: landing.appearance.headingFont }}>
               {landing.heroTitle}
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-white/80">
               {landing.heroSubtitle}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <SmartLink className="inline-flex h-12 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-white" href={landing.primaryCtaHref}>
+              <SmartLink className="inline-flex h-12 items-center gap-2 px-5 text-sm font-black text-ink shadow-soft transition hover:-translate-y-0.5 hover:bg-white" href={landing.primaryCtaHref} style={buttonStyle}>
                 {landing.primaryCtaLabel}
                 <ChevronRight className="h-4 w-4" />
               </SmartLink>
@@ -136,6 +195,7 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {landing.visibleSections.solution ? (
       <section id="solution" className="landing-section-target bg-ink px-4 py-16 text-white sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
           <div>
@@ -154,7 +214,9 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {landing.visibleSections.features ? (
       <section id="fonctionnalites" className="landing-section-target px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
@@ -167,7 +229,7 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {landing.features.map((feature, index) => {
+            {visibleFeatures.map((feature, index) => {
               const Icon = featureIcons[index % featureIcons.length];
 
               return (
@@ -183,7 +245,9 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {landing.visibleSections.dashboard ? (
       <section className="px-4 pb-20 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1fr_0.9fr] lg:items-stretch">
           <div className="relative min-h-[520px] overflow-hidden rounded-lg bg-ink p-6 text-white shadow-soft">
@@ -244,7 +308,11 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {landing.visibleSections.customBlocks ? <CustomMarketingBlocks landing={landing} /> : null}
+
+      {landing.visibleSections.pricing ? (
       <section id="forfaits" className="landing-section-target bg-white px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-wrap items-end justify-between gap-5">
@@ -262,7 +330,7 @@ export default async function HomePage() {
           </div>
 
           <div className="mt-10 grid gap-5 lg:grid-cols-3">
-            {landing.plans.map((plan) => (
+            {visiblePlans.map((plan) => (
               <article
                 key={plan.name}
                 className={`rounded-md border p-6 shadow-sm ${
@@ -294,12 +362,17 @@ export default async function HomePage() {
                     </li>
                   ))}
                 </ul>
+                <SmartLink className={`mt-7 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md text-sm font-black ${plan.featured ? "bg-[#ead6bd] text-ink" : "bg-ink text-white"}`} href={landing.demoCtaHref}>
+                  {plan.buttonLabel}
+                </SmartLink>
               </article>
             ))}
           </div>
         </div>
       </section>
+      ) : null}
 
+      {landing.visibleSections.demo ? (
       <section id="demo" className="landing-section-target px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 rounded-lg bg-ink p-6 text-white shadow-soft md:grid-cols-[1fr_0.8fr] md:p-10">
           <div>
@@ -329,7 +402,9 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {landing.visibleSections.faq ? (
       <section id="faq" className="landing-section-target bg-[#f1e7d8] px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl">
           <div className="text-center">
@@ -346,11 +421,17 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      ) : null}
 
       <footer className="bg-ink px-4 py-12 text-white sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1fr_2fr]">
           <div>
-            <ToqueTopLogo brandName={landing.brandName} />
+            <img
+              src={brand.footerLogoUrl}
+              alt={brand.logoAlt}
+              className="max-w-[220px] object-contain"
+              style={{ height: brand.footerLogoHeight }}
+            />
             <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-white/60">{landing.footerTagline}</p>
           </div>
           <div className="grid gap-8 sm:grid-cols-3">
@@ -380,6 +461,53 @@ function ToqueTopLogo({ brandName }: { brandName: string }) {
         <span className="-mt-0.5 block text-2xl font-black tracking-normal text-[#ead6bd] sm:text-3xl">{secondWord || "Top"}</span>
       </span>
     </span>
+  );
+}
+
+function CustomMarketingBlocks({ landing }: { landing: PlatformLandingSettings }) {
+  const blocks = landing.customBlocks
+    .filter((block) => block.visible)
+    .sort((first, second) => first.order - second.order);
+
+  if (!blocks.length) {
+    return null;
+  }
+
+  return (
+    <section className="px-4 pb-20 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-5">
+        {blocks.map((block) => (
+          <article
+            key={block.id}
+            className={`grid gap-6 rounded-lg border border-ink/10 p-6 shadow-sm ${
+              block.imageUrl ? "lg:grid-cols-[0.8fr_1.2fr] lg:items-center" : ""
+            } ${
+              block.alignment === "CENTER"
+                ? "text-center"
+                : block.alignment === "RIGHT"
+                  ? "text-right"
+                  : "text-left"
+            }`}
+            style={{ backgroundColor: block.backgroundColor }}
+          >
+            {block.imageUrl ? (
+              <img src={block.imageUrl} alt="" className="aspect-[4/3] w-full rounded-md object-cover" />
+            ) : null}
+            <div className={block.alignment === "CENTER" ? "mx-auto max-w-3xl" : "max-w-3xl"}>
+              {block.subtitle ? <p className="text-sm font-black uppercase text-moss">{block.subtitle}</p> : null}
+              <h2 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">{block.title}</h2>
+              {block.text ? <p className="mt-4 text-base font-semibold leading-7 text-ink/65">{block.text}</p> : null}
+              {block.buttonLabel ? (
+                <SmartLink className="primary-button mt-6 inline-flex" href={block.buttonHref}>
+                  {block.buttonLabel}
+                  <ArrowRight className="h-4 w-4" />
+                </SmartLink>
+              ) : null}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

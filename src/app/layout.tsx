@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Providers } from "@/app/providers";
 import { AppShell } from "@/components/layout/app-shell";
-import { getPlatformBrand } from "@/server/platform-settings";
+import { defaultPlatformBrand, getPlatformBrand } from "@/server/platform-settings";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const brand = await getPlatformBrand();
+  const brand = await getPlatformBrand().catch(() => defaultPlatformBrand);
 
   return (
     <html lang="fr">

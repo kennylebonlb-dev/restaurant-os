@@ -1,15 +1,17 @@
 "use client";
 
 import { UtensilsCrossed } from "lucide-react";
-import { MouseEvent, ReactNode, useState } from "react";
+import { CSSProperties, MouseEvent, ReactNode, useState } from "react";
 
 export function LandingAnchorLink({
   href,
   className,
+  style,
   children
 }: {
   href: string;
   className?: string;
+  style?: CSSProperties;
   children: ReactNode;
 }) {
   const [animating, setAnimating] = useState(false);
@@ -33,7 +35,7 @@ export function LandingAnchorLink({
   }
 
   return (
-    <a className={className} href={href} onClick={handleClick}>
+    <a className={className} href={href} onClick={handleClick} style={style}>
       {children}
       {animating ? (
         <span className="landing-service-toast" aria-hidden="true">

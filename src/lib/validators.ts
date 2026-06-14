@@ -173,9 +173,15 @@ const platformLandingLinkSchema = z.object({
   href: landingHrefSchema
 });
 
+const landingImageSchema = z.union([imageUrlSchema, z.literal("")]);
+
 const platformLandingTextBlockSchema = z.object({
   title: z.string().trim().min(1).max(160),
-  text: z.string().trim().min(1).max(800)
+  text: z.string().trim().min(1).max(800),
+  icon: z.string().trim().max(80).optional(),
+  category: z.string().trim().max(80).optional(),
+  order: z.coerce.number().int().min(1).max(999).optional(),
+  visible: z.boolean().default(true).optional()
 });
 
 const platformLandingProofPointSchema = z.object({
@@ -188,10 +194,93 @@ const platformLandingPlanSchema = z.object({
   price: z.string().trim().min(1).max(40),
   highlight: z.string().trim().min(1).max(180),
   featured: z.boolean().default(false),
+  active: z.boolean().default(true),
+  buttonLabel: z.string().trim().min(1).max(80).default("Demander une démo"),
   features: z.array(z.string().trim().min(1).max(160)).min(1).max(10)
 });
 
+const colorSchema = z
+  .string()
+  .trim()
+  .refine((value) => value === "transparent" || /^#[0-9a-fA-F]{3,8}$/.test(value), "Invalid color.");
+
+const platformLandingAppearanceSchema = z.object({
+  primaryColor: colorSchema,
+  secondaryColor: colorSchema,
+  buttonColor: colorSchema,
+  textColor: colorSchema,
+  backgroundColor: colorSchema,
+  headingFont: z.string().trim().min(1).max(80),
+  bodyFont: z.string().trim().min(1).max(80),
+  buttonRadius: z.coerce.number().int().min(0).max(32),
+  stylePreset: z.enum(["MODERN", "PREMIUM", "SOBER", "WARM"])
+});
+
+const platformLandingHeaderSchema = z.object({
+  logoPosition: z.enum(["LEFT", "CENTER"]),
+  menuLinks: z.array(platformLandingLinkSchema).min(1).max(8),
+  primaryButtonLabel: z.string().trim().min(1).max(80),
+  primaryButtonHref: landingHrefSchema,
+  backgroundColor: colorSchema,
+  sticky: z.boolean(),
+  mobileMenuLabel: z.string().trim().min(1).max(40),
+  height: z.coerce.number().int().min(56).max(120),
+  logoSpacing: z.coerce.number().int().min(0).max(40)
+});
+
+const platformLandingSeoSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(240),
+  keywords: z.string().trim().max(240),
+  shareImageUrl: landingImageSchema,
+  customUrl: z.string().trim().min(1).max(240)
+});
+
+const platformLandingGeneralSchema = z.object({
+  siteName: z.string().trim().min(1).max(80),
+  contactEmail: z.union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")]),
+  phone: z.string().trim().max(40),
+  address: z.string().trim().max(240),
+  facebookUrl: z.union([z.string().url(), z.literal("")]),
+  instagramUrl: z.union([z.string().url(), z.literal("")]),
+  linkedinUrl: z.union([z.string().url(), z.literal("")]),
+  maintenanceMode: z.boolean(),
+  maintenanceMessage: z.string().trim().min(1).max(240)
+});
+
+const platformLandingVisibleSectionsSchema = z.object({
+  solution: z.boolean(),
+  features: z.boolean(),
+  dashboard: z.boolean(),
+  pricing: z.boolean(),
+  demo: z.boolean(),
+  faq: z.boolean(),
+  customBlocks: z.boolean()
+});
+
+const platformLandingCustomBlockSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  type: z.enum(["TEXT", "IMAGE_TEXT", "FEATURE_CARD", "TESTIMONIAL", "FAQ", "PLAN", "CTA", "GALLERY", "VIDEO", "FORM"]),
+  title: z.string().trim().min(1).max(160),
+  subtitle: z.string().trim().max(180),
+  text: z.string().trim().max(1000),
+  imageUrl: landingImageSchema,
+  icon: z.string().trim().max(80),
+  buttonLabel: z.string().trim().max(80),
+  buttonHref: landingHrefSchema,
+  backgroundColor: colorSchema,
+  alignment: z.enum(["LEFT", "CENTER", "RIGHT"]),
+  visible: z.boolean(),
+  order: z.coerce.number().int().min(1).max(999)
+});
+
 export const platformLandingSchema = z.object({
+  appearance: platformLandingAppearanceSchema,
+  header: platformLandingHeaderSchema,
+  seo: platformLandingSeoSchema,
+  general: platformLandingGeneralSchema,
+  visibleSections: platformLandingVisibleSectionsSchema,
+  customBlocks: z.array(platformLandingCustomBlockSchema).max(24),
   brandName: z.string().trim().min(1).max(80),
   heroEyebrow: z.string().trim().min(1).max(180),
   heroTitle: z.string().trim().min(1).max(180),
