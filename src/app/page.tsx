@@ -365,16 +365,10 @@ export default async function HomePage() {
               {landing.demoSubtitle}
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink transition hover:bg-white" href={landing.demoCtaHref}>
-                {landing.demoCtaLabel}
-                <ArrowRight className="h-4 w-4" />
+              <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md bg-[#ead6bd] px-5 text-sm font-black text-ink transition hover:bg-white" href="/passer-a-toquetop">
+                Passez à ToqueTop
+                <ChevronRight className="h-4 w-4" />
               </SmartLink>
-              {landing.demoCtaHref !== "/passer-a-toquetop" ? (
-                <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md border border-[#ead6bd]/40 bg-[#ead6bd]/10 px-5 text-sm font-black text-[#ead6bd] transition hover:bg-[#ead6bd] hover:text-ink" href="/passer-a-toquetop">
-                  Passez à ToqueTop
-                  <ChevronRight className="h-4 w-4" />
-                </SmartLink>
-              ) : null}
               <SmartLink className="inline-flex h-11 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 text-sm font-black text-white transition hover:bg-white/20" href={landing.secondaryCtaHref}>
                 {landing.secondaryCtaLabel}
                 <CalendarCheck className="h-4 w-4" />

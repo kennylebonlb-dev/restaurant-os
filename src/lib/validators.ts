@@ -372,9 +372,31 @@ export const createManagedRestaurantSchema = z.object({
 });
 
 export const updateManagedRestaurantSchema = createManagedRestaurantSchema.partial().extend({
+  ownerFirstName: z.string().trim().max(80).optional(),
+  ownerLastName: z.string().trim().max(80).optional(),
+  ownerPhone: z.string().trim().max(32).optional(),
+  ownerAddress: z.string().trim().max(240).optional(),
   subscriptionPlan: z.string().trim().max(80).optional(),
   subscriptionStatus: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELLED"]).optional(),
   subscriptionBilling: z.enum(["MONTHLY", "ANNUAL"]).optional(),
   subscriptionAmount: z.string().trim().max(40).optional(),
-  subscriptionNextBillingDate: z.string().trim().max(40).optional()
+  subscriptionNextBillingDate: z.string().trim().max(40).optional(),
+  billingStatus: z.enum(["PAID", "PENDING", "LATE", "FREE"]).optional(),
+  billingPaidUntil: z.string().trim().max(40).optional(),
+  billingLastPaymentDate: z.string().trim().max(40).optional(),
+  billingNotes: z.string().trim().max(1000).optional(),
+  platformUsers: z
+    .array(
+      z.object({
+        role: z.enum(["OWNER", "MANAGER", "FLOOR_MANAGER", "WAITER"]),
+        firstName: z.string().trim().max(80).optional(),
+        lastName: z.string().trim().max(80).optional(),
+        email: z
+          .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+          .optional(),
+        phone: z.string().trim().max(32).optional()
+      })
+    )
+    .max(24)
+    .optional()
 });

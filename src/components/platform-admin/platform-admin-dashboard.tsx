@@ -5,8 +5,12 @@ import {
   ArrowDown,
   ArrowUp,
   BadgeEuro,
+  BarChart3,
   Blocks,
   Building2,
+  ChevronLeft,
+  ChevronRight,
+  CreditCard,
   ExternalLink,
   Eye,
   FileText,
@@ -27,7 +31,9 @@ import {
   Search,
   Settings,
   Sparkles,
-  Trash2
+  Trash2,
+  UserRound,
+  UsersRound
 } from "lucide-react";
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -58,6 +64,16 @@ type ManagedRestaurant = {
     tables: number;
     reservations: number;
   };
+  metrics?: {
+    reservationsToday: number;
+    reservationsWeek: number;
+    reservationsMonth: number;
+    occupancyRate: number;
+    peakHours: string;
+    performance: string;
+    visitors: number;
+    conversionRate: number;
+  };
 };
 
 type SiteEditForm = {
@@ -66,12 +82,31 @@ type SiteEditForm = {
   address: string;
   phone: string;
   ownerEmail: string;
+  ownerFirstName: string;
+  ownerLastName: string;
+  ownerPhone: string;
+  ownerAddress: string;
   subscriptionPlan: string;
   subscriptionStatus: "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELLED";
   subscriptionBilling: "MONTHLY" | "ANNUAL";
   subscriptionAmount: string;
   subscriptionNextBillingDate: string;
+  billingStatus: "PAID" | "PENDING" | "LATE" | "FREE";
+  billingPaidUntil: string;
+  billingLastPaymentDate: string;
+  billingNotes: string;
+  platformUsers: PlatformRestaurantUser[];
 };
+
+type PlatformRestaurantUser = {
+  role: "OWNER" | "MANAGER" | "FLOOR_MANAGER" | "WAITER";
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+};
+
+type SiteSortMode = "recent" | "name" | "subscriptionDue";
 
 type BrandResponse = {
   brand: PlatformBrand;
@@ -353,16 +388,49 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function readPlatformUsers(value: unknown): PlatformRestaurantUser[] {
+  if (!Array.isArray(value)) {
+    return [
+      { role: "OWNER", firstName: "", lastName: "", email: "", phone: "" },
+      { role: "MANAGER", firstName: "", lastName: "", email: "", phone: "" },
+      { role: "FLOOR_MANAGER", firstName: "", lastName: "", email: "", phone: "" },
+      { role: "WAITER", firstName: "", lastName: "", email: "", phone: "" }
+    ];
+  }
+
+  return value
+    .filter(isRecord)
+    .map((user) => ({
+      role:
+        user.role === "OWNER" ||
+        user.role === "MANAGER" ||
+        user.role === "FLOOR_MANAGER" ||
+        user.role === "WAITER"
+          ? user.role
+          : "WAITER",
+      firstName: readString(user.firstName),
+      lastName: readString(user.lastName),
+      email: readString(user.email),
+      phone: readString(user.phone)
+    }));
+}
+
 function siteEditFormFromRestaurant(site?: ManagedRestaurant): SiteEditForm {
   const settings = isRecord(site?.settings) ? site.settings : {};
   const subscription = isRecord(settings.subscription) ? settings.subscription : {};
+  const owner = isRecord(settings.owner) ? settings.owner : {};
+  const billing = isRecord(settings.billing) ? settings.billing : {};
 
   return {
     name: site?.name ?? "",
     description: site?.description ?? "",
     address: site?.address ?? "",
     phone: site?.phone ?? "",
-    ownerEmail: readString(settings.ownerEmail),
+    ownerEmail: readString(owner.email) || readString(settings.ownerEmail),
+    ownerFirstName: readString(owner.firstName),
+    ownerLastName: readString(owner.lastName),
+    ownerPhone: readString(owner.phone),
+    ownerAddress: readString(owner.address),
     subscriptionPlan: readString(subscription.plan) || "Essentiel",
     subscriptionStatus:
       subscription.status === "ACTIVE" ||
@@ -372,7 +440,17 @@ function siteEditFormFromRestaurant(site?: ManagedRestaurant): SiteEditForm {
         : "TRIAL",
     subscriptionBilling: subscription.billing === "ANNUAL" ? "ANNUAL" : "MONTHLY",
     subscriptionAmount: readString(subscription.amount),
-    subscriptionNextBillingDate: readString(subscription.nextBillingDate)
+    subscriptionNextBillingDate: readString(subscription.nextBillingDate),
+    billingStatus:
+      billing.status === "PAID" ||
+      billing.status === "LATE" ||
+      billing.status === "FREE"
+        ? billing.status
+        : "PENDING",
+    billingPaidUntil: readString(billing.paidUntil),
+    billingLastPaymentDate: readString(billing.lastPaymentDate),
+    billingNotes: readString(billing.notes),
+    platformUsers: readPlatformUsers(settings.platformUsers)
   };
 }
 
@@ -422,6 +500,10 @@ export function PlatformAdminDashboard() {
   });
   const [selectedSiteId, setSelectedSiteId] = useState<string>();
   const [siteEditForm, setSiteEditForm] = useState<SiteEditForm>(() => siteEditFormFromRestaurant());
+  const [siteSearch, setSiteSearch] = useState("");
+  const [siteSort, setSiteSort] = useState<SiteSortMode>("recent");
+  const [sitePage, setSitePage] = useState(1);
+  const [clientPanelOpen, setClientPanelOpen] = useState(false);
 
   const brandQuery = useQuery({
     queryKey: ["platform-admin", "brand"],
@@ -543,6 +625,38 @@ export function PlatformAdminDashboard() {
 
   const sites = sitesQuery.data?.restaurants ?? [];
   const selectedSite = sites.find((site) => site.id === selectedSiteId);
+  const filteredSites = useMemo(() => {
+    const query = siteSearch.trim().toLowerCase();
+    const matches = sites.filter((site) => {
+      if (!query) {
+        return true;
+      }
+
+      return [site.name, site.slug, site.address, site.phone]
+        .filter(Boolean)
+        .some((value) => value?.toLowerCase().includes(query));
+    });
+
+    return [...matches].sort((first, second) => {
+      if (siteSort === "name") {
+        return first.name.localeCompare(second.name, "fr");
+      }
+
+      if (siteSort === "subscriptionDue") {
+        const firstForm = siteEditFormFromRestaurant(first);
+        const secondForm = siteEditFormFromRestaurant(second);
+
+        return (firstForm.subscriptionNextBillingDate || "9999-12-31").localeCompare(
+          secondForm.subscriptionNextBillingDate || "9999-12-31"
+        );
+      }
+
+      return new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime();
+    });
+  }, [siteSearch, siteSort, sites]);
+  const sitePageSize = 10;
+  const sitePageCount = Math.max(1, Math.ceil(filteredSites.length / sitePageSize));
+  const paginatedSites = filteredSites.slice((sitePage - 1) * sitePageSize, sitePage * sitePageSize);
   const activePlans = landingForm.plans.filter((plan) => plan.active);
   const visibleFeatures = landingForm.features.filter((feature) => feature.visible !== false);
   const currentSection = sections.find((section) => section.id === activeSection) ?? sections[0];
@@ -565,7 +679,12 @@ export function PlatformAdminDashboard() {
 
   useEffect(() => {
     setSiteEditForm(siteEditFormFromRestaurant(selectedSite));
+    setClientPanelOpen(false);
   }, [selectedSite?.id]);
+
+  useEffect(() => {
+    setSitePage(1);
+  }, [siteSearch, siteSort]);
 
   function markDirty() {
     setDirty(true);
@@ -950,6 +1069,32 @@ export function PlatformAdminDashboard() {
     createSiteMutation.mutate();
   }
 
+  function updatePlatformUser(index: number, field: keyof PlatformRestaurantUser, value: string) {
+    setSiteEditForm((current) => ({
+      ...current,
+      platformUsers: current.platformUsers.map((user, userIndex) =>
+        userIndex === index ? { ...user, [field]: value } : user
+      )
+    }));
+  }
+
+  function addPlatformUser() {
+    setSiteEditForm((current) => ({
+      ...current,
+      platformUsers: [
+        ...current.platformUsers,
+        { role: "WAITER", firstName: "", lastName: "", email: "", phone: "" }
+      ]
+    }));
+  }
+
+  function removePlatformUser(index: number) {
+    setSiteEditForm((current) => ({
+      ...current,
+      platformUsers: current.platformUsers.filter((_, userIndex) => userIndex !== index)
+    }));
+  }
+
   const shellClass = darkAdmin
     ? "min-h-screen bg-[#111514] text-white"
     : "min-h-screen bg-[#f4efe7] text-ink";
@@ -1037,7 +1182,7 @@ export function PlatformAdminDashboard() {
           </div>
         </header>
 
-        <div className="grid gap-6 px-4 py-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:px-8">
+        <div className={`grid gap-6 px-4 py-6 xl:px-8 ${activeSection === "restaurants" ? "" : "xl:grid-cols-[minmax(0,1fr)_360px]"}`}>
           <div className="min-w-0">
             {activeSection === "dashboard" ? (
               <AdminSectionLayout
@@ -1443,44 +1588,95 @@ export function PlatformAdminDashboard() {
                   </button>
                 </form>
 
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-                  <div className={`overflow-hidden rounded-md border ${panelClass}`}>
-                    <div className="grid grid-cols-[1fr_96px_118px] gap-3 bg-linen px-3 py-2 text-xs font-black uppercase text-ink/55">
-                      <span>Restaurant</span>
-                      <span>Tables</span>
-                      <span>Réservations</span>
+                <div className="grid gap-4">
+                  <div className={`rounded-md border p-4 ${panelClass}`}>
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-black">Liste des restaurants</h3>
+                        <p className={`mt-1 text-sm font-semibold ${mutedText}`}>
+                          10 restaurants par page, recherche et tri par création ou échéance d’abonnement.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="min-w-[240px] text-sm font-semibold">
+                          Recherche par nom
+                          <input
+                            className="control mt-1 w-full"
+                            placeholder="Nom, slug, adresse..."
+                            value={siteSearch}
+                            onChange={(event) => setSiteSearch(event.target.value)}
+                          />
+                        </label>
+                        <label className="text-sm font-semibold">
+                          Affichage
+                          <select className="control mt-1 w-full" value={siteSort} onChange={(event) => setSiteSort(event.target.value as SiteSortMode)}>
+                            <option value="recent">Derniers restaurants</option>
+                            <option value="name">Nom du restaurant</option>
+                            <option value="subscriptionDue">Échéance d’abonnement</option>
+                          </select>
+                        </label>
+                      </div>
                     </div>
-                    {sites.map((site) => {
-                      const selected = selectedSiteId === site.id;
 
-                      return (
-                        <button
-                          key={site.id}
-                          className={`grid w-full grid-cols-[1fr_96px_118px] gap-3 border-t border-ink/10 px-3 py-3 text-left text-sm font-semibold transition ${
-                            selected
-                              ? "bg-[#ead6bd]/45"
-                              : darkAdmin
-                                ? "hover:bg-white/10"
-                                : "hover:bg-linen"
-                          }`}
-                          type="button"
-                          onClick={() => setSelectedSiteId(site.id)}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate font-black">{site.name}</span>
-                            <span className={`mt-1 block truncate text-xs font-medium ${mutedText}`}>
-                              {site.address || "Adresse à compléter"}
+                    <div className="mt-4 overflow-hidden rounded-md border border-ink/10">
+                      <div className="grid grid-cols-[minmax(220px,1.2fr)_150px_150px_120px_130px] gap-3 bg-linen px-3 py-2 text-xs font-black uppercase text-ink/55">
+                        <span>Restaurant</span>
+                        <span>Forfait</span>
+                        <span>Échéance</span>
+                        <span>Tables</span>
+                        <span>Réservations</span>
+                      </div>
+                      {paginatedSites.map((site) => {
+                        const selected = selectedSiteId === site.id;
+                        const siteFormValue = siteEditFormFromRestaurant(site);
+
+                        return (
+                          <button
+                            key={site.id}
+                            className={`grid w-full grid-cols-[minmax(220px,1.2fr)_150px_150px_120px_130px] gap-3 border-t border-ink/10 px-3 py-3 text-left text-sm font-semibold transition ${
+                              selected
+                                ? "bg-[#ead6bd]/45"
+                                : darkAdmin
+                                  ? "hover:bg-white/10"
+                                  : "hover:bg-white"
+                            }`}
+                            type="button"
+                            onClick={() => setSelectedSiteId(site.id)}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-black">{site.name}</span>
+                              <span className={`mt-1 block truncate text-xs font-medium ${mutedText}`}>
+                                {site.address || "Adresse à compléter"}
+                              </span>
+                              <span className="mt-1 block truncate text-xs font-bold text-moss">
+                                {site.slug}.toquetop.com
+                              </span>
                             </span>
-                            <span className="mt-1 block truncate text-xs font-bold text-moss">
-                              {site.slug}.toquetop.com
-                            </span>
-                          </span>
-                          <span>{site._count.tables}</span>
-                          <span>{site._count.reservations}</span>
+                            <span>{siteFormValue.subscriptionPlan}</span>
+                            <span>{siteFormValue.subscriptionNextBillingDate || "À définir"}</span>
+                            <span>{site._count.tables}</span>
+                            <span>{site._count.reservations}</span>
+                          </button>
+                        );
+                      })}
+                      {filteredSites.length === 0 ? <p className={`border-t px-3 py-8 text-center text-sm font-semibold ${mutedText}`}>Aucun restaurant ne correspond à la recherche.</p> : null}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className={`text-sm font-semibold ${mutedText}`}>
+                        {filteredSites.length} restaurant{filteredSites.length > 1 ? "s" : ""} · page {sitePage}/{sitePageCount}
+                      </p>
+                      <div className="flex gap-2">
+                        <button className="secondary-button h-9" type="button" disabled={sitePage <= 1} onClick={() => setSitePage((page) => Math.max(1, page - 1))}>
+                          <ChevronLeft className="h-4 w-4" />
+                          Précédent
                         </button>
-                      );
-                    })}
-                    {sites.length === 0 ? <p className={`border-t px-3 py-8 text-center text-sm font-semibold ${mutedText}`}>Aucun site restaurant pour le moment.</p> : null}
+                        <button className="secondary-button h-9" type="button" disabled={sitePage >= sitePageCount} onClick={() => setSitePage((page) => Math.min(sitePageCount, page + 1))}>
+                          Suivant
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   <div className={`rounded-md border p-4 ${panelClass}`}>
@@ -1488,7 +1684,7 @@ export function PlatformAdminDashboard() {
                       <div className="grid gap-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <p className={`text-xs font-black uppercase ${mutedText}`}>Fiche client</p>
+                            <p className={`text-xs font-black uppercase ${mutedText}`}>Gestion du restaurant</p>
                             <h3 className="mt-1 text-xl font-black">{selectedSite.name}</h3>
                             <p className={`mt-1 text-sm font-semibold ${mutedText}`}>
                               Créé le {new Intl.DateTimeFormat("fr-FR").format(new Date(selectedSite.createdAt))}
@@ -1503,6 +1699,10 @@ export function PlatformAdminDashboard() {
                               <Settings className="h-4 w-4" />
                               Gérer
                             </Link>
+                            <Link className="secondary-button" href={`/cmt-admin/restaurants/${selectedSite.id}/plans`} target="_blank">
+                              <MonitorSmartphone className="h-4 w-4" />
+                              Plans 2D / 3D
+                            </Link>
                           </div>
                         </div>
 
@@ -1515,12 +1715,37 @@ export function PlatformAdminDashboard() {
                         </div>
 
                         <div className="rounded-md border border-ink/10 bg-linen p-4 text-ink">
+                          <button
+                            className="secondary-button mb-4"
+                            type="button"
+                            onClick={() => setClientPanelOpen((current) => !current)}
+                          >
+                            <UserRound className="h-4 w-4" />
+                            Client propriétaire
+                          </button>
+                          {clientPanelOpen ? (
+                            <div className="mb-4 grid gap-4 rounded-md border border-ink/10 bg-white p-4 lg:grid-cols-2">
+                              <Field label="Prénom du client" value={siteEditForm.ownerFirstName} onChange={(value) => setSiteEditForm((current) => ({ ...current, ownerFirstName: value }))} />
+                              <Field label="Nom du client" value={siteEditForm.ownerLastName} onChange={(value) => setSiteEditForm((current) => ({ ...current, ownerLastName: value }))} />
+                              <Field label="Adresse mail du client" type="email" value={siteEditForm.ownerEmail} onChange={(value) => setSiteEditForm((current) => ({ ...current, ownerEmail: value }))} />
+                              <Field label="Numéro du client" value={siteEditForm.ownerPhone} onChange={(value) => setSiteEditForm((current) => ({ ...current, ownerPhone: value }))} />
+                              <Textarea label="Adresse du client" value={siteEditForm.ownerAddress} onChange={(value) => setSiteEditForm((current) => ({ ...current, ownerAddress: value }))} />
+                            </div>
+                          ) : null}
+
                           <div className="mb-4 flex items-center gap-2">
                             <BadgeEuro className="h-5 w-5 text-moss" />
                             <h4 className="text-lg font-black">Abonnement</h4>
                           </div>
                           <div className="grid gap-4 lg:grid-cols-2">
-                            <Field label="Forfait" value={siteEditForm.subscriptionPlan} onChange={(value) => setSiteEditForm((current) => ({ ...current, subscriptionPlan: value }))} />
+                            <label className="text-sm font-semibold">
+                              Forfait
+                              <select className="control mt-1 w-full" value={siteEditForm.subscriptionPlan} onChange={(event) => setSiteEditForm((current) => ({ ...current, subscriptionPlan: event.target.value }))}>
+                                {[...landingForm.plans.map((plan) => plan.name), "Essentiel", "Pro", "Signature"].filter((plan, index, values) => values.indexOf(plan) === index).map((plan) => (
+                                  <option key={plan} value={plan}>{plan}</option>
+                                ))}
+                              </select>
+                            </label>
                             <Field label="Montant" value={siteEditForm.subscriptionAmount} onChange={(value) => setSiteEditForm((current) => ({ ...current, subscriptionAmount: value }))} />
                             <label className="text-sm font-semibold">
                               Statut
@@ -1542,10 +1767,80 @@ export function PlatformAdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="grid gap-3 rounded-md border border-ink/10 bg-white/50 p-4 md:grid-cols-3">
-                          <MetricCard label="Tables" value={selectedSite._count.tables.toString()} />
+                        <div className="rounded-md border border-ink/10 bg-white/50 p-4">
+                          <div className="mb-4 flex items-center gap-2">
+                            <CreditCard className="h-5 w-5 text-moss" />
+                            <h4 className="text-lg font-black">Facturation client</h4>
+                          </div>
+                          <div className="grid gap-4 lg:grid-cols-2">
+                            <label className="text-sm font-semibold">
+                              Statut du paiement
+                              <select className="control mt-1 w-full" value={siteEditForm.billingStatus} onChange={(event) => setSiteEditForm((current) => ({ ...current, billingStatus: event.target.value as SiteEditForm["billingStatus"] }))}>
+                                <option value="PAID">Payé</option>
+                                <option value="PENDING">En attente</option>
+                                <option value="LATE">En retard</option>
+                                <option value="FREE">Offert</option>
+                              </select>
+                            </label>
+                            <Field label="Payé jusqu’au" type="date" value={siteEditForm.billingPaidUntil} onChange={(value) => setSiteEditForm((current) => ({ ...current, billingPaidUntil: value }))} />
+                            <Field label="Dernier paiement" type="date" value={siteEditForm.billingLastPaymentDate} onChange={(value) => setSiteEditForm((current) => ({ ...current, billingLastPaymentDate: value }))} />
+                            <Textarea label="Notes de facturation" value={siteEditForm.billingNotes} onChange={(value) => setSiteEditForm((current) => ({ ...current, billingNotes: value }))} />
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-ink/10 bg-white/50 p-4">
+                          <div className="mb-4 flex items-center gap-2">
+                            <BarChart3 className="h-5 w-5 text-moss" />
+                            <h4 className="text-lg font-black">Statistiques</h4>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
                           <MetricCard label="Réservations" value={selectedSite._count.reservations.toString()} />
+                          <MetricCard label="Aujourd’hui" value={(selectedSite.metrics?.reservationsToday ?? 0).toString()} />
+                          <MetricCard label="Semaine" value={(selectedSite.metrics?.reservationsWeek ?? 0).toString()} />
+                          <MetricCard label="Mois" value={(selectedSite.metrics?.reservationsMonth ?? 0).toString()} />
+                          <MetricCard label="Occupation" value={`${selectedSite.metrics?.occupancyRate ?? 0}%`} />
+                          <MetricCard label="Heures de pointe" value={selectedSite.metrics?.peakHours ?? "À analyser"} />
+                          <MetricCard label="Performance" value={selectedSite.metrics?.performance ?? "À analyser"} />
+                          <MetricCard label="Visiteurs" value={(selectedSite.metrics?.visitors ?? 0).toString()} />
+                          <MetricCard label="Conversion" value={`${selectedSite.metrics?.conversionRate ?? 0}%`} />
+                          <MetricCard label="Tables" value={selectedSite._count.tables.toString()} />
                           <MetricCard label="Fuseau horaire" value={selectedSite.timezone} />
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-ink/10 bg-white/50 p-4">
+                          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <UsersRound className="h-5 w-5 text-moss" />
+                              <h4 className="text-lg font-black">Gestion des utilisateurs</h4>
+                            </div>
+                            <button className="secondary-button" type="button" onClick={addPlatformUser}>
+                              <Plus className="h-4 w-4" />
+                              Ajouter un utilisateur
+                            </button>
+                          </div>
+                          <div className="grid gap-3">
+                            {siteEditForm.platformUsers.map((user, index) => (
+                              <div key={`${user.role}-${index}`} className="grid gap-3 rounded-md border border-ink/10 bg-white p-3 lg:grid-cols-[150px_1fr_1fr_1.2fr_1fr_44px]">
+                                <label className="text-xs font-black uppercase text-ink/50">
+                                  Rôle
+                                  <select className="control mt-1 w-full" value={user.role} onChange={(event) => updatePlatformUser(index, "role", event.target.value)}>
+                                    <option value="OWNER">Propriétaire</option>
+                                    <option value="MANAGER">Manager</option>
+                                    <option value="FLOOR_MANAGER">Responsable de salle</option>
+                                    <option value="WAITER">Serveur</option>
+                                  </select>
+                                </label>
+                                <Field label="Prénom" value={user.firstName} onChange={(value) => updatePlatformUser(index, "firstName", value)} />
+                                <Field label="Nom" value={user.lastName} onChange={(value) => updatePlatformUser(index, "lastName", value)} />
+                                <Field label="E-mail" type="email" value={user.email} onChange={(value) => updatePlatformUser(index, "email", value)} />
+                                <Field label="Téléphone" value={user.phone} onChange={(value) => updatePlatformUser(index, "phone", value)} />
+                                <button className="icon-button self-end" type="button" title="Supprimer" onClick={() => removePlatformUser(index)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         </div>
 
                         {(updateSiteMutation.error || deleteSiteMutation.error) ? (
@@ -1583,15 +1878,17 @@ export function PlatformAdminDashboard() {
             ) : null}
           </div>
 
-          <aside className="min-w-0 xl:sticky xl:top-28 xl:self-start">
-            <PreviewPanel
-              brand={brandForm}
-              device={previewDevice}
-              landing={landingForm}
-              onDeviceChange={setPreviewDevice}
-              panelClass={panelClass}
-            />
-          </aside>
+          {activeSection === "restaurants" ? null : (
+            <aside className="min-w-0 xl:sticky xl:top-28 xl:self-start">
+              <PreviewPanel
+                brand={brandForm}
+                device={previewDevice}
+                landing={landingForm}
+                onDeviceChange={setPreviewDevice}
+                panelClass={panelClass}
+              />
+            </aside>
+          )}
         </div>
       </main>
     </div>

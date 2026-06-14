@@ -57,9 +57,19 @@ export async function PATCH(request: Request, context: Context) {
     const currentSubscription = isRecord(currentSettings.subscription)
       ? currentSettings.subscription
       : {};
+    const currentOwner = isRecord(currentSettings.owner) ? currentSettings.owner : {};
+    const currentBilling = isRecord(currentSettings.billing) ? currentSettings.billing : {};
     const settings = {
       ...currentSettings,
       ownerEmail: data.ownerEmail ?? currentSettings.ownerEmail ?? "",
+      owner: {
+        ...currentOwner,
+        firstName: data.ownerFirstName ?? currentOwner.firstName ?? "",
+        lastName: data.ownerLastName ?? currentOwner.lastName ?? "",
+        email: data.ownerEmail ?? currentSettings.ownerEmail ?? currentOwner.email ?? "",
+        phone: data.ownerPhone ?? currentOwner.phone ?? "",
+        address: data.ownerAddress ?? currentOwner.address ?? ""
+      },
       subscription: {
         ...currentSubscription,
         plan: data.subscriptionPlan ?? currentSubscription.plan ?? "Essentiel",
@@ -68,7 +78,15 @@ export async function PATCH(request: Request, context: Context) {
         amount: data.subscriptionAmount ?? currentSubscription.amount ?? "",
         nextBillingDate:
           data.subscriptionNextBillingDate ?? currentSubscription.nextBillingDate ?? ""
-      }
+      },
+      billing: {
+        ...currentBilling,
+        status: data.billingStatus ?? currentBilling.status ?? "PENDING",
+        paidUntil: data.billingPaidUntil ?? currentBilling.paidUntil ?? "",
+        lastPaymentDate: data.billingLastPaymentDate ?? currentBilling.lastPaymentDate ?? "",
+        notes: data.billingNotes ?? currentBilling.notes ?? ""
+      },
+      platformUsers: data.platformUsers ?? currentSettings.platformUsers ?? []
     };
 
     const restaurant = await prisma.restaurant.update({
