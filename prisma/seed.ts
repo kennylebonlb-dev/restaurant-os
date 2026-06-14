@@ -27,6 +27,7 @@ async function main() {
         logoHeight: 48,
         footerLogoUrl: "/cest-ma-table-logo.png",
         footerLogoHeight: 32,
+        loginVisualUrl: "/login-restaurant-visual.png",
         faviconUrl: "/cest-ma-table-favicon.png",
         logoAlt: "C’est ma table",
         supportEmail: ""
@@ -40,6 +41,7 @@ async function main() {
         logoHeight: 48,
         footerLogoUrl: "/cest-ma-table-logo.png",
         footerLogoHeight: 32,
+        loginVisualUrl: "/login-restaurant-visual.png",
         faviconUrl: "/cest-ma-table-favicon.png",
         logoAlt: "C’est ma table",
         supportEmail: ""

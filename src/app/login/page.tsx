@@ -1,13 +1,17 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
-import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { apiFetch } from "@/hooks/use-api";
 import { useI18n } from "@/lib/i18n";
+import type { PlatformBrand } from "@/server/platform-settings";
+
+type BrandResponse = {
+  brand: PlatformBrand;
+};
 
 function LoginContent() {
   const router = useRouter();
@@ -20,6 +24,12 @@ function LoginContent() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
   const { t } = useI18n();
+  const brandQuery = useQuery({
+    queryKey: ["platform-brand"],
+    queryFn: () => apiFetch<BrandResponse>("/api/platform-brand"),
+    staleTime: 60_000
+  });
+  const loginVisualUrl = brandQuery.data?.brand.loginVisualUrl ?? "/login-restaurant-visual.png";
 
   const registerMutation = useMutation({
     mutationFn: () =>
@@ -55,13 +65,10 @@ function LoginContent() {
   return (
     <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(360px,0.7fr)] lg:items-center lg:px-8">
       <section className="login-visual-panel relative w-full overflow-hidden rounded-lg bg-ink shadow-soft">
-        <Image
-          src="/login-restaurant-visual.png"
+        <img
+          src={loginVisualUrl}
           alt="Salle de restaurant C’est ma table"
-          fill
-          priority
-          sizes="(min-width: 1024px) 52vw, 100vw"
-          className="object-cover object-center"
+          className="absolute inset-0 h-full w-full object-cover object-center"
         />
       </section>
 

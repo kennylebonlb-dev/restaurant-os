@@ -68,6 +68,7 @@ export function PlatformAdminDashboard() {
     logoHeight: 48,
     footerLogoUrl: "/cest-ma-table-logo.png",
     footerLogoHeight: 32,
+    loginVisualUrl: "/login-restaurant-visual.png",
     faviconUrl: "/cest-ma-table-favicon.png",
     logoAlt: "C’est ma table",
     supportEmail: ""
@@ -161,6 +162,14 @@ export function PlatformAdminDashboard() {
 
     if (dataUrl) {
       setBrandForm((current) => ({ ...current, footerLogoUrl: dataUrl }));
+    }
+  }
+
+  async function updateLoginVisual(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      setBrandForm((current) => ({ ...current, loginVisualUrl: dataUrl }));
     }
   }
 
@@ -308,6 +317,22 @@ export function PlatformAdminDashboard() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
+              <label className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink sm:col-span-1">
+                Visuel de la page de connexion
+                <span className="mt-3 block overflow-hidden rounded-md bg-ink">
+                  <img
+                    src={brandForm.loginVisualUrl}
+                    alt="Aperçu du visuel de connexion"
+                    className="aspect-[4/5] w-full object-cover"
+                  />
+                </span>
+                <span className="secondary-button mt-3 w-full cursor-pointer">
+                  <ImagePlus className="h-4 w-4" />
+                  Remplacer
+                  <input className="sr-only" type="file" accept="image/*" onChange={updateLoginVisual} />
+                </span>
+              </label>
+
               <label className="rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink sm:col-span-1">
                 Favicon
                 <span className="mt-3 flex min-h-20 items-center justify-center rounded-md bg-white p-3">

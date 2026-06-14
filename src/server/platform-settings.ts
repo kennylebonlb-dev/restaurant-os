@@ -7,6 +7,7 @@ export type PlatformBrand = {
   logoHeight: number;
   footerLogoUrl: string;
   footerLogoHeight: number;
+  loginVisualUrl: string;
   faviconUrl: string;
   logoAlt: string;
   supportEmail?: string;
@@ -20,6 +21,7 @@ export const defaultPlatformBrand: PlatformBrand = {
   logoHeight: 48,
   footerLogoUrl: "/cest-ma-table-logo.png",
   footerLogoHeight: 32,
+  loginVisualUrl: "/login-restaurant-visual.png",
   faviconUrl: "/cest-ma-table-favicon.png",
   logoAlt: "C’est ma table",
   supportEmail: ""
@@ -49,6 +51,10 @@ function normalizePlatformBrand(value: unknown): PlatformBrand {
           ? record.logoUrl
           : defaultPlatformBrand.footerLogoUrl,
     footerLogoHeight: normalizeImageHeight(record.footerLogoHeight, defaultPlatformBrand.footerLogoHeight),
+    loginVisualUrl:
+      typeof record.loginVisualUrl === "string" && record.loginVisualUrl.trim()
+        ? record.loginVisualUrl
+        : defaultPlatformBrand.loginVisualUrl,
     faviconUrl:
       typeof record.faviconUrl === "string" && record.faviconUrl.trim()
         ? record.faviconUrl

@@ -146,6 +146,7 @@ export const platformBrandSchema = z.object({
   logoHeight: z.coerce.number().int().min(18).max(96).default(48),
   footerLogoUrl: imageUrlSchema,
   footerLogoHeight: z.coerce.number().int().min(18).max(96).default(32),
+  loginVisualUrl: imageUrlSchema,
   faviconUrl: imageUrlSchema,
   logoAlt: z.string().trim().min(2).max(120),
   supportEmail: z
