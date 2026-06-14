@@ -26,7 +26,7 @@ export default function CmtAdminLoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[calc(100vh-65px)] max-w-md items-center px-4 py-8">
+    <main className="mx-auto flex min-h-screen max-w-md items-center px-4 py-8">
       <form className="w-full rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-7" onSubmit={submitLogin}>
         <div className="mb-6 flex items-start gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-md bg-moss text-white">

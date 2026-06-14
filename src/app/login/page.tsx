@@ -53,7 +53,7 @@ function LoginContent() {
   }
 
   return (
-    <main className="mx-auto grid min-h-[calc(100vh-65px)] max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(360px,0.7fr)] lg:items-center lg:px-8">
+    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(360px,0.7fr)] lg:items-center lg:px-8">
       <section className="login-visual-panel relative w-full overflow-hidden rounded-lg bg-ink shadow-soft">
         <Image
           src="/login-restaurant-visual.png"
