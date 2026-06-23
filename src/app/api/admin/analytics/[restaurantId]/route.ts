@@ -1,6 +1,7 @@
 import { dateStringSchema } from "@/lib/validators";
-import { requireRole } from "@/server/auth/guards";
+import { requireSession } from "@/server/auth/guards";
 import { apiError, ok } from "@/server/http";
+import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
 import { getDailyAnalytics } from "@/server/services/analytics-service";
 
 type Context = {
@@ -11,8 +12,9 @@ type Context = {
 
 export async function GET(request: Request, context: Context) {
   try {
-    await requireRole(["ADMIN", "STAFF"]);
+    const session = await requireSession();
     const { restaurantId } = await context.params;
+    await requireRestaurantAccess(session, restaurantId, "READ_ONLY");
     const date = dateStringSchema.parse(
       new URL(request.url).searchParams.get("date") ?? new Date().toISOString().slice(0, 10)
     );

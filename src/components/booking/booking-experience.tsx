@@ -26,12 +26,16 @@ import {
   type AvailabilitySlot,
   type FloorTable,
   type OpeningHours,
+  type TableCombination,
   type TableFeature
 } from "@/lib/domain";
 import {
   applyFloorPlanSettings,
+  defaultFloorRoom,
   floorPlan2dImageUrlFromSettings,
   floorPlanModelUrlFromSettings,
+  floorRoomsFromSettings,
+  tableRoomsFromSettings,
   tableViewImageStyle
 } from "@/lib/floor-plan-settings";
 import { useI18n } from "@/lib/i18n";
@@ -57,6 +61,14 @@ type RestaurantsResponse = {
 
 type AvailabilityResponse = {
   tables: FloorTable[];
+  combinations?: AvailableTableCombination[];
+};
+
+type AvailableTableCombination = {
+  capacity: number;
+  combination: TableCombination;
+  tableIds: string[];
+  tables: FloorTable[];
 };
 
 type SlotsResponse = {
@@ -81,6 +93,14 @@ type ReservationResponse = {
     referenceCode: string | null;
   };
 };
+
+const roomTypeLabels = {
+  MAIN: "Salle principale",
+  FLOOR: "Étage",
+  TERRACE: "Terrasse",
+  PRIVATE: "Salon privé",
+  ROOFTOP: "Rooftop"
+} as const;
 
 function splitName(name?: string | null) {
   const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
@@ -139,12 +159,17 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
   const [floorViewMode, setFloorViewMode] = useState<"2d" | "3d">("3d");
   const [floorZoom, setFloorZoom] = useState(1);
   const [viewPreviewTableId, setViewPreviewTableId] = useState<string>();
+  const [selectedCombinationId, setSelectedCombinationId] = useState<string>();
+  const [selectedRoomId, setSelectedRoomId] = useState<string>();
   const booking = useBookingStore();
   const { locale, t } = useI18n();
 
   const restaurantsQuery = useQuery({
-    queryKey: ["restaurants"],
-    queryFn: () => apiFetch<RestaurantsResponse>("/api/restaurants")
+    queryKey: ["restaurants", initialRestaurantSlug ?? "all"],
+    queryFn: () =>
+      apiFetch<RestaurantsResponse>(
+        initialRestaurantSlug ? `/api/restaurants?slug=${encodeURIComponent(initialRestaurantSlug)}` : "/api/restaurants"
+      )
   });
 
   const restaurants = restaurantsQuery.data?.restaurants ?? [];
@@ -292,35 +317,60 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
       })
   });
 
-  const restaurantTables = useMemo(
-    () => applyFloorPlanSettings(restaurant?.tables ?? [], restaurant?.settings),
-    [restaurant?.settings, restaurant?.tables]
+	  const restaurantTables = useMemo(
+	    () => applyFloorPlanSettings(restaurant?.tables ?? [], restaurant?.settings),
+	    [restaurant?.settings, restaurant?.tables]
+	  );
+  const floorRooms = useMemo(
+    () => floorRoomsFromSettings(restaurant?.settings).filter((room) => room.active && room.draftStatus !== "DRAFT"),
+    [restaurant?.settings]
   );
-  const selectedTable = useMemo(
-    () => restaurantTables.find((table) => table.id === booking.selectedTableId),
-    [booking.selectedTableId, restaurantTables]
+  const activeFloorRooms = floorRooms.length > 0 ? floorRooms : [defaultFloorRoom()];
+  const tableRooms = useMemo(() => tableRoomsFromSettings(restaurant?.settings), [restaurant?.settings]);
+  const currentRoom = activeFloorRooms.find((room) => room.id === selectedRoomId) ?? activeFloorRooms[0];
+  const currentRoomId = currentRoom?.id ?? "main-room";
+  const displayedRestaurantTables = useMemo(
+    () =>
+      restaurantTables.filter((table) => (tableRooms[table.id] ?? activeFloorRooms[0]?.id ?? "main-room") === currentRoomId),
+    [activeFloorRooms, currentRoomId, restaurantTables, tableRooms]
   );
+	  const selectedTable = useMemo(
+	    () => restaurantTables.find((table) => table.id === booking.selectedTableId),
+	    [booking.selectedTableId, restaurantTables]
+	  );
   const viewPreviewTable = useMemo(
     () => restaurantTables.find((table) => table.id === viewPreviewTableId),
     [restaurantTables, viewPreviewTableId]
   );
   const tableViewPreview = viewPreviewTable?.viewImageUrl ? viewPreviewTable : undefined;
-  const floorPlanModelUrl = useMemo(
-    () => floorPlanModelUrlFromSettings(restaurant?.settings),
-    [restaurant?.settings]
+  const floorPlanModelUrl = currentRoom?.modelDataUrl ?? floorPlanModelUrlFromSettings(restaurant?.settings);
+  const floorPlan2dImageUrl = currentRoom?.plan2dDataUrl ?? floorPlan2dImageUrlFromSettings(restaurant?.settings);
+	  const availableTables = availabilityQuery.data?.tables ?? [];
+  const availableCombinations = availabilityQuery.data?.combinations ?? [];
+  const selectedCombination = availableCombinations.find((combination) => combination.combination.id === selectedCombinationId);
+  const availabilityOptionCount = availableTables.length + availableCombinations.length;
+	  const availableIds = useMemo(
+    () => Array.from(new Set([
+      ...availableTables.map((table) => table.id),
+      ...availableCombinations.flatMap((combination) => combination.tableIds)
+    ])),
+    [availableCombinations, availableTables]
   );
-  const floorPlan2dImageUrl = useMemo(
-    () => floorPlan2dImageUrlFromSettings(restaurant?.settings),
-    [restaurant?.settings]
-  );
-  const availableTables = availabilityQuery.data?.tables ?? [];
-  const availableIds = useMemo(() => availableTables.map((table) => table.id), [availableTables]);
-  const contactComplete = Boolean(
-    booking.firstName.trim() &&
-      booking.lastName.trim() &&
-      booking.email.trim() &&
-      booking.phone.trim()
-  );
+  const selectedTableIds = selectedCombination?.tableIds;
+	  const contactComplete = Boolean(
+	    booking.firstName.trim() &&
+	      booking.lastName.trim() &&
+	      booking.email.trim() &&
+	      booking.phone.trim()
+	  );
+
+  useEffect(() => {
+    if (!currentRoom || selectedRoomId === currentRoom.id) {
+      return;
+    }
+
+    setSelectedRoomId(currentRoom.id);
+  }, [currentRoom?.id, selectedRoomId]);
 
   const reservationMutation = useMutation({
     mutationFn: () =>
@@ -330,8 +380,9 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
           date: booking.date,
           startTime: booking.startTime,
           numberOfGuests: booking.numberOfGuests,
-          tableId: booking.autoAssignTable ? undefined : booking.selectedTableId,
-          autoAssignTable: booking.autoAssignTable,
+          tableId: booking.autoAssignTable || selectedCombinationId ? undefined : booking.selectedTableId,
+          combinationId: selectedCombinationId,
+          autoAssignTable: booking.autoAssignTable || Boolean(selectedCombinationId),
           tablePreferences: booking.tablePreferences,
           firstName: booking.firstName,
           lastName: booking.lastName,
@@ -344,12 +395,13 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
         })
     }),
     onSuccess: (data) => {
-      setMessage(t("booking.confirmed", { id: data.reservation.referenceCode ?? data.reservation.id }));
+      setMessage(t("booking.confirmed", { id: data.reservation.referenceCode ?? t("booking.referencePending") }));
       queryClient.invalidateQueries({ queryKey: ["availability", restaurant?.id] });
       queryClient.invalidateQueries({ queryKey: ["availability-slots", restaurant?.id] });
       queryClient.invalidateQueries({ queryKey: ["me", "reservations"] });
       queryClient.invalidateQueries({ queryKey: ["me", "profile"] });
       booking.resetTable();
+      setSelectedCombinationId(undefined);
       booking.setBookingField("notes", "");
       booking.setBookingField("highChair", false);
       booking.setBookingField("birthday", false);
@@ -368,18 +420,21 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
     }
     booking.setBookingField("startTime", slot.startTime);
     booking.resetTable();
+    setSelectedCombinationId(undefined);
   }
 
   function updateGuests(value: number) {
     setMessage(undefined);
     booking.setBookingField("numberOfGuests", value);
     booking.resetTable();
+    setSelectedCombinationId(undefined);
   }
 
   function updateDate(date: string) {
     setMessage(undefined);
     booking.setBookingField("date", date);
     booking.resetTable();
+    setSelectedCombinationId(undefined);
   }
 
   function shiftBookingDate(days: number) {
@@ -389,12 +444,20 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
   function toggleTablePreference(feature: TableFeature) {
     setMessage(undefined);
     booking.resetTable();
+    setSelectedCombinationId(undefined);
     booking.setBookingField(
       "tablePreferences",
       booking.tablePreferences.includes(feature)
         ? booking.tablePreferences.filter((item) => item !== feature)
         : [...booking.tablePreferences, feature]
     );
+  }
+
+  function selectCombination(combination: AvailableTableCombination) {
+    setMessage(undefined);
+    setSelectedCombinationId(combination.combination.id);
+    booking.setBookingField("autoAssignTable", false);
+    booking.setBookingField("selectedTableId", undefined);
   }
 
   useEffect(() => {
@@ -415,6 +478,17 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
   }, [availabilityQuery.data, availableIds, booking.selectedTableId, booking.resetTable]);
 
   useEffect(() => {
+    if (
+      selectedCombinationId &&
+      availabilityQuery.data &&
+      !availableCombinations.some((combination) => combination.combination.id === selectedCombinationId)
+    ) {
+      setSelectedCombinationId(undefined);
+      booking.resetTable();
+    }
+  }, [availabilityQuery.data, availableCombinations, booking.resetTable, selectedCombinationId]);
+
+  useEffect(() => {
     if (viewPreviewTableId && !restaurantTables.some((table) => table.id === viewPreviewTableId)) {
       setViewPreviewTableId(undefined);
     }
@@ -428,6 +502,40 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
       setViewPreviewTableId(undefined);
     }
   }, [availableIds, selectedSlot?.selectable, viewPreviewTableId]);
+
+  if (!restaurant && restaurantsQuery.isLoading) {
+    return (
+      <main className="grid min-h-[70vh] place-items-center bg-linen px-4 py-10">
+        <div className="w-full max-w-md rounded-lg border border-ink/10 bg-white p-8 text-center shadow-soft">
+          <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-sage text-moss">
+            <span className="h-6 w-6 animate-spin rounded-full border-2 border-moss/20 border-t-moss" />
+          </span>
+          <h1 className="mt-5 text-2xl font-black text-ink">Chargement du restaurant</h1>
+          <p className="mt-2 text-sm font-semibold text-ink/60">
+            Préparation de la page de réservation
+            <span className="ml-1 inline-flex w-6 justify-start">
+              <span className="animate-bounce">.</span>
+              <span className="animate-bounce [animation-delay:120ms]">.</span>
+              <span className="animate-bounce [animation-delay:240ms]">.</span>
+            </span>
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!restaurant && initialRestaurantSlug && restaurantsQuery.isSuccess) {
+    return (
+      <main className="grid min-h-[70vh] place-items-center bg-linen px-4 py-10">
+        <div className="w-full max-w-md rounded-lg border border-ink/10 bg-white p-8 text-center shadow-soft">
+          <h1 className="text-2xl font-black text-ink">Restaurant introuvable</h1>
+          <p className="mt-2 text-sm font-semibold text-ink/60">
+            La page de réservation demandée n’est pas encore configurée.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_1fr] lg:px-8">
@@ -552,6 +660,7 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
                 onChange={(event) => {
                   booking.setBookingField("autoAssignTable", event.target.checked);
                   booking.resetTable();
+                  setSelectedCombinationId(undefined);
                 }}
               />
               <span>
@@ -688,11 +797,46 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
             <div className="mt-4 rounded-md bg-sage/60 p-3 text-sm font-semibold text-ink">
               {availabilityQuery.isFetching
                 ? t("booking.checking")
-                : `${availableTables.length} ${
-                    availableTables.length === 1
+                : `${availabilityOptionCount} ${
+                    availabilityOptionCount === 1
                       ? t("booking.tableAvailable")
                       : t("booking.tablesAvailable")
                   }`}
+            </div>
+          ) : null}
+
+          {availableCombinations.length > 0 ? (
+            <div className="mt-4 rounded-md border border-moss/20 bg-white p-3">
+              <div className="flex items-start gap-2">
+                <Sparkles className="mt-0.5 h-4 w-4 text-moss" />
+                <div>
+                  <p className="text-sm font-black text-ink">Combinaison de tables proposée</p>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-ink/60">
+                    Aucune table seule ne correspond à {booking.numberOfGuests} couverts, mais ces tables peuvent être réunies.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {availableCombinations.map((combination) => (
+                  <button
+                    key={combination.combination.id}
+                    className={`rounded-md border p-3 text-left transition ${
+                      selectedCombinationId === combination.combination.id
+                        ? "border-moss bg-sage text-moss"
+                        : "border-ink/10 bg-linen hover:border-moss"
+                    }`}
+                    type="button"
+                    onClick={() => selectCombination(combination)}
+                  >
+                    <span className="block text-sm font-black">
+                      {combination.tables.map((table) => table.label).join(" + ")}
+                    </span>
+                    <span className="mt-1 block text-xs font-semibold text-ink/60">
+                      {combination.capacity} places au total · {combination.combination.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
 
@@ -721,7 +865,7 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
             disabled={
               !restaurant ||
               !selectedSlot?.selectable ||
-              (!booking.autoAssignTable && !booking.selectedTableId) ||
+              (!booking.autoAssignTable && !booking.selectedTableId && !selectedCombinationId) ||
               !contactComplete ||
               reservationMutation.isPending
             }
@@ -754,9 +898,9 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
         ) : null}
       </section>
 
-      <section>
-        <div className="mb-3 grid gap-3 rounded-lg border border-ink/10 bg-white p-3 shadow-soft sm:grid-cols-[220px_1fr] sm:items-center">
-          <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1">
+	      <section>
+	        <div className="mb-3 grid gap-3 rounded-lg border border-ink/10 bg-white p-3 shadow-soft lg:grid-cols-[220px_minmax(0,1fr)_240px] lg:items-center">
+	          <div className="grid grid-cols-2 rounded-md border border-ink/10 bg-linen p-1">
             <button
               className={`inline-flex h-9 items-center justify-center gap-2 rounded text-sm font-semibold ${
                 floorViewMode === "2d" ? "bg-white shadow-sm" : "text-ink/65"
@@ -778,8 +922,8 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
               {t("floor.view3d")}
             </button>
           </div>
-          <label className="text-sm font-semibold text-ink">
-            {t("floor.zoom")}
+	          <label className="text-sm font-semibold text-ink">
+	            {t("floor.zoom")}
             <input
               className="mt-2 w-full accent-moss"
               min={60}
@@ -788,16 +932,37 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
               type="range"
               value={Math.round(floorZoom * 100)}
               onChange={(event) => setFloorZoom(Number(event.target.value) / 100)}
-            />
-          </label>
-        </div>
-        <div className="relative">
-          <FloorPlan
-            mode="booking"
-            tables={restaurantTables}
+	            />
+	          </label>
+          {activeFloorRooms.length > 1 ? (
+            <label className="text-sm font-semibold text-ink">
+              Salle
+              <select
+                className="control mt-2 w-full"
+                value={currentRoomId}
+                onChange={(event) => {
+                  setSelectedRoomId(event.target.value);
+                  booking.setBookingField("selectedTableId", undefined);
+                  setSelectedCombinationId(undefined);
+                }}
+              >
+                {activeFloorRooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    {room.name} · {roomTypeLabels[room.type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+	        </div>
+	        <div className="relative">
+	          <FloorPlan
+	            mode="booking"
+	            tables={displayedRestaurantTables}
             viewMode={floorViewMode}
             zoom={floorZoom}
             selectedTableId={booking.selectedTableId}
+            selectedTableIds={selectedTableIds}
             availableTableIds={selectedSlot?.selectable ? availableIds : []}
             modelUrl={floorPlanModelUrl}
             backgroundImageUrl={floorPlan2dImageUrl}
@@ -808,7 +973,15 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
               }
             }}
             onSelect={(table) => {
+              const matchingCombination = availableCombinations.find((combination) => combination.tableIds.includes(table.id));
+
+              if (matchingCombination) {
+                selectCombination(matchingCombination);
+                return;
+              }
+
               if (!booking.autoAssignTable && availableIds.includes(table.id)) {
+                setSelectedCombinationId(undefined);
                 booking.setBookingField("selectedTableId", table.id);
               }
             }}

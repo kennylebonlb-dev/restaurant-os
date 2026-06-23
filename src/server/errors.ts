@@ -9,3 +9,7 @@ export class NotFoundError extends Error {
 export class ConflictError extends Error {
   status = 409;
 }
+
+export class TooManyRequestsError extends Error {
+  status = 429;
+}

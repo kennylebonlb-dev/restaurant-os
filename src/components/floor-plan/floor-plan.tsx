@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Armchair, Copy, Eye, Lock, RotateCw, Trash2, X } from "lucide-react";
+import { Armchair, Copy, Eye, LoaderCircle, LocateFixed, Lock, RotateCw, Trash2, UserRound, X } from "lucide-react";
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { FloorPlan3D } from "@/components/floor-plan/floor-plan-3d";
 import type { DetectedGlbTable, FloorTable, TableShape } from "@/lib/domain";
@@ -16,19 +16,43 @@ type FloorPlanProps = {
   viewMode?: "2d" | "3d";
   zoom?: number;
   selectedTableId?: string;
+  selectedTableIds?: string[];
+  tableBadges?: Record<string, TableBadge>;
+  tableTones?: Record<string, TableBadge["tone"]>;
+  pendingDuplicateTableId?: string | null;
   availableTableIds?: string[];
+  allowUnavailableSelect?: boolean;
+  showCenterControl?: boolean;
+  showLockIndicator?: boolean;
+  showTableViewButtons?: boolean;
   layoutLocked?: boolean;
   deleteMode?: boolean;
   modelUrl?: string;
   backgroundImageUrl?: string;
-  onSelect?: (table: FloorTable) => void;
+  onSelect?: (table: FloorTable, options?: { additive: boolean }) => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
   onDelete?: (tableId: string) => void;
+  onDeselect?: () => void;
   onDuplicate?: (table: FloorTable) => void;
   onRotate?: (table: FloorTable) => void;
   onView?: (table: FloorTable) => void;
+  onBadgeSelect?: (reservationId: string) => void;
   onZoomChange?: (zoom: number) => void;
   onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
+};
+
+export type TableBadge = {
+  title: string;
+  detail: string;
+  tone?: "reserved" | "blocked" | "warning" | "vip" | "cancelled";
+  tableLabel?: string | null;
+  guestCount?: number;
+  riskLabel?: string | null;
+  riskCritical?: boolean;
+  reservationId?: string;
+  startTime?: string;
+  isCombined?: boolean;
+  delayLabel?: string | null;
 };
 
 type DragState = {
@@ -45,13 +69,12 @@ type PanState = {
 };
 
 function tableFootprint(capacity: number, shape: TableShape = "ROUND", displayScale = 1) {
-  const scale = Math.min(1.8, Math.max(0.6, displayScale));
+  const scale = Math.min(2.4, Math.max(0.5, displayScale));
   const applyScale = (value: number) => Math.round(value * scale);
 
   if (shape === "RECTANGLE") {
-    const base = capacity >= 7
-      ? { width: 136, height: 58, rounded: "rounded-md" }
-      : { width: 112, height: 58, rounded: "rounded-md" };
+    const baseWidth = Math.min(220, 86 + Math.max(0, capacity - 2) * 13);
+    const base = { width: baseWidth, height: 58, rounded: "rounded-md" };
 
     return {
       ...base,
@@ -102,13 +125,47 @@ function tableZoneTheme(zone: FloorTable["zone"]) {
   };
 }
 
+function tableBadgeTheme(badge?: TableBadge) {
+  if (!badge) {
+    return null;
+  }
+
+  if (badge.tone === "blocked" || badge.tone === "cancelled" || badge.tone === "warning") {
+    return {
+      background: "#fee2e2",
+      border: "#dc2626",
+      selected: "#b91c1c",
+      text: "#7f1d1d"
+    };
+  }
+
+  if (badge.tone === "reserved" || badge.tone === "vip") {
+    return {
+      background: "#fed7aa",
+      border: "#ea580c",
+      selected: "#c2410c",
+      text: "#431407"
+    };
+  }
+
+  return null;
+}
+
 export function FloorPlan({
   tables,
   mode,
   viewMode = "2d",
   zoom = 1,
   selectedTableId,
+  selectedTableIds,
+  tableBadges,
+  tableTones,
+  pendingDuplicateTableId,
   availableTableIds,
+  allowUnavailableSelect = false,
+  showCenterControl = false,
+  showLockIndicator = true,
+  showTableViewButtons = true,
   layoutLocked = false,
   deleteMode = false,
   modelUrl,
@@ -116,9 +173,11 @@ export function FloorPlan({
   onSelect,
   onMove,
   onDelete,
+  onDeselect,
   onDuplicate,
   onRotate,
   onView,
+  onBadgeSelect,
   onZoomChange,
   onDetectedTablesChange
 }: FloorPlanProps) {
@@ -133,6 +192,7 @@ export function FloorPlan({
   const [isPanning, setIsPanning] = useState(false);
   const effectiveTwoDScale = twoDScale * zoom;
   const availableSet = availableTableIds ? new Set(availableTableIds) : undefined;
+  const selectedSet = selectedTableIds ? new Set(selectedTableIds) : undefined;
   const { t } = useI18n();
 
   useEffect(() => {
@@ -186,6 +246,10 @@ export function FloorPlan({
   }, [effectiveTwoDScale, viewMode]);
 
   useEffect(() => {
+    if (dragRef.current) {
+      return;
+    }
+
     const nextTables = tables.map((table) => {
       const optimisticPosition = optimisticPositionsRef.current[table.id];
 
@@ -218,11 +282,14 @@ export function FloorPlan({
     const scaledHeight = PLAN_HEIGHT * scale;
 
     function clampAxis(value: number, viewportSize: number, scaledSize: number) {
+      const panMargin = 320;
+
       if (scaledSize <= viewportSize) {
-        return (viewportSize - scaledSize) / 2;
+        const centered = (viewportSize - scaledSize) / 2;
+        return Math.max(centered - panMargin, Math.min(centered + panMargin, value));
       }
 
-      return Math.max(viewportSize - scaledSize, Math.min(0, value));
+      return Math.max(viewportSize - scaledSize - panMargin, Math.min(panMargin, value));
     }
 
     return {
@@ -231,11 +298,24 @@ export function FloorPlan({
     };
   }
 
+  function centerPan(scale = effectiveTwoDScale) {
+    const viewport = viewportRef.current;
+    const viewportWidth = viewport?.clientWidth ?? PLAN_WIDTH;
+    const viewportHeight = viewport?.clientHeight ?? PLAN_HEIGHT;
+
+    const upwardNudge = Math.min(42, Math.max(18, viewportHeight * 0.08));
+
+    setPan({
+      x: (viewportWidth - PLAN_WIDTH * scale) / 2,
+      y: (viewportHeight - PLAN_HEIGHT * scale) / 2 - upwardNudge
+    });
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>, table: FloorTable) {
     event.stopPropagation();
-    onSelect?.(table);
+    onSelect?.(table, { additive: event.metaKey || event.ctrlKey || event.shiftKey });
 
-    if (mode !== "admin" || layoutLocked || deleteMode) {
+    if (selectedTableIds || mode !== "admin" || layoutLocked || deleteMode) {
       return;
     }
 
@@ -257,6 +337,8 @@ export function FloorPlan({
     if (event.button !== 0) {
       return;
     }
+
+    onDeselect?.();
 
     panRef.current = {
       startX: event.clientX,
@@ -379,7 +461,7 @@ export function FloorPlan({
         <div>
           <h2 className="text-base font-bold text-ink">{t("floor.title")}</h2>
         </div>
-        {layoutLocked ? (
+        {showLockIndicator && layoutLocked ? (
           <span className="inline-flex items-center gap-2 rounded-md border border-ink/10 bg-sage px-3 py-2 text-xs font-semibold text-ink">
             <Lock className="h-3.5 w-3.5" />
             {t("floor.locked")}
@@ -391,7 +473,12 @@ export function FloorPlan({
           tables={tables}
           mode={mode}
           selectedTableId={selectedTableId}
+          selectedTableIds={selectedTableIds}
+          tableBadges={tableBadges}
+          tableTones={tableTones}
           availableTableIds={availableTableIds}
+          allowUnavailableSelect={allowUnavailableSelect}
+          showTableViewButtons={showTableViewButtons}
           layoutLocked={layoutLocked}
           deleteMode={deleteMode}
           modelUrl={modelUrl}
@@ -399,14 +486,16 @@ export function FloorPlan({
           onSelect={onSelect}
           onMove={onMove}
           onDelete={onDelete}
+          onDeselect={onDeselect}
           onView={onView}
+          onBadgeSelect={onBadgeSelect}
           onDetectedTablesChange={onDetectedTablesChange}
         />
       ) : (
         <div
           ref={viewportRef}
           className={clsx(
-            "relative w-full max-w-full touch-none overflow-hidden rounded-md border border-ink/10 bg-[#30302f]",
+            "relative w-full max-w-full touch-none overflow-hidden rounded-md border border-ink/10 bg-white",
             isPanning ? "cursor-grabbing" : "cursor-grab"
           )}
           style={{ height: PLAN_HEIGHT, overscrollBehavior: "contain" }}
@@ -415,9 +504,25 @@ export function FloorPlan({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         >
+          {showCenterControl ? (
+            <button
+              aria-label="Centrer le plan"
+              className="absolute right-3 top-3 z-40 grid h-9 w-9 place-items-center rounded-full border border-ink/10 bg-white text-ink shadow-soft transition hover:bg-sage focus:outline-none focus:ring-2 focus:ring-moss/30"
+              title="Centrer le plan"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onZoomChange?.(1);
+                centerPan(1);
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <LocateFixed className="h-4 w-4" />
+            </button>
+          ) : null}
           <div
             ref={containerRef}
-            className="absolute left-0 top-0 overflow-hidden bg-[#30302f]"
+            className="absolute left-0 top-0 overflow-hidden bg-white"
             style={{
               width: PLAN_WIDTH,
               height: PLAN_HEIGHT,
@@ -455,17 +560,22 @@ export function FloorPlan({
             </>
           )}
           {draftTables.map((table) => {
-            const disabled =
+            const unavailable =
               mode === "booking" ? (availableSet ? !availableSet.has(table.id) : !table.active) : false;
-            const selected = table.id === selectedTableId;
+            const disabled = unavailable && !allowUnavailableSelect;
+            const selected = table.id === selectedTableId || Boolean(selectedSet?.has(table.id));
+            const badge = tableBadges?.[table.id];
+            const tableTone = tableTones?.[table.id];
             const displayScale = table.displayScale ?? 1;
             const footprint = tableFootprint(table.capacity, table.shape, displayScale);
-            const chairSize = Math.max(8, Math.min(16, 12 * displayScale));
-            const chairGap = Math.max(8, 12 * displayScale);
-            const zoneTheme = tableZoneTheme(table.zone);
-            const compactTable = displayScale <= 0.72;
-            const labelFontSize = Math.max(9, Math.min(12, 11 * displayScale));
-            const seatsFontSize = Math.max(8, Math.min(10, 10 * displayScale));
+            const chairSize = Math.max(5, Math.min(16, 12 * displayScale));
+            const chairGap = Math.max(5, 12 * displayScale);
+            const zoneTheme = tableBadgeTheme(badge ?? (tableTone ? { title: "", detail: "", tone: tableTone } : undefined)) ?? tableZoneTheme(table.zone);
+            const compactTable = displayScale <= 0.55;
+            const labelFontSize = Math.max(10, Math.min(15, 13 * displayScale));
+            const seatsFontSize = Math.max(8, Math.min(11, 10.5 * displayScale));
+            const badgeTooltipX = table.positionX > PLAN_WIDTH - 280 ? "right-0 left-auto" : "left-0";
+            const badgeTooltipY = table.positionY > PLAN_HEIGHT - 220 ? "bottom-8 top-auto" : "top-6";
 
             return (
               <div
@@ -473,73 +583,152 @@ export function FloorPlan({
                 className="absolute"
                 style={{
                   left: table.positionX,
-                  top: table.positionY,
-                  transform: `rotate(${table.rotation}deg)`
+                  top: table.positionY
                 }}
               >
-                {Array.from({ length: Math.min(table.capacity, 10) }, (_, index) => {
-                  const angle = (index / Math.min(table.capacity, 10)) * Math.PI * 2;
-                  const chairX =
-                    Math.cos(angle) * (footprint.width / 2 + chairGap) +
-                    footprint.width / 2 -
-                    chairSize / 2;
-                  const chairY =
-                    Math.sin(angle) * (footprint.height / 2 + chairGap) +
-                    footprint.height / 2 -
-                    chairSize / 2;
-
-                  return (
-                    <span
-                      key={index}
-                      className="absolute rounded-sm border border-ink/10 bg-[#f6f2e8] shadow-sm"
-                      style={{
-                        left: chairX,
-                        top: chairY,
-                        width: chairSize,
-                        height: chairSize
-                      }}
-                    />
-                  );
-                })}
-                <button
-                  type="button"
-                  title={t("floor.tableTitle", { label: table.label, capacity: table.capacity })}
-                  disabled={disabled}
-                  className={clsx(
-                    "relative z-10 flex touch-none select-none flex-col items-center justify-center gap-0.5 border text-xs font-bold shadow-sm transition focus-ring",
-                    footprint.rounded,
-                    selected ? "text-white" : "hover:brightness-105",
-                    !table.active && mode === "admin" && "border-dashed opacity-60",
-                    disabled && "cursor-not-allowed opacity-35"
-                  )}
+                <div
+                  className="relative"
                   style={{
                     width: footprint.width,
                     height: footprint.height,
-                    backgroundColor: selected ? zoneTheme.selected : zoneTheme.background,
-                    borderColor: selected ? zoneTheme.selected : zoneTheme.border,
-                    color: selected ? "#ffffff" : zoneTheme.text
+                    transform: `rotate(${table.rotation}deg)`,
+                    transformOrigin: "center"
                   }}
-                  onClick={() => onSelect?.(table)}
-                  onPointerDown={(event) => handlePointerDown(event, table)}
                 >
-                  {compactTable ? null : <Armchair className="h-4 w-4" />}
-                  <span
-                    className="max-w-full px-1 text-center leading-none"
+                  {Array.from({ length: Math.min(table.capacity, 10) }, (_, index) => {
+                    const angle = (index / Math.min(table.capacity, 10)) * Math.PI * 2;
+                    const chairX =
+                      Math.cos(angle) * (footprint.width / 2 + chairGap) +
+                      footprint.width / 2 -
+                      chairSize / 2;
+                    const chairY =
+                      Math.sin(angle) * (footprint.height / 2 + chairGap) +
+                      footprint.height / 2 -
+                      chairSize / 2;
+
+                    return (
+                      <span
+                        key={index}
+                        className="absolute rounded-sm border border-ink/10 bg-[#f6f2e8] shadow-sm"
+                        style={{
+                          left: chairX,
+                          top: chairY,
+                          width: chairSize,
+                          height: chairSize
+                        }}
+                      />
+                    );
+                  })}
+                  <button
+                    type="button"
+                    title={t("floor.tableTitle", { label: table.label, capacity: table.capacity })}
+                    disabled={disabled}
+                    className={clsx(
+                      "relative z-10 flex touch-none select-none flex-col items-center justify-center gap-0.5 border text-xs font-bold shadow-sm transition focus-ring",
+                      footprint.rounded,
+                      selected ? "text-white" : "hover:brightness-105",
+                      !table.active && mode === "admin" && "border-dashed opacity-60",
+                      disabled && "cursor-not-allowed opacity-35"
+                    )}
                     style={{
-                      fontSize: labelFontSize,
-                      overflowWrap: "anywhere"
+                      width: footprint.width,
+                      height: footprint.height,
+                      backgroundColor: selected ? zoneTheme.selected : zoneTheme.background,
+                      borderColor: selected ? zoneTheme.selected : zoneTheme.border,
+                      color: selected ? "#ffffff" : zoneTheme.text
                     }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!selectedTableIds) {
+                        onSelect?.(table, { additive: event.metaKey || event.ctrlKey || event.shiftKey });
+                      }
+                    }}
+                    onPointerDown={(event) => handlePointerDown(event, table)}
                   >
-                    {table.label}
-                  </span>
-                  <span
-                    className="max-w-full px-1 text-center font-semibold leading-none opacity-75"
-                    style={{ fontSize: seatsFontSize, overflowWrap: "anywhere" }}
+                    <span
+                      className="flex flex-col items-center justify-center gap-0.5"
+                      style={{ transform: `rotate(${-table.rotation}deg)` }}
+                    >
+                      {compactTable ? null : <Armchair className="h-4 w-4" />}
+                      <span
+                        className="max-w-full px-1 text-center leading-none"
+                        style={{
+                          fontSize: labelFontSize,
+                          overflowWrap: "anywhere"
+                        }}
+                      >
+                        {table.label}
+                      </span>
+                      <span
+                        className="max-w-full px-1 text-center font-semibold leading-none opacity-75"
+                        style={{ fontSize: seatsFontSize, overflowWrap: "anywhere" }}
+                      >
+                        {t("floor.seats", { count: table.capacity })}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+	                {badge ? (
+	                  <button
+	                    className="group absolute -left-2 -top-2 z-[500] text-left outline-none hover:z-[900] focus:z-[900]"
+                    data-dashboard-reservation-badge
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (badge.reservationId) {
+                        onBadgeSelect?.(badge.reservationId);
+                      }
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
                   >
-                    {t("floor.seats", { count: table.capacity })}
-                  </span>
-                </button>
-                {mode === "booking" && table.viewImageUrl ? (
+                    <span
+                      className={clsx(
+                        "grid h-7 w-7 place-items-center rounded-full border-2 border-white text-white shadow-md transition group-hover:scale-110",
+                        badge.tone === "vip" || badge.tone === "reserved" ? "bg-orange-500" : badge.tone === "warning" || badge.tone === "cancelled" || badge.tone === "blocked" ? "bg-red-500" : "bg-moss"
+                      )}
+                      aria-label={badge.title}
+                    >
+                      {badge.tone === "cancelled" ? <X className="h-4 w-4" aria-hidden="true" /> : <UserRound className="h-3.5 w-3.5" aria-hidden="true" />}
+                    </span>
+                    {badge.delayLabel ? (
+                      <span className="absolute -right-9 -top-1 rounded-full border border-white bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white shadow-md">
+                        {badge.delayLabel}
+                      </span>
+                    ) : null}
+		                    <div className={clsx("pointer-events-none absolute z-[950] w-60 rounded-md border border-ink/10 bg-white p-3 text-left text-xs font-semibold leading-5 text-ink opacity-0 shadow-soft transition group-hover:opacity-100 group-focus:opacity-100", badgeTooltipX, badgeTooltipY)}>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-black text-ink">{badge.title}</p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {badge.tableLabel ? (
+                            <span className="rounded-md bg-moss px-2 py-1 text-[11px] font-black leading-none text-white">
+                              {badge.tableLabel}
+                            </span>
+                          ) : null}
+                          {badge.guestCount ? (
+                            <span className="rounded-md bg-ink px-2 py-1 text-sm font-black leading-none text-white">
+                              {badge.guestCount}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      {badge.startTime ? <p className="mt-1 text-lg font-black leading-none text-ink">{badge.startTime}</p> : null}
+                      {badge.isCombined ? <p className="mt-1 inline-block border-b border-moss text-[11px] font-black text-moss">Table combinée</p> : null}
+                      {badge.riskLabel ? (
+                        <p
+                          className={clsx(
+                            "mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-black",
+                            badge.riskCritical ? "bg-red-50 text-red-700" : "bg-sage text-moss"
+                          )}
+                        >
+                          {badge.riskLabel}
+                        </p>
+                      ) : null}
+                      {badge.delayLabel ? <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[11px] font-black text-red-700">{badge.delayLabel}</p> : null}
+                      <p className="mt-1 text-ink/65">{badge.detail}</p>
+                    </div>
+                  </button>
+                ) : null}
+                {showTableViewButtons && mode === "booking" && table.viewImageUrl ? (
                   <button
                     className={clsx(
                       "absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition focus-ring",
@@ -561,10 +750,7 @@ export function FloorPlan({
                   </button>
                 ) : null}
                 {mode === "admin" && selected && !deleteMode ? (
-                  <div
-                    className="absolute -right-3 top-1/2 z-20 flex -translate-y-1/2 translate-x-full flex-col gap-1"
-                    style={{ transform: `translate(100%, -50%) rotate(${-table.rotation}deg)` }}
-                  >
+                  <div className="absolute -right-3 top-1/2 z-20 flex -translate-y-1/2 translate-x-full flex-col gap-1">
                     <button
                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition hover:bg-sage"
                       title={t("admin.duplicateTable")}
@@ -575,7 +761,11 @@ export function FloorPlan({
                       }}
                       onPointerDown={(event) => event.stopPropagation()}
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      {pendingDuplicateTableId === table.id ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
                     </button>
                     <button
                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-white text-ink shadow-md transition hover:bg-sage"
@@ -583,6 +773,16 @@ export function FloorPlan({
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
+                        setDraftTables((current) =>
+                          current.map((item) =>
+                            item.id === table.id
+                              ? {
+                                  ...item,
+                                  rotation: (Math.round(item.rotation) + 90) % 360
+                                }
+                              : item
+                          )
+                        );
                         onRotate?.(table);
                       }}
                       onPointerDown={(event) => event.stopPropagation()}
@@ -618,7 +818,6 @@ export function FloorPlan({
                 {mode === "admin" && deleteMode ? (
                   <button
                     className="absolute -right-3 -top-3 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white bg-red-600 text-white shadow-md transition hover:bg-red-700"
-                    style={{ transform: `rotate(${-table.rotation}deg)` }}
                     title={t("admin.deleteTable")}
                     type="button"
                     onClick={(event) => {

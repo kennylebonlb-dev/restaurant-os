@@ -3,6 +3,7 @@ import { compare } from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import { assertRateLimit } from "@/server/rate-limit";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -26,6 +27,11 @@ export const authOptions: NextAuthOptions = {
         if (!email || !password) {
           return null;
         }
+
+        assertRateLimit(`auth:login:${email}`, {
+          limit: 8,
+          windowMs: 15 * 60_000
+        });
 
         const user = await prisma.user.findUnique({ where: { email } });
 

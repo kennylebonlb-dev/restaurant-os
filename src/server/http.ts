@@ -37,6 +37,41 @@ export function apiError(error: unknown) {
     return NextResponse.json({ message: error.message }, { status });
   }
 
+  if (error && typeof error === "object" && ("type" in error || "rawType" in error)) {
+    const stripeError = error as {
+      code?: string;
+      message?: string;
+      param?: string;
+      rawType?: string;
+      statusCode?: number;
+      type?: string;
+    };
+    const isStripeError =
+      typeof stripeError.type === "string" && stripeError.type.startsWith("Stripe") ||
+      typeof stripeError.rawType === "string" && stripeError.rawType.includes("_error");
+
+    if (isStripeError) {
+      const status = stripeError.statusCode && stripeError.statusCode >= 400 ? stripeError.statusCode : 502;
+      const missingCustomer = typeof stripeError.message === "string" && stripeError.message.includes("No such customer");
+      const message = missingCustomer || stripeError.code === "resource_missing" && (stripeError.param === "customer" || stripeError.param === "id")
+        ? "Client Stripe introuvable. Un nouveau client Stripe va être créé automatiquement, veuillez réessayer."
+        : stripeError.message || "Stripe a refusé la demande de paiement.";
+
+      console.error(error);
+      return NextResponse.json({ message }, { status });
+    }
+  }
+
+  if (error instanceof Error && error.message.includes("exceeded the data transfer quota")) {
+    return NextResponse.json(
+      {
+        message:
+          "Base de données momentanément indisponible : le quota Neon de transfert de données est dépassé."
+      },
+      { status: 503 }
+    );
+  }
+
   if (
     error &&
     typeof error === "object" &&

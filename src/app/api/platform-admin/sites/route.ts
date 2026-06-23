@@ -1,9 +1,125 @@
+import type { RestaurantStaffRole } from "@prisma/client";
+import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { buildRestaurantSlug, defaultOpeningHours, defaultRestaurantSettings } from "@/lib/site-defaults";
 import { inferTimeZoneFromAddress } from "@/lib/time";
 import { createManagedRestaurantSchema } from "@/lib/validators";
 import { apiError, created, ok, parseJson } from "@/server/http";
 import { requirePlatformAdmin } from "@/server/platform-admin-auth";
+
+type PlatformUserRole = "OWNER" | "MANAGER" | "FLOOR_MANAGER" | "WAITER";
+
+function restaurantRoleFromPlatformRole(role: PlatformUserRole): RestaurantStaffRole {
+  if (role === "OWNER") {
+    return "OWNER";
+  }
+
+  if (role === "MANAGER") {
+    return "MANAGER";
+  }
+
+  return "HOST";
+}
+
+async function findOrCreateAccessUser(input: {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  password?: string;
+  phone?: string;
+}) {
+  const email = input.email.trim().toLowerCase();
+
+  if (!email) {
+    return null;
+  }
+
+  const name = [input.firstName, input.lastName].filter(Boolean).join(" ").trim() || email;
+  const passwordHash = input.password ? await hash(input.password, 12) : undefined;
+
+  return prisma.user.upsert({
+    where: {
+      email
+    },
+    update: {
+      name,
+      firstName: input.firstName || undefined,
+      lastName: input.lastName || undefined,
+      contactEmail: email,
+      passwordHash,
+      phone: input.phone || undefined
+    },
+    create: {
+      email,
+      name,
+      firstName: input.firstName || null,
+      lastName: input.lastName || null,
+      contactEmail: email,
+      phone: input.phone || null,
+      passwordHash,
+      role: "CLIENT"
+    },
+    select: {
+      id: true,
+      email: true
+    }
+  });
+}
+
+async function grantRestaurantAccess(input: {
+  restaurantId: string;
+  userId: string;
+  role: ReturnType<typeof restaurantRoleFromPlatformRole>;
+}) {
+  await prisma.restaurantUser.upsert({
+    where: {
+      restaurantId_userId: {
+        restaurantId: input.restaurantId,
+        userId: input.userId
+      }
+    },
+    update: {
+      role: input.role
+    },
+    create: {
+      restaurantId: input.restaurantId,
+      userId: input.userId,
+      role: input.role
+    }
+  });
+}
+
+async function syncPlatformRestaurantUsers(
+  restaurantId: string,
+  users: Array<{
+    role: PlatformUserRole;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+  }> = []
+) {
+  for (const userInput of users) {
+    const email = userInput.email;
+
+    if (!email) {
+      continue;
+    }
+
+    const user = await findOrCreateAccessUser({
+      ...userInput,
+      email
+    });
+
+    if (user) {
+      await grantRestaurantAccess({
+        restaurantId,
+        userId: user.id,
+        role: restaurantRoleFromPlatformRole(userInput.role)
+      });
+    }
+  }
+}
 
 async function uniqueRestaurantSlug(name: string, requestedSlug?: string) {
   const baseSlug = requestedSlug || buildRestaurantSlug(name);
@@ -126,6 +242,13 @@ export async function POST(request: Request) {
     await requirePlatformAdmin();
     const data = await parseJson(request, createManagedRestaurantSchema);
     const slug = await uniqueRestaurantSlug(data.name, data.slug);
+    const ownerEmail = data.ownerEmail?.trim().toLowerCase();
+    const owner = ownerEmail
+      ? await findOrCreateAccessUser({
+          email: ownerEmail,
+          password: data.ownerPassword || undefined
+        })
+      : null;
 
     const restaurant = await prisma.restaurant.create({
       data: {
@@ -135,10 +258,11 @@ export async function POST(request: Request) {
         address: data.address || null,
         phone: data.phone || null,
         timezone: inferTimeZoneFromAddress(data.address),
+        ownerId: owner?.id,
         openingHours: defaultOpeningHours(),
         settings: {
           ...defaultRestaurantSettings,
-          ownerEmail: data.ownerEmail || ""
+          ownerEmail: ownerEmail || ""
         },
         menu: []
       },
@@ -161,6 +285,14 @@ export async function POST(request: Request) {
         }
       }
     });
+
+    if (owner) {
+      await grantRestaurantAccess({
+        restaurantId: restaurant.id,
+        userId: owner.id,
+        role: "OWNER"
+      });
+    }
 
     return created({ restaurant: (await withRestaurantMetrics([restaurant]))[0] });
   } catch (error) {

@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider } from "next-auth/react";
 import { ReactNode, useState } from "react";
+import { ClientErrorReporter } from "@/components/layout/client-error-reporter";
 import { RealtimeBridge } from "@/components/layout/realtime-bridge";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -21,6 +22,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
+        <ClientErrorReporter />
         <RealtimeBridge />
         {children}
       </QueryClientProvider>

@@ -2965,7 +2965,7 @@ function ReservationRow({
           {reservation.table?.label ?? t("admin.noTable")} · {t(`status.${reservation.status}`)}
         </p>
         <p className="mt-1 text-xs font-black uppercase text-moss">
-          Réf. {reservation.referenceCode ?? reservation.id}
+          Réf. {reservation.referenceCode ?? "En attente"}
         </p>
         <p className="mt-1 text-xs font-semibold text-ink/50">
           {guestEmail}

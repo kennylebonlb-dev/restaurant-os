@@ -8,16 +8,40 @@ import { TopNav } from "@/components/layout/top-nav";
 import type { PlatformBrand } from "@/server/platform-settings";
 
 const chromeHiddenRoutes = new Set(["/", "/login", "/cmt-admin/login", "/passer-a-toquetop"]);
+const rootHosts = new Set(["toquetop.com", "www.toquetop.com", "localhost", "127.0.0.1"]);
+const ignoredSubdomains = new Set(["www", "app", "admin", "api"]);
+
+function isRestaurantSubdomainHost(host: string) {
+  const normalizedHost = host.split(":")[0]?.toLowerCase() ?? "";
+
+  if (rootHosts.has(normalizedHost) || !normalizedHost.endsWith(".toquetop.com")) {
+    return false;
+  }
+
+  const subdomain = normalizedHost.replace(/\.toquetop\.com$/, "");
+  return Boolean(subdomain) && !ignoredSubdomains.has(subdomain);
+}
 
 export function AppShell({
   brand,
-  children
+  children,
+  initialHost
 }: {
   brand: PlatformBrand;
   children: React.ReactNode;
+  initialHost: string;
 }) {
   const pathname = usePathname();
-  const hideChrome = chromeHiddenRoutes.has(pathname) || pathname.startsWith("/cmt-admin") || pathname.startsWith("/legal");
+  const isRestaurantSubdomain = isRestaurantSubdomainHost(initialHost);
+  const isRestaurantReservationPage =
+    isRestaurantSubdomain && (pathname === "/" || pathname === "/reservation" || pathname.startsWith("/sites/"));
+  const routeHidesChrome =
+    chromeHiddenRoutes.has(pathname) ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/cmt-admin") ||
+    pathname.startsWith("/legal");
+  const hideChrome =
+    routeHidesChrome && !isRestaurantReservationPage;
 
   return (
     <div className="flex min-h-screen flex-col">

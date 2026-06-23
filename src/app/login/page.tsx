@@ -1,17 +1,13 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { CalendarSearch, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
+import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { apiFetch } from "@/hooks/use-api";
 import { useI18n } from "@/lib/i18n";
-import type { PlatformBrand } from "@/server/platform-settings";
-
-type BrandResponse = {
-  brand: PlatformBrand;
-};
 
 type GuestReservationResponse = {
   reservations: Array<{
@@ -39,13 +35,8 @@ function LoginContent() {
   const [resetMessage, setResetMessage] = useState<string>();
   const [error, setError] = useState<string>();
   const { t } = useI18n();
-  const brandQuery = useQuery({
-    queryKey: ["platform-brand"],
-    queryFn: () => apiFetch<BrandResponse>("/api/platform-brand"),
-    staleTime: 60_000
-  });
-  const loginVisualUrl = brandQuery.data?.brand.loginVisualUrl ?? "/login-restaurant-visual.png";
   const resetToken = searchParams.get("resetToken");
+  const isResetPasswordMode = Boolean(resetToken) && showForgotPassword;
 
   const registerMutation = useMutation({
     mutationFn: () =>
@@ -81,8 +72,12 @@ function LoginContent() {
       }),
     onSuccess: (data) => {
       setResetMessage(data.message);
+      setForgotMessage(data.message);
       setPassword(resetPassword);
       setEmail(forgotEmail);
+      setMode("login");
+      setShowForgotPassword(false);
+      router.replace("/login");
     },
     onError: (resetError) => {
       setResetMessage(resetError.message);
@@ -138,29 +133,48 @@ function LoginContent() {
       return;
     }
 
-    router.push(searchParams.get("callbackUrl") ?? "/");
+    const callbackUrl = searchParams.get("callbackUrl");
+
+    if (callbackUrl) {
+      router.push(callbackUrl);
+      router.refresh();
+      return;
+    }
+
+    try {
+      const data = await apiFetch<{ restaurants: Array<{ id: string }> }>("/api/restaurants/current");
+      router.push(data.restaurants.length > 0 ? "/admin" : "/");
+    } catch {
+      router.push("/");
+    }
+
     router.refresh();
   }
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(460px,0.85fr)] lg:items-center lg:px-8">
-      <section className="login-visual-panel relative w-full overflow-hidden rounded-lg bg-ink shadow-soft">
+    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(460px,0.85fr)] lg:items-start lg:px-8">
+      <Link
+        aria-label="Retour à la page principale"
+        className="login-visual-panel relative block w-full overflow-hidden rounded-lg bg-ink shadow-soft lg:sticky lg:top-6 lg:self-start"
+        href="/"
+      >
         <img
-          src={loginVisualUrl}
-          alt="Salle de restaurant C’est ma table"
-          className="absolute inset-0 h-full w-full object-cover object-center"
+          alt="Visuel page connexion client"
+          className="h-full min-h-[520px] w-full object-cover"
+          src="/client-login-visual"
         />
-      </section>
+      </Link>
 
       <section className="flex items-center justify-center py-2 lg:py-8">
         <div className="w-full max-w-xl space-y-4">
+        {!isResetPasswordMode ? (
         <form className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-7" onSubmit={handleSubmit}>
           <div>
             <h1 className="text-2xl font-black text-ink">
               {mode === "login" ? t("login.signIn") : t("login.createAccount")}
             </h1>
             <p className="mt-2 text-sm font-medium leading-6 text-ink/65">
-              La table idéale n’attend plus que vous.
+              {t("login.tagline")}
             </p>
           </div>
 
@@ -290,10 +304,17 @@ function LoginContent() {
             </p>
           ) : null}
 
+          {forgotMessage && !showForgotPassword ? (
+            <p className="mt-4 rounded-md bg-moss/10 p-3 text-sm font-semibold text-moss">
+              {forgotMessage}
+            </p>
+          ) : null}
+
           <button className="primary-button mt-5 w-full" disabled={registerMutation.isPending} type="submit">
             {mode === "login" ? t("login.signIn") : t("login.createAccount")}
           </button>
         </form>
+        ) : null}
 
         {showForgotPassword ? (
           <form
@@ -367,6 +388,7 @@ function LoginContent() {
           </form>
         ) : null}
 
+        {!isResetPasswordMode ? (
         <form
           className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-6"
           onSubmit={(event) => {
@@ -395,7 +417,7 @@ function LoginContent() {
                   className="control with-leading-icon w-full"
                   value={guestReferenceName}
                   onChange={(event) => setGuestReferenceName(event.target.value)}
-                  placeholder="dupontjean"
+                  placeholder="dupontjean ou TTE3TK8H"
                   required
                 />
               </div>
@@ -415,6 +437,9 @@ function LoginContent() {
                   required
                 />
               </div>
+              <span className="mt-1 block text-xs font-semibold text-ink/50">
+                {t("login.phoneExample")}
+              </span>
             </label>
           </div>
           {guestError ? (
@@ -426,6 +451,7 @@ function LoginContent() {
             {t("login.openReservation")}
           </button>
         </form>
+        ) : null}
         </div>
       </section>
     </main>

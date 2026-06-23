@@ -29,16 +29,26 @@ setRealtimeServer(io);
 io.on("connection", (socket) => {
   socket.join("smartable:global");
 
-  socket.on("restaurant:join", (restaurantId: string) => {
+  socket.on("restaurant:join", (restaurantId: string, ack?: (response: { ok: boolean; room?: string }) => void) => {
     if (restaurantId) {
-      socket.join(`restaurant:${restaurantId}`);
+      const room = `restaurant:${restaurantId}`;
+      socket.join(room);
+      ack?.({ ok: true, room });
+      return;
     }
+
+    ack?.({ ok: false });
   });
 
-  socket.on("restaurant:leave", (restaurantId: string) => {
+  socket.on("restaurant:leave", (restaurantId: string, ack?: (response: { ok: boolean; room?: string }) => void) => {
     if (restaurantId) {
-      socket.leave(`restaurant:${restaurantId}`);
+      const room = `restaurant:${restaurantId}`;
+      socket.leave(room);
+      ack?.({ ok: true, room });
+      return;
     }
+
+    ack?.({ ok: false });
   });
 });
 

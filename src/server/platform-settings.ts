@@ -12,6 +12,7 @@ export type PlatformBrand = {
   marketingFooterLogoUrl: string;
   marketingFooterLogoHeight: number;
   loginVisualUrl: string;
+  adminLoginVisualUrl: string;
   faviconUrl: string;
   logoAlt: string;
   supportEmail?: string;
@@ -19,22 +20,38 @@ export type PlatformBrand = {
 
 const BRAND_KEY = "brand";
 const LANDING_KEY = "landing";
+const ADMIN_LOGIN_KEY = "admin-login";
 const EMAIL_SETTINGS_KEY = "email-settings";
+const SMS_SETTINGS_KEY = "sms-settings";
 
 export const defaultPlatformBrand: PlatformBrand = {
-  siteName: "C’est ma table",
-  logoUrl: "/cest-ma-table-logo.png",
+  siteName: "ToqueTop",
+  logoUrl: "/toquetop-logo.svg",
   logoHeight: 48,
-  footerLogoUrl: "/cest-ma-table-logo.png",
+  footerLogoUrl: "/toquetop-logo.svg",
   footerLogoHeight: 32,
-  marketingLogoUrl: "/cest-ma-table-logo.png",
+  marketingLogoUrl: "/toquetop-logo.svg",
   marketingLogoHeight: 48,
-  marketingFooterLogoUrl: "/cest-ma-table-logo.png",
+  marketingFooterLogoUrl: "/toquetop-logo.svg",
   marketingFooterLogoHeight: 32,
   loginVisualUrl: "/login-restaurant-visual.png",
+  adminLoginVisualUrl: "/admin-login-visual-default.svg",
   faviconUrl: "/cest-ma-table-favicon.png",
-  logoAlt: "C’est ma table",
+  logoAlt: "ToqueTop",
   supportEmail: ""
+};
+
+export type PlatformAdminLoginSettings = {
+  badge: string;
+  title: string;
+  description: string;
+};
+
+export const defaultPlatformAdminLoginSettings: PlatformAdminLoginSettings = {
+  badge: "Accès restaurant",
+  title: "Pilotez votre salle en direct.",
+  description:
+    "Connectez-vous au Dashboard Live pour gérer les réservations, les tables, les services et vos clients en temps réel."
 };
 
 export type PlatformEmailTemplateKey =
@@ -81,7 +98,7 @@ export const emailTemplateKeys: PlatformEmailTemplateKey[] = [
 export const defaultPlatformEmailSettings: PlatformEmailSettings = {
   senderName: "ToqueTop",
   replyTo: "contact@toquetop.com",
-  logoUrl: "/cest-ma-table-logo.png",
+  logoUrl: "/toquetop-logo.svg",
   logoHeight: 44,
   backgroundColor: "#f7f1e8",
   cardColor: "#ffffff",
@@ -153,6 +170,63 @@ export const defaultPlatformEmailSettings: PlatformEmailSettings = {
   }
 };
 
+export type PlatformSmsTemplateKey =
+  | "reservationConfirmation"
+  | "reservationUpdate"
+  | "reservationCancellation"
+  | "reservationReminder";
+
+export type PlatformSmsTemplate = {
+  enabled: boolean;
+  message: string;
+};
+
+export type PlatformSmsSettings = {
+  enabled: boolean;
+  senderName: string;
+  reminderMinutesBefore: number;
+  creditsRemaining: number;
+  lowCreditThreshold: number;
+  templates: Record<PlatformSmsTemplateKey, PlatformSmsTemplate>;
+};
+
+export const smsTemplateKeys: PlatformSmsTemplateKey[] = [
+  "reservationConfirmation",
+  "reservationUpdate",
+  "reservationCancellation",
+  "reservationReminder"
+];
+
+export const defaultPlatformSmsSettings: PlatformSmsSettings = {
+  enabled: true,
+  senderName: "ToqueTop",
+  reminderMinutesBefore: 120,
+  creditsRemaining: 49,
+  lowCreditThreshold: 10,
+  templates: {
+    reservationConfirmation: {
+      enabled: true,
+      message:
+        "{{siteName}} : reservation confirmee chez {{restaurantName}} le {{reservationDate}} a {{reservationTime}} pour {{guests}} pers. Ref {{reservationReference}}."
+    },
+    reservationUpdate: {
+      enabled: true,
+      message:
+        "{{siteName}} : votre reservation chez {{restaurantName}} est modifiee au {{reservationDate}} a {{reservationTime}}. Ref {{reservationReference}}."
+    },
+    reservationCancellation: {
+      enabled: true,
+      message:
+        "{{siteName}} : votre reservation chez {{restaurantName}} a ete annulee. Ref {{reservationReference}}."
+    },
+    reservationReminder: {
+      enabled: true,
+      message:
+        "{{siteName}} : rappel, votre reservation chez {{restaurantName}} est prevue le {{reservationDate}} a {{reservationTime}}. Adresse : {{restaurantAddress}}. Ref {{reservationReference}}."
+    }
+  }
+};
+
 export type PlatformLandingLink = {
   label: string;
   href: string;
@@ -187,6 +261,7 @@ export type PlatformLandingTypography = {
   heroTitleSize: number;
   heroSubtitleSize: number;
   sectionTitleSize: number;
+  sectionTitleMaxWidth: number;
   sectionTextSize: number;
   cardTitleSize: number;
   cardTextSize: number;
@@ -390,6 +465,7 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
     heroTitleSize: 72,
     heroSubtitleSize: 18,
     sectionTitleSize: 48,
+    sectionTitleMaxWidth: 900,
     sectionTextSize: 16,
     cardTitleSize: 20,
     cardTextSize: 14
@@ -750,6 +826,7 @@ function normalizeTypography(value: unknown, fallback = defaultPlatformLandingSe
     heroTitleSize: normalizeNumber(record.heroTitleSize, fallback.heroTitleSize, 42, 96),
     heroSubtitleSize: normalizeNumber(record.heroSubtitleSize, fallback.heroSubtitleSize, 14, 28),
     sectionTitleSize: normalizeNumber(record.sectionTitleSize, fallback.sectionTitleSize, 28, 72),
+    sectionTitleMaxWidth: normalizeNumber(record.sectionTitleMaxWidth, fallback.sectionTitleMaxWidth, 420, 1200),
     sectionTextSize: normalizeNumber(record.sectionTextSize, fallback.sectionTextSize, 13, 24),
     cardTitleSize: normalizeNumber(record.cardTitleSize, fallback.cardTitleSize, 14, 34),
     cardTextSize: normalizeNumber(record.cardTextSize, fallback.cardTextSize, 12, 22)
@@ -887,6 +964,14 @@ function normalizePlatformBrand(value: unknown): PlatformBrand {
   }
 
   const record = value as Record<string, unknown>;
+  const loginVisualUrl =
+    typeof record.loginVisualUrl === "string" && record.loginVisualUrl.trim()
+      ? record.loginVisualUrl
+      : defaultPlatformBrand.loginVisualUrl;
+  const storedAdminLoginVisualUrl =
+    typeof record.adminLoginVisualUrl === "string" && record.adminLoginVisualUrl.trim()
+      ? record.adminLoginVisualUrl
+      : "";
 
   return {
     siteName: typeof record.siteName === "string" && record.siteName.trim() ? record.siteName : defaultPlatformBrand.siteName,
@@ -919,16 +1004,31 @@ function normalizePlatformBrand(value: unknown): PlatformBrand {
       record.marketingFooterLogoHeight,
       normalizeImageHeight(record.footerLogoHeight, defaultPlatformBrand.marketingFooterLogoHeight)
     ),
-    loginVisualUrl:
-      typeof record.loginVisualUrl === "string" && record.loginVisualUrl.trim()
-        ? record.loginVisualUrl
-        : defaultPlatformBrand.loginVisualUrl,
+    loginVisualUrl,
+    adminLoginVisualUrl:
+      storedAdminLoginVisualUrl && storedAdminLoginVisualUrl !== loginVisualUrl
+        ? storedAdminLoginVisualUrl
+        : defaultPlatformBrand.adminLoginVisualUrl,
     faviconUrl:
       typeof record.faviconUrl === "string" && record.faviconUrl.trim()
         ? record.faviconUrl
         : defaultPlatformBrand.faviconUrl,
     logoAlt: typeof record.logoAlt === "string" && record.logoAlt.trim() ? record.logoAlt : defaultPlatformBrand.logoAlt,
     supportEmail: typeof record.supportEmail === "string" ? record.supportEmail : ""
+  };
+}
+
+function normalizePlatformAdminLoginSettings(value: unknown): PlatformAdminLoginSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultPlatformAdminLoginSettings;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    badge: normalizeString(record.badge, defaultPlatformAdminLoginSettings.badge),
+    title: normalizeString(record.title, defaultPlatformAdminLoginSettings.title),
+    description: normalizeString(record.description, defaultPlatformAdminLoginSettings.description)
   };
 }
 
@@ -1047,6 +1147,63 @@ function normalizePlatformEmailSettings(value: unknown): PlatformEmailSettings {
   };
 }
 
+function normalizeSmsTemplate(
+  value: unknown,
+  fallback: PlatformSmsTemplate
+): PlatformSmsTemplate {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    enabled: typeof record.enabled === "boolean" ? record.enabled : fallback.enabled,
+    message: normalizeString(record.message, fallback.message)
+  };
+}
+
+function normalizeSmsSenderName(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const senderName = value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 11);
+  return senderName || fallback;
+}
+
+function normalizePlatformSmsSettings(value: unknown): PlatformSmsSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultPlatformSmsSettings;
+  }
+
+  const record = value as Record<string, unknown>;
+  const templatesRecord =
+    record.templates && typeof record.templates === "object" && !Array.isArray(record.templates)
+      ? (record.templates as Record<string, unknown>)
+      : {};
+
+  return {
+    enabled: typeof record.enabled === "boolean" ? record.enabled : defaultPlatformSmsSettings.enabled,
+    senderName: normalizeSmsSenderName(record.senderName, defaultPlatformSmsSettings.senderName),
+    reminderMinutesBefore: normalizeNumber(
+      record.reminderMinutesBefore,
+      defaultPlatformSmsSettings.reminderMinutesBefore,
+      15,
+      2880
+    ),
+    creditsRemaining: normalizeNumber(record.creditsRemaining, defaultPlatformSmsSettings.creditsRemaining, 0, 999999),
+    lowCreditThreshold: normalizeNumber(record.lowCreditThreshold, defaultPlatformSmsSettings.lowCreditThreshold, 0, 999999),
+    templates: smsTemplateKeys.reduce(
+      (templates, key) => ({
+        ...templates,
+        [key]: normalizeSmsTemplate(templatesRecord[key], defaultPlatformSmsSettings.templates[key])
+      }),
+      {} as Record<PlatformSmsTemplateKey, PlatformSmsTemplate>
+    )
+  };
+}
+
 export async function getPlatformBrand() {
   const setting = await prisma.platformSetting.findUnique({
     where: {
@@ -1072,6 +1229,33 @@ export async function updatePlatformBrand(brand: PlatformBrand) {
   });
 
   return normalizePlatformBrand(setting.value);
+}
+
+export async function getPlatformAdminLoginSettings() {
+  const setting = await prisma.platformSetting.findUnique({
+    where: {
+      key: ADMIN_LOGIN_KEY
+    }
+  });
+
+  return normalizePlatformAdminLoginSettings(setting?.value);
+}
+
+export async function updatePlatformAdminLoginSettings(settings: PlatformAdminLoginSettings) {
+  const setting = await prisma.platformSetting.upsert({
+    where: {
+      key: ADMIN_LOGIN_KEY
+    },
+    update: {
+      value: settings as unknown as Prisma.InputJsonValue
+    },
+    create: {
+      key: ADMIN_LOGIN_KEY,
+      value: settings as unknown as Prisma.InputJsonValue
+    }
+  });
+
+  return normalizePlatformAdminLoginSettings(setting.value);
 }
 
 export async function getPlatformLandingSettings() {
@@ -1126,4 +1310,60 @@ export async function updatePlatformEmailSettings(settings: PlatformEmailSetting
   });
 
   return normalizePlatformEmailSettings(setting.value);
+}
+
+export async function getPlatformSmsSettings() {
+  const setting = await prisma.platformSetting.findUnique({
+    where: {
+      key: SMS_SETTINGS_KEY
+    }
+  });
+
+  return normalizePlatformSmsSettings(setting?.value);
+}
+
+export async function updatePlatformSmsSettings(settings: PlatformSmsSettings) {
+  const setting = await prisma.platformSetting.upsert({
+    where: {
+      key: SMS_SETTINGS_KEY
+    },
+    update: {
+      value: settings as unknown as Prisma.InputJsonValue
+    },
+    create: {
+      key: SMS_SETTINGS_KEY,
+      value: settings as unknown as Prisma.InputJsonValue
+    }
+  });
+
+  return normalizePlatformSmsSettings(setting.value);
+}
+
+export async function decrementPlatformSmsCredits() {
+  return prisma.$transaction(async (tx) => {
+    const setting = await tx.platformSetting.findUnique({
+      where: {
+        key: SMS_SETTINGS_KEY
+      }
+    });
+    const current = normalizePlatformSmsSettings(setting?.value);
+    const next: PlatformSmsSettings = {
+      ...current,
+      creditsRemaining: Math.max(0, current.creditsRemaining - 1)
+    };
+    const saved = await tx.platformSetting.upsert({
+      where: {
+        key: SMS_SETTINGS_KEY
+      },
+      update: {
+        value: next as unknown as Prisma.InputJsonValue
+      },
+      create: {
+        key: SMS_SETTINGS_KEY,
+        value: next as unknown as Prisma.InputJsonValue
+      }
+    });
+
+    return normalizePlatformSmsSettings(saved.value);
+  });
 }

@@ -4,10 +4,22 @@ import { requireRole } from "@/server/auth/guards";
 import { apiError, created, ok, parseJson } from "@/server/http";
 import { createRestaurant, listRestaurants } from "@/server/services/restaurant-service";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
   try {
-    const restaurants = await listRestaurants();
-    return ok({ restaurants });
+    const url = new URL(request.url);
+    const slug = url.searchParams.get("slug")?.trim() || undefined;
+    const restaurants = await listRestaurants({ slug });
+
+    return ok(
+      { restaurants },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        }
+      }
+    );
   } catch (error) {
     return apiError(error);
   }

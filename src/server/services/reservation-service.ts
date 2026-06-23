@@ -4,11 +4,13 @@ import type {
   AvailabilitySlot,
   OpeningHours,
   TableAutoAssignPriority,
+  TableCombination,
   TableFeature,
   VacationClosure
 } from "@/lib/domain";
 import {
   tableAutoAssignPrioritiesFromSettings,
+  tableCombinationsFromSettings,
   tableFeaturesFromSettings
 } from "@/lib/floor-plan-settings";
 import {
@@ -27,7 +29,7 @@ import { emitRestaurantEvent } from "@/server/realtime";
 type DbClient = Prisma.TransactionClient | typeof prisma;
 const DEFAULT_RESERVATION_DURATION_MINUTES = 120;
 const MIN_LEAD_TIME_MINUTES = 120;
-const REFERENCE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const REFERENCE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 export type AvailabilityInput = {
   restaurantId: string;
@@ -42,6 +44,7 @@ export type AvailabilityInput = {
 export type CreateReservationInput = AvailabilityInput & {
   userId: string;
   tableId?: string;
+  combinationId?: string;
   autoAssignTable?: boolean;
   firstName?: string;
   lastName?: string;
@@ -80,14 +83,97 @@ type ReservationWindow = {
 type RestaurantPolicy = {
   timezone: string;
   openingHours: OpeningHours;
+  specialOpeningPeriods: SpecialOpeningPeriod[];
   vacationClosures: VacationClosure[];
   reservationDurationMinutes: number;
   minimumLeadTimeMinutes: number;
   releaseTableAfterDuration: boolean;
   strictCapacityMatching: boolean;
   tableAutoAssignPriorities: Record<string, TableAutoAssignPriority>;
+  tableCombinations: TableCombination[];
   tableFeatures: Record<string, TableFeature[]>;
 };
+
+type SpecialOpeningPeriod = {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  active: boolean;
+  openingHours: OpeningHours;
+};
+
+function cleanOptional(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function upsertReservationClient(
+  tx: Prisma.TransactionClient,
+  input: {
+    restaurantId: string;
+    userId: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+  }
+) {
+  const firstName = cleanOptional(input.firstName);
+  const lastName = cleanOptional(input.lastName);
+
+  if (!firstName || !lastName) {
+    return null;
+  }
+
+  const email = cleanOptional(input.email);
+  const phone = cleanOptional(input.phone);
+  const existing = email
+    ? await tx.client.findUnique({
+        where: {
+          restaurantId_email: {
+            restaurantId: input.restaurantId,
+            email
+          }
+        }
+      })
+    : phone
+      ? await tx.client.findFirst({
+          where: {
+            restaurantId: input.restaurantId,
+            phone
+          }
+        })
+      : null;
+
+  if (existing) {
+    return tx.client.update({
+      where: {
+        id: existing.id
+      },
+      data: {
+        firstName,
+        lastName,
+        email,
+        phone,
+        userId: input.userId,
+        lastVisitAt: new Date()
+      }
+    });
+  }
+
+  return tx.client.create({
+    data: {
+      restaurantId: input.restaurantId,
+      userId: input.userId,
+      firstName,
+      lastName,
+      email,
+      phone,
+      lastVisitAt: new Date()
+    }
+  });
+}
 
 type ServiceWindow = {
   open: string;
@@ -129,11 +215,31 @@ function minimumLeadTimeFromSettings(settings: unknown) {
     return MIN_LEAD_TIME_MINUTES;
   }
 
-  return settings.minimumLeadTimeEnabled === false ? 0 : MIN_LEAD_TIME_MINUTES;
+  if (settings.minimumLeadTimeEnabled === false || settings.minimumAdvanceBookingEnabled === false) {
+    return 0;
+  }
+
+  const leadTime = settings.minimumLeadTimeMinutes;
+
+  return typeof leadTime === "number" && Number.isFinite(leadTime) && leadTime >= 0 && leadTime <= 720
+    ? leadTime
+    : MIN_LEAD_TIME_MINUTES;
 }
 
 function releaseTableAfterDurationFromSettings(settings: unknown) {
-  return !isRecord(settings) || settings.oneReservationPerTablePerService !== false;
+  if (!isRecord(settings)) {
+    return true;
+  }
+
+  if (typeof settings.releaseTableAfterDuration === "boolean") {
+    return settings.releaseTableAfterDuration;
+  }
+
+  if (typeof settings.oneReservationPerTablePerService === "boolean") {
+    return !settings.oneReservationPerTablePerService;
+  }
+
+  return true;
 }
 
 function strictCapacityMatchingFromSettings(settings: unknown) {
@@ -166,10 +272,46 @@ function vacationClosuresFromSettings(settings: unknown): VacationClosure[] {
         id: typeof closure.id === "string" ? closure.id : `${startDate}-${endDate}`,
         startDate,
         endDate,
-        label: typeof closure.label === "string" ? closure.label : undefined
+        label: typeof closure.label === "string" ? closure.label : undefined,
+        active: closure.active !== false
       };
     })
     .filter((closure): closure is VacationClosure => Boolean(closure));
+}
+
+function specialOpeningPeriodsFromSettings(settings: unknown): SpecialOpeningPeriod[] {
+  if (!isRecord(settings) || !Array.isArray(settings.specialOpeningPeriods)) {
+    return [];
+  }
+
+  return settings.specialOpeningPeriods
+    .map((period): SpecialOpeningPeriod | null => {
+      if (!isRecord(period)) {
+        return null;
+      }
+
+      const startDate = period.startDate;
+      const endDate = period.endDate;
+      const openingHours = period.openingHours;
+
+      if (typeof startDate !== "string" || typeof endDate !== "string" || !isRecord(openingHours)) {
+        return null;
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        return null;
+      }
+
+      return {
+        id: typeof period.id === "string" ? period.id : `${startDate}-${endDate}`,
+        name: typeof period.name === "string" ? period.name : "Période spéciale",
+        startDate,
+        endDate,
+        active: period.active !== false,
+        openingHours: openingHours as OpeningHours
+      };
+    })
+    .filter((period): period is SpecialOpeningPeriod => Boolean(period));
 }
 
 async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<RestaurantPolicy> {
@@ -191,6 +333,7 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
   return {
     timezone: restaurant.timezone,
     openingHours: restaurant.openingHours as OpeningHours,
+    specialOpeningPeriods: specialOpeningPeriodsFromSettings(restaurant.settings),
     vacationClosures: vacationClosuresFromSettings(restaurant.settings),
     reservationDurationMinutes: reservationDurationFromSettings(restaurant.settings),
     minimumLeadTimeMinutes: minimumLeadTimeFromSettings(restaurant.settings),
@@ -199,6 +342,7 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
     tableAutoAssignPriorities: tableAutoAssignPrioritiesFromSettings(
       isRecord(restaurant.settings) ? restaurant.settings : {}
     ),
+    tableCombinations: tableCombinationsFromSettings(isRecord(restaurant.settings) ? restaurant.settings : {}),
     tableFeatures: tableFeaturesFromSettings(isRecord(restaurant.settings) ? restaurant.settings : {})
   };
 }
@@ -261,19 +405,15 @@ function pickAutoAssignedTable<TTable extends { id: string }>(
   return eligibleTables[Math.floor(Math.random() * eligibleTables.length)];
 }
 
-function randomDigits(length: number) {
-  return Array.from({ length }, () => Math.floor(Math.random() * 10)).join("");
-}
-
-function randomLetters(length: number) {
+function randomReferenceCharacters(length: number) {
   return Array.from(
     { length },
-    () => REFERENCE_LETTERS[Math.floor(Math.random() * REFERENCE_LETTERS.length)]
+    () => REFERENCE_CHARACTERS[Math.floor(Math.random() * REFERENCE_CHARACTERS.length)]
   ).join("");
 }
 
 function generateReservationReferenceCode() {
-  return `${randomDigits(6)}${randomLetters(3)}${randomDigits(6)}`;
+  return `TT${randomReferenceCharacters(6)}`;
 }
 
 async function generateUniqueReservationReferenceCode(db: DbClient) {
@@ -312,10 +452,28 @@ function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy): 
 
 function isClosedForVacation(date: string, policy: RestaurantPolicy) {
   return policy.vacationClosures.some((closure) => {
+    if (closure.active === false) {
+      return false;
+    }
+
     const startDate = closure.startDate <= closure.endDate ? closure.startDate : closure.endDate;
     const endDate = closure.startDate <= closure.endDate ? closure.endDate : closure.startDate;
     return date >= startDate && date <= endDate;
   });
+}
+
+function getOpeningHoursForDate(policy: RestaurantPolicy, date: string) {
+  const matchingPeriod = policy.specialOpeningPeriods.find((period) => {
+    if (!period.active) {
+      return false;
+    }
+
+    const startDate = period.startDate <= period.endDate ? period.startDate : period.endDate;
+    const endDate = period.startDate <= period.endDate ? period.endDate : period.startDate;
+    return date >= startDate && date <= endDate;
+  });
+
+  return (matchingPeriod?.openingHours ?? policy.openingHours)[getDayKey(date)];
 }
 
 function getServiceWindows(dayHours: OpeningHours[string] | undefined): ServiceWindow[] {
@@ -344,10 +502,18 @@ function getServiceWindows(dayHours: OpeningHours[string] | undefined): ServiceW
     });
   };
 
-  addWindow(dayHours.open, dayHours.close);
+  addWindow(dayHours.morningOpen, dayHours.morningClose);
+
+  if (dayHours.lunchServiceEnabled !== false) {
+    addWindow(dayHours.open, dayHours.close);
+  }
 
   if (dayHours.secondServiceEnabled) {
     addWindow(dayHours.secondOpen, dayHours.secondClose);
+  }
+
+  if (dayHours.thirdServiceEnabled) {
+    addWindow(dayHours.thirdOpen, dayHours.thirdClose);
   }
 
   return windows.sort((first, second) => first.openMinutes - second.openMinutes);
@@ -363,7 +529,7 @@ function assertRestaurantOpen(
     throw new BadRequestError("Restaurant is closed during this vacation period.");
   }
 
-  const serviceWindows = getServiceWindows(policy.openingHours[getDayKey(date)]);
+  const serviceWindows = getServiceWindows(getOpeningHoursForDate(policy, date));
 
   if (serviceWindows.length === 0) {
     throw new BadRequestError("Restaurant is closed for this time.");
@@ -393,7 +559,13 @@ function assertLeadTime(date: string, startTime: string, timezone: string, minim
   }
 
   if (date === now.date && parseTimeToMinutes(startTime) < now.minutes + minimumLeadTimeMinutes) {
-    throw new BadRequestError("Reservations must be made at least 2 hours in advance.");
+    const hours = Math.floor(minimumLeadTimeMinutes / 60);
+    const minutes = minimumLeadTimeMinutes % 60;
+    const leadTimeLabel = hours > 0
+      ? `${hours}h${minutes ? String(minutes).padStart(2, "0") : ""}`
+      : `${minutes} minutes`;
+
+    throw new BadRequestError(`Les réservations doivent être effectuées au moins ${leadTimeLabel} à l’avance.`);
   }
 }
 
@@ -536,9 +708,124 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
   );
 }
 
+export async function getAvailableTableCombinations(
+  db: DbClient,
+  input: Omit<AvailabilityInput, "endTime"> & ReservationWindow,
+  policy: RestaurantPolicy
+) {
+  if (policy.tableCombinations.length === 0) {
+    return [];
+  }
+
+  const allCombinationTableIds = Array.from(
+    new Set(policy.tableCombinations.flatMap((combination) => combination.tableIds))
+  );
+
+  if (allCombinationTableIds.length === 0) {
+    return [];
+  }
+
+  const tables = await db.table.findMany({
+    where: {
+      id: {
+        in: allCombinationTableIds
+      },
+      restaurantId: input.restaurantId,
+      active: true
+    },
+    orderBy: [{ capacity: "asc" }, { label: "asc" }]
+  });
+
+  if (tables.length === 0) {
+    return [];
+  }
+
+  const tableById = new Map(tables.map((table) => [table.id, table]));
+  const unavailableTableIds = await getUnavailableTableIds(
+    db,
+    input,
+    tables.map((table) => table.id),
+    policy.releaseTableAfterDuration,
+    input.ignoreReservationId
+  );
+  const candidates = policy.tableCombinations
+    .map((combination) => {
+      const combinationTables = combination.tableIds
+        .map((tableId) => tableById.get(tableId))
+        .filter((table): table is (typeof tables)[number] => Boolean(table));
+
+      if (combinationTables.length < 2 || combinationTables.length !== new Set(combination.tableIds).size) {
+        return null;
+      }
+
+      if (
+        combinationTables.some((table) =>
+          unavailableTableIds.has(table.id) || !tableMatchesPreferences(table.id, policy, input.tablePreferences)
+        )
+      ) {
+        return null;
+      }
+
+      const capacity = combinationTables.reduce((sum, table) => sum + table.capacity, 0);
+
+      if (capacity < input.numberOfGuests) {
+        return null;
+      }
+
+      return {
+        capacity,
+        combination,
+        tableIds: combination.tableIds,
+        tables: combinationTables
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    .sort((first, second) => {
+      const firstPriority = Math.max(...first.tableIds.map((tableId) => autoAssignPriorityRank(policy.tableAutoAssignPriorities[tableId])));
+      const secondPriority = Math.max(...second.tableIds.map((tableId) => autoAssignPriorityRank(policy.tableAutoAssignPriorities[tableId])));
+
+      if (secondPriority !== firstPriority) {
+        return secondPriority - firstPriority;
+      }
+
+      if (first.capacity !== second.capacity) {
+        return first.capacity - second.capacity;
+      }
+
+      return first.combination.label.localeCompare(second.combination.label, "fr", { numeric: true });
+    });
+
+  return candidates;
+}
+
+async function getAvailableTableCombination(
+  db: DbClient,
+  input: Omit<AvailabilityInput, "endTime"> & ReservationWindow,
+  policy: RestaurantPolicy
+) {
+  const combinations = await getAvailableTableCombinations(db, input, policy);
+  return combinations[0] ?? null;
+}
+
+export async function getAvailableCombinationSuggestions(db: DbClient, input: AvailabilityInput) {
+  const policy = await getRestaurantPolicy(db, input.restaurantId);
+  const window = reservationWindow(input, policy);
+  assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+  assertRestaurantOpen(policy, input.date, window.startTime, window.endTime);
+
+  return getAvailableTableCombinations(
+    db,
+    {
+      ...input,
+      ...window
+    },
+    policy
+  );
+}
+
 export async function getAvailabilitySlots(db: DbClient, input: Omit<AvailabilityInput, "startTime" | "endTime">) {
   const policy = await getRestaurantPolicy(db, input.restaurantId);
-  const serviceWindows = getServiceWindows(policy.openingHours[getDayKey(input.date)]);
+  const serviceWindows = getServiceWindows(getOpeningHoursForDate(policy, input.date));
 
   if (isClosedForVacation(input.date, policy) || serviceWindows.length === 0) {
     return [] satisfies AvailabilitySlot[];
@@ -547,10 +834,7 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
   const allCandidateTables = await db.table.findMany({
     where: {
       restaurantId: input.restaurantId,
-      active: true,
-      capacity: {
-        gte: input.numberOfGuests
-      }
+      active: true
     },
     select: {
       capacity: true,
@@ -558,9 +842,9 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
     }
   });
   const candidateTables = allCandidateTables.filter((table) =>
-    tableMatchesPreferences(table.id, policy, input.tablePreferences)
+    table.capacity >= input.numberOfGuests && tableMatchesPreferences(table.id, policy, input.tablePreferences)
   );
-  const tableIds = candidateTables.map((table) => table.id);
+  const tableIds = allCandidateTables.map((table) => table.id);
   const date = toDateOnly(input.date);
 
   const [reservations, blocks] =
@@ -635,7 +919,7 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
         policy.minimumLeadTimeMinutes
       );
 
-      if (tableIds.length === 0) {
+      if (allCandidateTables.length === 0) {
         slots.push({
           startTime,
           endTime,
@@ -672,14 +956,29 @@ export async function getAvailabilitySlots(db: DbClient, input: Omit<Availabilit
         input.numberOfGuests,
         policy
       );
+      const tableById = new Map(allCandidateTables.map((table) => [table.id, table]));
+      const availableCombinationCount = preferredAvailableTables.length > 0
+        ? 0
+        : policy.tableCombinations.filter((combination) => {
+            const combinationTables = combination.tableIds
+              .map((tableId) => tableById.get(tableId))
+              .filter((table): table is (typeof allCandidateTables)[number] => Boolean(table));
+
+            return (
+              combinationTables.length >= 2 &&
+              combinationTables.length === new Set(combination.tableIds).size &&
+              combinationTables.every((table) => !unavailableTableIds.has(table.id) && tableMatchesPreferences(table.id, policy, input.tablePreferences)) &&
+              combinationTables.reduce((sum, table) => sum + table.capacity, 0) >= input.numberOfGuests
+            );
+          }).length;
       const exactCapacityAvailable = preferredAvailableTables.some(
         (table) => table.capacity === input.numberOfGuests
       );
       const relevantTablePool = policy.strictCapacityMatching && exactCapacityAvailable
         ? candidateTables.filter((table) => table.capacity === input.numberOfGuests)
         : candidateTables;
-      const availableTables = preferredAvailableTables.length;
-      const totalTables = relevantTablePool.length;
+      const availableTables = preferredAvailableTables.length + availableCombinationCount;
+      const totalTables = Math.max(relevantTablePool.length, availableCombinationCount);
       const availabilityRatio = totalTables > 0 ? availableTables / totalTables : 0;
 
       slots.push({
@@ -765,6 +1064,26 @@ export async function createReservation(input: CreateReservationInput) {
       const policy = await getRestaurantPolicy(tx, input.restaurantId);
       const window = reservationWindow(input, policy);
       let tableId = input.tableId;
+      let combinationTableIds: string[] = [];
+
+      if (input.combinationId && !tableId) {
+        const combinations = await getAvailableTableCombinations(
+          tx,
+          {
+            ...input,
+            ...window
+          },
+          policy
+        );
+        const combination = combinations.find((item) => item.combination.id === input.combinationId);
+
+        if (!combination) {
+          throw new ConflictError("No table is available for this time.");
+        }
+
+        tableId = combination.tableIds[0];
+        combinationTableIds = combination.tableIds;
+      }
 
       if (input.autoAssignTable && !tableId) {
         const availableTables = await getAvailableTables(tx, {
@@ -776,14 +1095,28 @@ export async function createReservation(input: CreateReservationInput) {
           tablePreferences: input.tablePreferences
         });
 
-        if (availableTables.length === 0) {
-          throw new ConflictError("No table is available for this time.");
-        }
+        if (availableTables.length > 0) {
+          tableId = pickAutoAssignedTable(availableTables, policy.tableAutoAssignPriorities).id;
+        } else {
+          const combination = await getAvailableTableCombination(
+            tx,
+            {
+              ...input,
+              ...window
+            },
+            policy
+          );
 
-        tableId = pickAutoAssignedTable(availableTables, policy.tableAutoAssignPriorities).id;
+          if (!combination) {
+            throw new ConflictError("No table is available for this time.");
+          }
+
+          tableId = combination.tableIds[0];
+          combinationTableIds = combination.tableIds;
+        }
       }
 
-      if (tableId) {
+      if (tableId && combinationTableIds.length < 2) {
         await assertTableAvailable(tx, {
           restaurantId: input.restaurantId,
           date: input.date,
@@ -793,6 +1126,9 @@ export async function createReservation(input: CreateReservationInput) {
           tablePreferences: input.tablePreferences,
           tableId
         });
+      } else if (tableId) {
+        assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+        assertRestaurantOpen(policy, input.date, window.startTime, window.endTime);
       } else {
         assertLeadTime(input.date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
         assertRestaurantOpen(policy, input.date, window.startTime, window.endTime);
@@ -813,11 +1149,21 @@ export async function createReservation(input: CreateReservationInput) {
         });
       }
 
-      return tx.reservation.create({
+      const client = await upsertReservationClient(tx, {
+        restaurantId: input.restaurantId,
+        userId: input.userId,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email,
+        phone: input.phone
+      });
+
+      const reservation = await tx.reservation.create({
         data: {
           referenceCode: await generateUniqueReservationReferenceCode(tx),
           restaurantId: input.restaurantId,
           userId: input.userId,
+          clientId: client?.id,
           tableId,
           guestFirstName: input.firstName,
           guestLastName: input.lastName,
@@ -846,11 +1192,45 @@ export async function createReservation(input: CreateReservationInput) {
               id: true,
               email: true,
               name: true,
-              contactEmail: true
+              contactEmail: true,
+              phone: true
+            }
+          },
+          client: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              vip: true,
+              noShowRisk: true,
+              _count: {
+                select: {
+                  reservations: true
+                }
+              }
             }
           }
         }
       });
+
+      const secondaryTableIds = combinationTableIds.filter((combinationTableId) => combinationTableId !== tableId);
+
+      if (secondaryTableIds.length > 0) {
+        await tx.tableBlock.createMany({
+          data: secondaryTableIds.map((combinationTableId) => ({
+            tableId: combinationTableId,
+            date: toDateOnly(input.date),
+            startTime: window.startTime,
+            endTime: window.endTime,
+            reason: "ADMIN",
+            notes: `AUTO_COMBINATION:${reservation.id}`
+          }))
+        });
+      }
+
+      return reservation;
     },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -928,7 +1308,8 @@ export async function listGuestReservations(input: GuestReservationLookupInput) 
           id: true,
           email: true,
           name: true,
-          contactEmail: true
+          contactEmail: true,
+          phone: true
         }
       }
     }
@@ -936,10 +1317,12 @@ export async function listGuestReservations(input: GuestReservationLookupInput) 
 
   return reservations.filter((reservation) => {
     const reservationPhone = normalizePhone(reservation.guestPhone);
+    const reservationReferenceCode = normalizeLookupName(reservation.referenceCode ?? "");
 
     return (
       (reservationGuestReference(reservation) === reference ||
-        legacyReservationGuestReference(reservation) === reference) &&
+        legacyReservationGuestReference(reservation) === reference ||
+        reservationReferenceCode === reference) &&
       (reservationPhone === phone || reservationPhone.endsWith(phone) || phone.endsWith(reservationPhone))
     );
   });
@@ -953,7 +1336,7 @@ export async function cancelGuestReservation(reservationId: string, input: Guest
     throw new NotFoundError("Reservation not found.");
   }
 
-  return cancelReservation(reservationId, reservation.userId);
+  return cancelReservation(reservationId, reservation.userId, "customer");
 }
 
 export async function updateGuestReservation(
@@ -1012,6 +1395,12 @@ export async function updateCustomerReservation(
         throw new BadRequestError("Cancelled reservations cannot be modified.");
       }
 
+      await tx.tableBlock.deleteMany({
+        where: {
+          notes: `AUTO_COMBINATION:${reservationId}`
+        }
+      });
+
       const date = data.date ?? existing.date.toISOString().slice(0, 10);
       const startTime = data.startTime ?? existing.startTime;
       const numberOfGuests = data.numberOfGuests ?? existing.numberOfGuests;
@@ -1032,6 +1421,7 @@ export async function updateCustomerReservation(
           : data.tableId !== undefined
             ? data.tableId
             : existing.tableId;
+      let combinationTableIds: string[] = [];
 
       if (data.autoAssignTable) {
         const availableTables = await getAvailableTables(tx, {
@@ -1044,14 +1434,33 @@ export async function updateCustomerReservation(
           ignoreReservationId: reservationId
         });
 
-        if (availableTables.length === 0) {
-          throw new ConflictError("No table is available for this time.");
-        }
+        if (availableTables.length > 0) {
+          tableId = pickAutoAssignedTable(availableTables, policy.tableAutoAssignPriorities).id;
+        } else {
+          const combination = await getAvailableTableCombination(
+            tx,
+            {
+              restaurantId: existing.restaurantId,
+              date,
+              startTime: window.startTime,
+              endTime: window.endTime,
+              numberOfGuests,
+              tablePreferences: data.tablePreferences ?? [],
+              ignoreReservationId: reservationId
+            },
+            policy
+          );
 
-        tableId = pickAutoAssignedTable(availableTables, policy.tableAutoAssignPriorities).id;
+          if (!combination) {
+            throw new ConflictError("No table is available for this time.");
+          }
+
+          tableId = combination.tableIds[0];
+          combinationTableIds = combination.tableIds;
+        }
       }
 
-      if (tableId) {
+      if (tableId && combinationTableIds.length < 2) {
         await assertTableAvailable(tx, {
           restaurantId: existing.restaurantId,
           date,
@@ -1062,12 +1471,21 @@ export async function updateCustomerReservation(
           tableId,
           ignoreReservationId: reservationId
         });
+      } else if (tableId) {
+        assertLeadTime(date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
+        assertRestaurantOpen(policy, date, window.startTime, window.endTime);
       } else {
         assertLeadTime(date, window.startTime, policy.timezone, policy.minimumLeadTimeMinutes);
         assertRestaurantOpen(policy, date, window.startTime, window.endTime);
       }
 
-      return tx.reservation.update({
+      await tx.tableBlock.deleteMany({
+        where: {
+          notes: `AUTO_COMBINATION:${reservationId}`
+        }
+      });
+
+      const updatedReservation = await tx.reservation.update({
         where: {
           id: reservationId
         },
@@ -1095,11 +1513,29 @@ export async function updateCustomerReservation(
               id: true,
               email: true,
               name: true,
-              contactEmail: true
+              contactEmail: true,
+              phone: true
             }
           }
         }
       });
+
+      const secondaryTableIds = combinationTableIds.filter((combinationTableId) => combinationTableId !== tableId);
+
+      if (secondaryTableIds.length > 0) {
+        await tx.tableBlock.createMany({
+          data: secondaryTableIds.map((combinationTableId) => ({
+            tableId: combinationTableId,
+            date: toDateOnly(date),
+            startTime: window.startTime,
+            endTime: window.endTime,
+            reason: "ADMIN",
+            notes: `AUTO_COMBINATION:${reservationId}`
+          }))
+        });
+      }
+
+      return updatedReservation;
     },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -1131,6 +1567,22 @@ export async function listRestaurantReservations(restaurantId: string, date?: st
           email: true,
           contactEmail: true,
           phone: true
+        }
+      },
+      client: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          vip: true,
+          noShowRisk: true,
+          _count: {
+            select: {
+              reservations: true
+            }
+          }
         }
       }
     },
@@ -1171,7 +1623,25 @@ export async function listUserReservations(userId: string) {
   });
 }
 
-export async function cancelReservation(reservationId: string, requesterId?: string) {
+function notesWithCancellationSource(notes: string | null, source: "customer" | "restaurant") {
+  const marker = `CANCELLED_BY:${source}`;
+
+  if (!notes) {
+    return marker;
+  }
+
+  if (notes.includes("CANCELLED_BY:")) {
+    return notes.replace(/CANCELLED_BY:(customer|restaurant)/, marker);
+  }
+
+  return `${notes}\n${marker}`;
+}
+
+export async function cancelReservation(
+  reservationId: string,
+  requesterId?: string,
+  source: "customer" | "restaurant" = "restaurant"
+) {
   const existing = await prisma.reservation.findUnique({
     where: {
       id: reservationId
@@ -1189,7 +1659,24 @@ export async function cancelReservation(reservationId: string, requesterId?: str
           id: true,
           email: true,
           name: true,
-          contactEmail: true
+          contactEmail: true,
+          phone: true
+        }
+      },
+      client: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          vip: true,
+          noShowRisk: true,
+          _count: {
+            select: {
+              reservations: true
+            }
+          }
         }
       }
     }
@@ -1203,12 +1690,19 @@ export async function cancelReservation(reservationId: string, requesterId?: str
     throw new NotFoundError("Reservation not found.");
   }
 
+  await prisma.tableBlock.deleteMany({
+    where: {
+      notes: `AUTO_COMBINATION:${reservationId}`
+    }
+  });
+
   const reservation = await prisma.reservation.update({
     where: {
       id: reservationId
     },
     data: {
-      status: "CANCELLED"
+      status: "CANCELLED",
+      notes: notesWithCancellationSource(existing.notes, source)
     },
     include: {
       restaurant: true,
@@ -1223,7 +1717,8 @@ export async function cancelReservation(reservationId: string, requesterId?: str
           id: true,
           email: true,
           name: true,
-          contactEmail: true
+          contactEmail: true,
+          phone: true
         }
       }
     }
@@ -1239,6 +1734,11 @@ export async function updateReservation(
     status?: ReservationStatus;
     notes?: string | null;
     tableId?: string | null;
+    startTime?: string;
+    endTime?: string;
+    numberOfGuests?: number;
+    arrivedAt?: string | null;
+    noShow?: boolean;
   }
 ) {
   const existing = await prisma.reservation.findUnique({
@@ -1251,15 +1751,37 @@ export async function updateReservation(
     throw new NotFoundError("Reservation not found.");
   }
 
-  if (data.tableId) {
+  const nextStartTime = data.startTime ?? existing.startTime;
+  const nextEndTime = data.endTime ?? existing.endTime;
+  const nextNumberOfGuests = data.numberOfGuests ?? existing.numberOfGuests;
+  const nextTableId = data.tableId !== undefined ? data.tableId : existing.tableId;
+  const shouldValidateAvailability =
+    data.tableId !== undefined ||
+    data.startTime !== undefined ||
+    data.endTime !== undefined ||
+    data.numberOfGuests !== undefined;
+
+  assertValidTimeRange(nextStartTime, nextEndTime);
+
+  if (nextTableId && shouldValidateAvailability) {
     await assertTableAvailable(prisma, {
       restaurantId: existing.restaurantId,
-      tableId: data.tableId,
+      tableId: nextTableId,
       date: existing.date.toISOString().slice(0, 10),
-      startTime: existing.startTime,
-      endTime: existing.endTime,
-      numberOfGuests: existing.numberOfGuests,
+      startTime: nextStartTime,
+      endTime: nextEndTime,
+      numberOfGuests: nextNumberOfGuests,
       ignoreReservationId: reservationId
+    });
+  }
+
+  const { arrivedAt, ...reservationData } = data;
+
+  if (reservationData.status === "CANCELLED") {
+    await prisma.tableBlock.deleteMany({
+      where: {
+        notes: `AUTO_COMBINATION:${reservationId}`
+      }
     });
   }
 
@@ -1267,7 +1789,14 @@ export async function updateReservation(
     where: {
       id: reservationId
     },
-    data,
+    data: {
+      ...reservationData,
+      ...(arrivedAt !== undefined
+        ? {
+            arrivedAt: arrivedAt === "now" ? new Date() : arrivedAt ? new Date(arrivedAt) : null
+          }
+        : {})
+    },
     include: {
       restaurant: true,
       table: {
@@ -1281,7 +1810,24 @@ export async function updateReservation(
           id: true,
           email: true,
           name: true,
-          contactEmail: true
+          contactEmail: true,
+          phone: true
+        }
+      },
+      client: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          vip: true,
+          noShowRisk: true,
+          _count: {
+            select: {
+              reservations: true
+            }
+          }
         }
       }
     }

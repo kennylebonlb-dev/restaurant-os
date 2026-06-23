@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { realtimeEvents, socket } from "@/hooks/use-socket-events";
+import { canUseSocketIo, realtimeEvents, socket } from "@/hooks/use-socket-events";
 import { useRealtimeStore } from "@/stores/realtime-store";
 
 type RealtimePayload = {
@@ -19,7 +19,12 @@ const realtimeQueryRoots = new Set([
   "analytics",
   "availability",
   "blocks",
-  "me"
+  "me",
+  "clients",
+  "waitlist",
+  "events",
+  "templates",
+  "chef-toque"
 ]);
 
 export function RealtimeBridge() {
@@ -28,6 +33,11 @@ export function RealtimeBridge() {
   useEffect(() => {
     const setConnected = useRealtimeStore.getState().setConnected;
     const recordEvent = useRealtimeStore.getState().recordEvent;
+
+    if (!canUseSocketIo()) {
+      setConnected(false);
+      return;
+    }
 
     if (!socket.connected) {
       socket.connect();

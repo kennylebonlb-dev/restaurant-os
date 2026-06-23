@@ -1,6 +1,9 @@
+import { prisma } from "@/lib/prisma";
 import { createTableBlockSchema } from "@/lib/validators";
-import { requireRole } from "@/server/auth/guards";
+import { requireSession } from "@/server/auth/guards";
+import { NotFoundError } from "@/server/errors";
 import { apiError, created, ok, parseJson } from "@/server/http";
+import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
 import {
   createTableBlock,
   listTableBlocks
@@ -12,10 +15,28 @@ type Context = {
   }>;
 };
 
+async function getTableRestaurantId(tableId: string) {
+  const table = await prisma.table.findUnique({
+    where: {
+      id: tableId
+    },
+    select: {
+      restaurantId: true
+    }
+  });
+
+  if (!table) {
+    throw new NotFoundError("Table not found.");
+  }
+
+  return table.restaurantId;
+}
+
 export async function GET(_: Request, context: Context) {
   try {
-    await requireRole(["ADMIN", "STAFF"]);
+    const session = await requireSession();
     const { tableId } = await context.params;
+    await requireRestaurantAccess(session, await getTableRestaurantId(tableId), "READ_ONLY");
     const blocks = await listTableBlocks(tableId);
 
     return ok({ blocks });
@@ -26,8 +47,9 @@ export async function GET(_: Request, context: Context) {
 
 export async function POST(request: Request, context: Context) {
   try {
-    await requireRole(["ADMIN", "STAFF"]);
+    const session = await requireSession();
     const { tableId } = await context.params;
+    await requireRestaurantAccess(session, await getTableRestaurantId(tableId), "HOST");
     const data = await parseJson(request, createTableBlockSchema);
     const block = await createTableBlock({
       tableId,

@@ -3,7 +3,7 @@
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { Billboard, Html, OrbitControls, PerspectiveCamera, Text, useGLTF } from "@react-three/drei";
 import clsx from "clsx";
-import { Eye } from "lucide-react";
+import { Eye, UserRound, X } from "lucide-react";
 import { type MutableRefObject, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -18,19 +18,37 @@ const SCENE_DEPTH = PLAN_HEIGHT / SCALE;
 const WALL_HEIGHT = 3.1;
 const GLB_MODEL_PATH = "/models/plan.glb";
 
+type TableBadge = {
+  title: string;
+  detail: string;
+  tone?: "reserved" | "blocked" | "warning" | "vip" | "cancelled";
+  guestCount?: number;
+  reservationId?: string;
+  startTime?: string;
+  isCombined?: boolean;
+  delayLabel?: string | null;
+};
+
 type FloorPlan3DProps = {
   tables: FloorTable[];
   mode: "booking" | "admin";
   selectedTableId?: string;
+  selectedTableIds?: string[];
+  tableBadges?: Record<string, TableBadge>;
+  tableTones?: Record<string, TableBadge["tone"]>;
   availableTableIds?: string[];
+  allowUnavailableSelect?: boolean;
+  showTableViewButtons?: boolean;
   layoutLocked?: boolean;
   deleteMode?: boolean;
   modelUrl?: string;
   zoom: number;
-  onSelect?: (table: FloorTable) => void;
+  onSelect?: (table: FloorTable, options?: { additive: boolean }) => void;
+  onDeselect?: () => void;
   onMove?: (tableId: string, position: { positionX: number; positionY: number }) => void;
   onDelete?: (tableId: string) => void;
   onView?: (table: FloorTable) => void;
+  onBadgeSelect?: (reservationId: string) => void;
   onDetectedTablesChange?: (tables: DetectedGlbTable[]) => void;
 };
 
@@ -278,19 +296,40 @@ function zoneTheme(zone: FloorTable["zone"]) {
   };
 }
 
+function badgeTableTheme(badge?: TableBadge) {
+  if (!badge) {
+    return null;
+  }
+
+  if (badge.tone === "blocked" || badge.tone === "cancelled" || badge.tone === "warning") {
+    return {
+      table: "#dc2626",
+      accent: "#991b1b"
+    };
+  }
+
+  if (badge.tone === "reserved" || badge.tone === "vip") {
+    return {
+      table: "#ea580c",
+      accent: "#9a3412"
+    };
+  }
+
+  return null;
+}
+
 function tableDimensions(capacity: number, shape: TableShape = "ROUND", displayScale = 1) {
-  const scale = Math.min(1.8, Math.max(0.6, displayScale));
+  const scale = Math.min(2.4, Math.max(0.5, displayScale));
   const applyScale = (size: { width: number; depth: number }) => ({
     width: size.width * scale,
     depth: size.depth * scale
   });
 
   if (shape === "RECTANGLE") {
-    if (capacity >= 7) {
-      return applyScale({ width: 2.95, depth: 1.35 });
-    }
-
-    return applyScale({ width: 2.35, depth: 1.18 });
+    return applyScale({
+      width: Math.min(4.8, 1.9 + Math.max(0, capacity - 2) * 0.24),
+      depth: capacity >= 7 ? 1.35 : 1.18
+    });
   }
 
   if (shape === "SQUARE") {
@@ -741,10 +780,14 @@ function TableModel({
   table,
   disabled,
   selected,
+  badge,
+  tone,
   deleteMode,
   mode,
   onDelete,
   onView,
+  onBadgeSelect,
+  showTableViewButtons,
   onPointerDown,
   onPointerMove,
   onPointerUp
@@ -752,10 +795,14 @@ function TableModel({
   table: FloorTable;
   disabled: boolean;
   selected: boolean;
+  badge?: TableBadge;
+  tone?: TableBadge["tone"];
   deleteMode: boolean;
   mode: "booking" | "admin";
   onDelete?: (tableId: string) => void;
   onView?: (table: FloorTable) => void;
+  onBadgeSelect?: (reservationId: string) => void;
+  showTableViewButtons: boolean;
   onPointerDown: (event: ThreeEvent<PointerEvent>, table: FloorTable) => void;
   onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
   onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
@@ -766,7 +813,9 @@ function TableModel({
   const theme = zoneTheme(table.zone);
   const opacity = disabled || !table.active ? 0.34 : 1;
   const edgeColor = selected ? "#b66f45" : theme.accent;
-  const tableTopColor = selected ? "#f4d0b5" : theme.table;
+  const badgeTheme = badgeTableTheme(badge ?? (tone ? { title: "", detail: "", tone } : undefined));
+  const tableTopColor = selected ? "#f4d0b5" : badgeTheme?.table ?? theme.table;
+  const tableEdgeColor = selected ? edgeColor : badgeTheme?.accent ?? edgeColor;
 
   return (
     <group
@@ -799,7 +848,7 @@ function TableModel({
       )}
       <mesh castShadow position={[0, -0.14, 0]}>
         <boxGeometry args={[width + 0.08, 0.08, depth + 0.08]} />
-        <meshStandardMaterial color={edgeColor} opacity={opacity} roughness={0.5} transparent={opacity < 1} />
+        <meshStandardMaterial color={tableEdgeColor} opacity={opacity} roughness={0.5} transparent={opacity < 1} />
       </mesh>
       <mesh castShadow position={[0, -0.34, 0]}>
         <cylinderGeometry args={[0.16, 0.26, 0.62, 18]} />
@@ -816,15 +865,15 @@ function TableModel({
       </mesh>
       <Billboard position={[0, 1.05, 0]}>
         <mesh>
-          <planeGeometry args={[1.72, 0.58]} />
+          <planeGeometry args={[1.92, 0.64]} />
           <meshBasicMaterial color="#ffffff" transparent opacity={0.92} />
         </mesh>
         <Text
           anchorX="center"
           anchorY="middle"
           color="#16201d"
-          fontSize={0.18}
-          maxWidth={1.5}
+          fontSize={0.23}
+          maxWidth={1.7}
           position={[0, 0.1, 0.01]}
         >
           {table.label}
@@ -833,14 +882,59 @@ function TableModel({
           anchorX="center"
           anchorY="middle"
           color="#46514c"
-          fontSize={0.13}
-          maxWidth={1.5}
+          fontSize={0.14}
+          maxWidth={1.7}
           position={[0, -0.12, 0.01]}
         >
           {t("floor.seats", { count: table.capacity })}
         </Text>
       </Billboard>
-      {mode === "booking" && table.viewImageUrl ? (
+      {badge ? (
+        <Html center zIndexRange={[900, 0]} position={[-width / 2 - 0.38, 1.08, -depth / 2 - 0.22]}>
+          <button
+            className="group relative z-[900] text-left outline-none"
+            data-dashboard-reservation-badge
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (badge.reservationId) {
+                onBadgeSelect?.(badge.reservationId);
+              }
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <span
+              aria-label={badge.title}
+              className={clsx(
+                "grid h-7 w-7 place-items-center rounded-full border-2 border-white text-white shadow-md transition group-hover:scale-110",
+                badge.tone === "vip" || badge.tone === "reserved" ? "bg-orange-500" : badge.tone === "warning" || badge.tone === "cancelled" || badge.tone === "blocked" ? "bg-red-500" : "bg-moss"
+              )}
+            >
+              {badge.tone === "cancelled" ? <X className="h-4 w-4" aria-hidden="true" /> : <UserRound className="h-3.5 w-3.5" aria-hidden="true" />}
+            </span>
+            {badge.delayLabel ? (
+              <span className="absolute -right-9 -top-1 rounded-full border border-white bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white shadow-md">
+                {badge.delayLabel}
+              </span>
+            ) : null}
+            <div className="pointer-events-none absolute left-0 top-6 z-[950] w-56 rounded-md border border-ink/10 bg-white p-3 text-left text-xs font-semibold leading-5 text-ink opacity-0 shadow-soft transition group-hover:opacity-100 group-focus:opacity-100">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-black text-ink">{badge.title}</p>
+                {badge.guestCount ? (
+                  <span className="rounded-md bg-ink px-2 py-1 text-sm font-black leading-none text-white">
+                    {badge.guestCount}
+                  </span>
+                ) : null}
+              </div>
+              {badge.startTime ? <p className="mt-1 text-lg font-black leading-none text-ink">{badge.startTime}</p> : null}
+              {badge.isCombined ? <p className="mt-1 inline-block border-b border-moss text-[11px] font-black text-moss">Table combinée</p> : null}
+              {badge.delayLabel ? <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[11px] font-black text-red-700">{badge.delayLabel}</p> : null}
+              <p className="mt-1 text-ink/65">{badge.detail}</p>
+            </div>
+          </button>
+        </Html>
+      ) : null}
+      {showTableViewButtons && mode === "booking" && table.viewImageUrl ? (
         <Html center position={[width / 2 + 0.42, 1.08, -depth / 2 - 0.24]}>
           <button
             className={clsx(
@@ -946,7 +1040,7 @@ function DetectedTableHotspots({
   mode: "booking" | "admin";
   selectedTableId?: string;
   tables: FloorTable[];
-  onSelect?: (table: FloorTable) => void;
+  onSelect?: (table: FloorTable, options?: { additive: boolean }) => void;
 }) {
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   const { t } = useI18n();
@@ -994,7 +1088,9 @@ function DetectedTableHotspots({
                 setSelectedDetectionId(detectedTable.id);
 
                 if (matchingTable && selectable) {
-                  onSelect?.(matchingTable);
+                  onSelect?.(matchingTable, {
+                    additive: event.nativeEvent.metaKey || event.nativeEvent.ctrlKey || event.nativeEvent.shiftKey
+                  });
                 }
               }}
               onPointerDown={(event) => event.stopPropagation()}
@@ -1048,7 +1144,12 @@ function RestaurantScene({
   setDraftTables,
   mode,
   selectedTableId,
+  selectedTableIds,
+  tableBadges,
+  tableTones,
   availableTableIds,
+  allowUnavailableSelect = false,
+  showTableViewButtons = true,
   layoutLocked = false,
   deleteMode = false,
   modelUrl = GLB_MODEL_PATH,
@@ -1058,7 +1159,8 @@ function RestaurantScene({
   onSelect,
   onMove,
   onDelete,
-  onView
+  onView,
+  onBadgeSelect
 }: RestaurantSceneProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const draggingTableIdRef = useRef<string | null>(null);
@@ -1071,6 +1173,10 @@ function RestaurantScene({
     [availableTableIds]
   );
   const selectedTable = draftTables.find((table) => table.id === selectedTableId);
+  const selectedSet = useMemo(
+    () => (selectedTableIds ? new Set(selectedTableIds) : undefined),
+    [selectedTableIds]
+  );
   const handleDetectedTablesChange = useCallback(
     (tables: DetectedGlbTable[]) => {
       setDetectedGlbTables(tables);
@@ -1104,9 +1210,11 @@ function RestaurantScene({
 
   function handleTablePointerDown(event: ThreeEvent<PointerEvent>, table: FloorTable) {
     event.stopPropagation();
-    onSelect?.(table);
+    onSelect?.(table, {
+      additive: event.nativeEvent.metaKey || event.nativeEvent.ctrlKey || event.nativeEvent.shiftKey
+    });
 
-    if (mode !== "admin" || layoutLocked || deleteMode) {
+    if (selectedTableIds || mode !== "admin" || layoutLocked || deleteMode) {
       return;
     }
 
@@ -1194,8 +1302,9 @@ function RestaurantScene({
       />
 
       {draftTables.map((table) => {
-        const disabled =
+        const unavailable =
           mode === "booking" ? (availableSet ? !availableSet.has(table.id) : !table.active) : false;
+        const disabled = unavailable && !allowUnavailableSelect;
 
         return (
           <TableModel
@@ -1205,7 +1314,11 @@ function RestaurantScene({
             mode={mode}
             onDelete={onDelete}
             onView={onView}
-            selected={table.id === selectedTableId || table.id === draggingTableId}
+            onBadgeSelect={onBadgeSelect}
+            badge={tableBadges?.[table.id]}
+            tone={tableTones?.[table.id]}
+            showTableViewButtons={showTableViewButtons}
+            selected={table.id === selectedTableId || table.id === draggingTableId || Boolean(selectedSet?.has(table.id))}
             table={table}
             onPointerDown={handleTablePointerDown}
             onPointerMove={moveDraggedTable}
@@ -1221,16 +1334,23 @@ export function FloorPlan3D({
   tables,
   mode,
   selectedTableId,
+  selectedTableIds,
+  tableBadges,
+  tableTones,
   availableTableIds,
+  allowUnavailableSelect,
+  showTableViewButtons = true,
   layoutLocked = false,
   deleteMode = false,
   modelUrl = GLB_MODEL_PATH,
   zoom,
   onDetectedTablesChange,
+  onDeselect,
   onSelect,
   onMove,
   onDelete,
-  onView
+  onView,
+  onBadgeSelect
 }: FloorPlan3DProps) {
   const optimisticPositionsRef = useRef<Record<string, { positionX: number; positionY: number }>>({});
   const [draftTables, setDraftTables] = useState(tables);
@@ -1287,9 +1407,11 @@ export function FloorPlan3D({
           width: "100%"
         }}
         shadows
+        onPointerMissed={onDeselect}
       >
         <RestaurantScene
           availableTableIds={availableTableIds}
+          allowUnavailableSelect={allowUnavailableSelect}
           draftTables={draftTables}
           deleteMode={deleteMode}
           layoutLocked={layoutLocked}
@@ -1297,6 +1419,10 @@ export function FloorPlan3D({
           mode={mode}
           onOptimisticMove={rememberOptimisticMove}
           selectedTableId={selectedTableId}
+          selectedTableIds={selectedTableIds}
+          tableBadges={tableBadges}
+          tableTones={tableTones}
+          showTableViewButtons={showTableViewButtons}
           setDraftTables={setDraftTables}
           tables={tables}
           zoom={zoom}
@@ -1305,6 +1431,7 @@ export function FloorPlan3D({
           onMove={onMove}
           onSelect={onSelect}
           onView={onView}
+          onBadgeSelect={onBadgeSelect}
         />
       </Canvas>
     </div>

@@ -2,6 +2,7 @@ import { customerReservationUpdateSchema, guestReservationLookupSchema } from "@
 import { sendReservationCancellation, sendReservationUpdate } from "@/server/email";
 import { apiError, noContent, ok, parseJson } from "@/server/http";
 import { cancelGuestReservation, updateGuestReservation } from "@/server/services/reservation-service";
+import { sendReservationCancellationSms, sendReservationUpdateSms } from "@/server/sms";
 
 type Context = {
   params: Promise<{
@@ -17,9 +18,12 @@ export async function PATCH(request: Request, context: Context) {
     const data = customerReservationUpdateSchema.parse(payload);
     const reservation = await updateGuestReservation(reservationId, guest, data);
 
-    const emailSent = await sendReservationUpdate(reservation);
+    const [emailSent, smsSent] = await Promise.all([
+      sendReservationUpdate(reservation),
+      sendReservationUpdateSms(reservation)
+    ]);
 
-    return ok({ reservation, emailSent });
+    return ok({ reservation, emailSent, smsSent });
   } catch (error) {
     return apiError(error);
   }
@@ -31,7 +35,10 @@ export async function DELETE(request: Request, context: Context) {
     const data = await parseJson(request, guestReservationLookupSchema);
     const reservation = await cancelGuestReservation(reservationId, data);
 
-    await sendReservationCancellation(reservation);
+    await Promise.all([
+      sendReservationCancellation(reservation),
+      sendReservationCancellationSms(reservation)
+    ]);
 
     return noContent();
   } catch (error) {

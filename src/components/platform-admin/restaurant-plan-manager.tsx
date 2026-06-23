@@ -176,7 +176,7 @@ export function RestaurantPlanManager({ restaurantId }: { restaurantId: string }
             {moveMutation.isPending ? (
               <p className="mt-4 inline-flex items-center gap-2 text-sm font-black text-moss">
                 <Save className="h-4 w-4" />
-                Sauvegarde...
+                Chargement...
               </p>
             ) : null}
           </div>

@@ -18,9 +18,15 @@ export type OpeningHours = Record<
     open: string;
     close: string;
     closed?: boolean;
+    morningOpen?: string;
+    morningClose?: string;
+    lunchServiceEnabled?: boolean;
     secondServiceEnabled?: boolean;
     secondOpen?: string;
     secondClose?: string;
+    thirdServiceEnabled?: boolean;
+    thirdOpen?: string;
+    thirdClose?: string;
   }
 >;
 
@@ -29,6 +35,7 @@ export type VacationClosure = {
   startDate: string;
   endDate: string;
   label?: string;
+  active?: boolean;
 };
 
 export type FloorTable = {
@@ -48,10 +55,27 @@ export type FloorTable = {
   autoAssignPriority?: TableAutoAssignPriority;
 };
 
+export type FloorRoom = {
+  id: string;
+  name: string;
+  type: "MAIN" | "FLOOR" | "TERRACE" | "PRIVATE" | "ROOFTOP";
+  active: boolean;
+  activeEndDate?: string;
+  activeEndTime?: string;
+  activeStartDate?: string;
+  activeStartTime?: string;
+  draftStatus?: "DRAFT" | "PUBLISHED";
+  locked?: boolean;
+  plan2dDataUrl?: string;
+  modelDataUrl?: string;
+  scheduleEnabled?: boolean;
+};
+
 export type TableCombination = {
   id: string;
   label: string;
   tableIds: string[];
+  placement?: "RIGHT" | "LEFT" | "BOTTOM" | "TOP";
 };
 
 export type DetectedGlbTable = {

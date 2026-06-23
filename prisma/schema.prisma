@@ -31,6 +31,25 @@ enum TableBlockReason {
   EVENT
 }
 
+enum RestaurantStaffRole {
+  OWNER
+  MANAGER
+  HOST
+  READ_ONLY
+}
+
+enum WaitlistStatus {
+  WAITING
+  SEATED
+  CANCELLED
+  EXPIRED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
 model User {
   id            String        @id @default(cuid())
   name          String?
@@ -47,7 +66,10 @@ model User {
   accounts      Account[]
   sessions      Session[]
   restaurants   Restaurant[]  @relation("RestaurantOwner")
+  restaurantAccess RestaurantUser[]
   reservations  Reservation[]
+  clients       Client[]
+  auditEvents   AuditEvent[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -109,6 +131,11 @@ model Restaurant {
   layoutLocked Boolean       @default(false)
   tables       Table[]
   reservations Reservation[]
+  clients      Client[]
+  waitlistEntries WaitlistEntry[]
+  auditEvents  AuditEvent[]
+  notificationTemplates NotificationTemplate[]
+  staff        RestaurantUser[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -144,6 +171,8 @@ model Reservation {
   restaurant     Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   userId         String
   user           User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  clientId       String?
+  client         Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
   tableId        String?
   table          Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
   guestFirstName String?
@@ -159,10 +188,13 @@ model Reservation {
   highChair      Boolean           @default(false)
   birthday       Boolean           @default(false)
   romanticDinner Boolean           @default(false)
+  arrivedAt      DateTime?
+  noShow         Boolean           @default(false)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
   @@index([restaurantId, date])
+  @@index([clientId, date])
   @@index([tableId, date, startTime, endTime])
   @@index([userId, date])
   @@map("reservations")
@@ -196,4 +228,107 @@ model PlatformSetting {
   updatedAt DateTime @updatedAt
 
   @@map("platform_settings")
+}
+
+model Client {
+  id             String        @id @default(cuid())
+  restaurantId   String
+  restaurant     Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  birthday       DateTime?     @db.Date
+  allergies      String?
+  preferences    Json          @default("[]")
+  internalNotes  String?
+  vip            Boolean       @default(false)
+  noShowRisk     Int           @default(0)
+  lastVisitAt    DateTime?
+  reservations   Reservation[]
+  waitlistEntries WaitlistEntry[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([restaurantId, email])
+  @@index([restaurantId, lastName, firstName])
+  @@index([restaurantId, phone])
+  @@index([userId])
+  @@map("clients")
+}
+
+model WaitlistEntry {
+  id               String         @id @default(cuid())
+  restaurantId     String
+  restaurant       Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  clientId         String?
+  client           Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  date             DateTime       @db.Date
+  requestedTime    String?        @db.VarChar(5)
+  numberOfGuests   Int
+  status           WaitlistStatus @default(WAITING)
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String?
+  notes            String?
+  tablePreferences Json           @default("[]")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([restaurantId, date, status])
+  @@index([clientId])
+  @@map("waitlist_entries")
+}
+
+model AuditEvent {
+  id           String      @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  actorId      String?
+  actor        User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action       String
+  entityType   String
+  entityId     String?
+  metadata     Json        @default("{}")
+  createdAt    DateTime    @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([actorId])
+  @@map("audit_events")
+}
+
+model NotificationTemplate {
+  id           String              @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  key          String
+  channel      NotificationChannel
+  subject      String?
+  body         String
+  enabled      Boolean             @default(true)
+  variables    Json                @default("[]")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([restaurantId, key, channel])
+  @@index([restaurantId, channel])
+  @@map("notification_templates")
+}
+
+model RestaurantUser {
+  id           String              @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         RestaurantStaffRole @default(HOST)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([restaurantId, userId])
+  @@index([userId])
+  @@map("restaurant_users")
 }

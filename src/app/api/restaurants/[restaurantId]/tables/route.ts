@@ -1,6 +1,7 @@
 import { createTableSchema } from "@/lib/validators";
-import { requireRole } from "@/server/auth/guards";
+import { requireSession } from "@/server/auth/guards";
 import { apiError, created, ok, parseJson } from "@/server/http";
+import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
 import { createTable, listTables } from "@/server/services/table-service";
 
 type Context = {
@@ -21,8 +22,9 @@ export async function GET(_: Request, context: Context) {
 
 export async function POST(request: Request, context: Context) {
   try {
-    await requireRole(["ADMIN"]);
+    const session = await requireSession();
     const { restaurantId } = await context.params;
+    await requireRestaurantAccess(session, restaurantId, "MANAGER");
     const data = await parseJson(request, createTableSchema);
     const table = await createTable({
       restaurantId,

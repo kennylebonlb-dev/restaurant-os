@@ -3,6 +3,8 @@ import { requireSession } from "@/server/auth/guards";
 import { sendReservationReminder } from "@/server/email";
 import { apiError, ok } from "@/server/http";
 import { NotFoundError } from "@/server/errors";
+import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
+import { sendReservationReminderSms } from "@/server/sms";
 
 type Context = {
   params: Promise<{
@@ -10,8 +12,12 @@ type Context = {
   }>;
 };
 
-export async function POST(_: Request, context: Context) {
+export async function POST(request: Request, context: Context) {
   try {
+    assertRateLimit(rateLimitKey(request, "reservation:reminder"), {
+      limit: 20,
+      windowMs: 60_000
+    });
     const session = await requireSession();
     const { reservationId } = await context.params;
     const reservation = await prisma.reservation.findUnique({
@@ -31,7 +37,8 @@ export async function POST(_: Request, context: Context) {
             id: true,
             email: true,
             name: true,
-            contactEmail: true
+            contactEmail: true,
+            phone: true
           }
         }
       }
@@ -47,9 +54,12 @@ export async function POST(_: Request, context: Context) {
       throw new NotFoundError("Reservation not found.");
     }
 
-    const emailSent = await sendReservationReminder(reservation);
+    const [emailSent, smsSent] = await Promise.all([
+      sendReservationReminder(reservation),
+      sendReservationReminderSms(reservation)
+    ]);
 
-    return ok({ sent: emailSent });
+    return ok({ sent: emailSent || smsSent, emailSent, smsSent });
   } catch (error) {
     return apiError(error);
   }

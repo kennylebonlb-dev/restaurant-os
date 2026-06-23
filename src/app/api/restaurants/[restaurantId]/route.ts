@@ -1,7 +1,8 @@
 import { updateRestaurantSchema } from "@/lib/validators";
 import { inferTimeZoneFromAddress } from "@/lib/time";
-import { requireRole } from "@/server/auth/guards";
+import { requireSession } from "@/server/auth/guards";
 import { apiError, noContent, ok, parseJson } from "@/server/http";
+import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
 import {
   deleteRestaurant,
   getRestaurant,
@@ -26,8 +27,9 @@ export async function GET(_: Request, context: Context) {
 
 export async function PATCH(request: Request, context: Context) {
   try {
-    await requireRole(["ADMIN"]);
+    const session = await requireSession();
     const { restaurantId } = await context.params;
+    await requireRestaurantAccess(session, restaurantId, "MANAGER");
     const data = await parseJson(request, updateRestaurantSchema);
     const restaurant = await updateRestaurant(
       restaurantId,
@@ -47,8 +49,9 @@ export async function PATCH(request: Request, context: Context) {
 
 export async function DELETE(_: Request, context: Context) {
   try {
-    await requireRole(["ADMIN"]);
+    const session = await requireSession();
     const { restaurantId } = await context.params;
+    await requireRestaurantAccess(session, restaurantId, "OWNER");
     await deleteRestaurant(restaurantId);
 
     return noContent();

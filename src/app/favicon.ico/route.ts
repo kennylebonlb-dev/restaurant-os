@@ -1,6 +1,8 @@
 import { readFile } from "fs/promises";
 import path from "path";
-import { getPlatformBrand } from "@/server/platform-settings";
+import { defaultPlatformBrand, getPlatformBrand } from "@/server/platform-settings";
+
+export const dynamic = "force-dynamic";
 
 const contentTypes: Record<string, string> = {
   ".ico": "image/x-icon",
@@ -55,7 +57,7 @@ async function publicFileResponse(fileUrl: string) {
 }
 
 export async function GET(request: Request) {
-  const brand = await getPlatformBrand();
+  const brand = await getPlatformBrand().catch(() => defaultPlatformBrand);
   const dataResponse = dataUrlResponse(brand.faviconUrl);
 
   if (dataResponse) {

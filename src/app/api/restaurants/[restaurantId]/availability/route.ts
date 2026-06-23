@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { availabilitySchema } from "@/lib/validators";
 import { apiError, ok, parseJson } from "@/server/http";
-import { getAvailableTables } from "@/server/services/reservation-service";
+import { getAvailableCombinationSuggestions, getAvailableTables } from "@/server/services/reservation-service";
 
 type Context = {
   params: Promise<{
@@ -17,8 +17,14 @@ export async function POST(request: Request, context: Context) {
       restaurantId,
       ...data
     });
+    const combinations = tables.length > 0
+      ? []
+      : await getAvailableCombinationSuggestions(prisma, {
+          restaurantId,
+          ...data
+        });
 
-    return ok({ tables });
+    return ok({ tables, combinations });
   } catch (error) {
     return apiError(error);
   }

@@ -16,8 +16,13 @@ type RestaurantInput = {
   ownerId?: string;
 };
 
-export async function listRestaurants() {
+export async function listRestaurants(options?: { slug?: string }) {
   return prisma.restaurant.findMany({
+    where: options?.slug
+      ? {
+          slug: options.slug
+        }
+      : undefined,
     orderBy: {
       name: "asc"
     },
@@ -49,13 +54,36 @@ export async function getRestaurant(restaurantId: string) {
 }
 
 export async function createRestaurant(data: RestaurantInput) {
-  const restaurant = await prisma.restaurant.create({
-    data: {
-      ...data,
-      openingHours: data.openingHours as Prisma.InputJsonValue,
-      settings: data.settings as Prisma.InputJsonValue,
-      menu: data.menu as Prisma.InputJsonValue
+  const restaurant = await prisma.$transaction(async (tx) => {
+    const restaurant = await tx.restaurant.create({
+      data: {
+        ...data,
+        openingHours: data.openingHours as Prisma.InputJsonValue,
+        settings: data.settings as Prisma.InputJsonValue,
+        menu: data.menu as Prisma.InputJsonValue
+      }
+    });
+
+    if (data.ownerId) {
+      await tx.restaurantUser.upsert({
+        where: {
+          restaurantId_userId: {
+            restaurantId: restaurant.id,
+            userId: data.ownerId
+          }
+        },
+        update: {
+          role: "OWNER"
+        },
+        create: {
+          restaurantId: restaurant.id,
+          userId: data.ownerId,
+          role: "OWNER"
+        }
+      });
     }
+
+    return restaurant;
   });
 
   emitRestaurantEvent(restaurant.id, "restaurant:created", restaurant);

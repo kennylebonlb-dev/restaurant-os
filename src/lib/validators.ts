@@ -19,9 +19,15 @@ export const openingHoursSchema = z.record(
     open: timeStringSchema,
     close: timeStringSchema,
     closed: z.boolean().optional(),
+    morningOpen: timeStringSchema.optional(),
+    morningClose: timeStringSchema.optional(),
+    lunchServiceEnabled: z.boolean().optional(),
     secondServiceEnabled: z.boolean().optional(),
     secondOpen: timeStringSchema.optional(),
-    secondClose: timeStringSchema.optional()
+    secondClose: timeStringSchema.optional(),
+    thirdServiceEnabled: z.boolean().optional(),
+    thirdOpen: timeStringSchema.optional(),
+    thirdClose: timeStringSchema.optional()
   })
 );
 
@@ -64,6 +70,7 @@ export const availabilitySchema = z.object({
 
 export const createReservationSchema = availabilitySchema.extend({
   tableId: z.string().trim().min(1).optional(),
+  combinationId: z.string().trim().min(1).optional(),
   autoAssignTable: z.boolean().default(false),
   firstName: z.string().trim().min(1, "First name is required.").max(80),
   lastName: z.string().trim().min(1, "Last name is required.").max(80),
@@ -78,6 +85,7 @@ export const createReservationSchema = availabilitySchema.extend({
 export const createAdminReservationSchema = availabilitySchema.extend({
   userId: z.string().cuid(),
   tableId: z.string().trim().min(1).optional(),
+  combinationId: z.string().trim().min(1).optional(),
   autoAssignTable: z.boolean().default(false),
   firstName: z.string().trim().max(80).optional(),
   lastName: z.string().trim().max(80).optional(),
@@ -93,7 +101,13 @@ export const createAdminReservationSchema = availabilitySchema.extend({
 export const updateReservationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED"]).optional(),
   notes: z.string().max(1000).nullable().optional(),
-  tableId: z.string().trim().min(1).nullable().optional()
+  tableId: z.string().trim().min(1).nullable().optional(),
+  startTime: timeStringSchema.optional(),
+  endTime: timeStringSchema.optional(),
+  numberOfGuests: z.coerce.number().int().min(1).max(40).optional(),
+  arrivedAt: z.union([z.string().datetime(), z.literal("now"), z.null()]).optional(),
+  noShow: z.boolean().optional(),
+  suppressNotifications: z.boolean().optional()
 });
 
 export const customerReservationUpdateSchema = z.object({
@@ -130,7 +144,8 @@ export const registerSchema = z.object({
 });
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().email().transform((email) => email.toLowerCase().trim())
+  email: z.string().email().transform((email) => email.toLowerCase().trim()),
+  redirectPath: z.enum(["/login", "/admin/login"]).optional()
 });
 
 export const resetPasswordSchema = forgotPasswordSchema.extend({
@@ -154,6 +169,64 @@ export const updateProfileSchema = z.object({
   phone: z.string().trim().min(6).max(32),
   birthDate: z.union([dateStringSchema, z.literal("")]).optional()
 });
+
+export const updateCredentialsSchema = z.object({
+  currentPassword: z.string().min(1, "L’ancien mot de passe est requis."),
+  email: z
+    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+    .optional(),
+  newPassword: z
+    .union([z.string().min(8, "Le nouveau mot de passe doit contenir au moins 8 caractères.").max(128), z.literal("")])
+    .optional(),
+  persistentSession: z.boolean().optional()
+});
+
+export const clientSchema = z.object({
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  email: z
+    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+    .optional(),
+  phone: z.string().trim().max(32).optional(),
+  birthday: z.union([dateStringSchema, z.literal("")]).optional(),
+  allergies: z.string().trim().max(1000).optional(),
+  preferences: z.array(z.string().trim().min(1).max(80)).default([]).optional(),
+  internalNotes: z.string().trim().max(2000).optional(),
+  vip: z.boolean().default(false).optional(),
+  noShowRisk: z.coerce.number().int().min(0).max(100).optional()
+});
+
+export const updateClientSchema = clientSchema.partial();
+
+export const waitlistEntrySchema = z.object({
+  clientId: z.string().cuid().optional(),
+  date: dateStringSchema,
+  requestedTime: z.union([timeStringSchema, z.literal("")]).optional(),
+  numberOfGuests: z.coerce.number().int().min(1).max(40),
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  email: z
+    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+    .optional(),
+  phone: z.string().trim().max(32).optional(),
+  notes: z.string().trim().max(1000).optional(),
+  tablePreferences: z.array(z.enum(tableFeatures)).default([])
+});
+
+export const updateWaitlistEntrySchema = waitlistEntrySchema.partial().extend({
+  status: z.enum(["WAITING", "SEATED", "CANCELLED", "EXPIRED"]).optional()
+});
+
+export const notificationTemplateSchema = z.object({
+  key: z.string().trim().min(1).max(80),
+  channel: z.enum(["EMAIL", "SMS"]),
+  subject: z.string().trim().max(160).optional(),
+  body: z.string().trim().min(1).max(5000),
+  enabled: z.boolean().default(true),
+  variables: z.array(z.string().trim().min(1).max(80)).default([])
+});
+
+export const updateNotificationTemplateSchema = notificationTemplateSchema.partial();
 
 const imageUrlSchema = z
   .string()
@@ -182,11 +255,18 @@ export const platformBrandSchema = z.object({
   marketingFooterLogoUrl: imageUrlSchema,
   marketingFooterLogoHeight: z.coerce.number().int().min(18).max(96).default(32),
   loginVisualUrl: imageUrlSchema,
+  adminLoginVisualUrl: imageUrlSchema,
   faviconUrl: imageUrlSchema,
   logoAlt: z.string().trim().min(2).max(120),
   supportEmail: z
     .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
     .optional()
+});
+
+export const platformAdminLoginSettingsSchema = z.object({
+  badge: z.string().trim().min(1).max(80),
+  title: z.string().trim().min(1).max(140),
+  description: z.string().trim().min(1).max(320)
 });
 
 const landingHrefSchema = z
@@ -256,6 +336,7 @@ const platformLandingTypographySchema = z.object({
   heroTitleSize: z.coerce.number().int().min(42).max(96),
   heroSubtitleSize: z.coerce.number().int().min(14).max(28),
   sectionTitleSize: z.coerce.number().int().min(28).max(72),
+  sectionTitleMaxWidth: z.coerce.number().int().min(420).max(1200),
   sectionTextSize: z.coerce.number().int().min(13).max(24),
   cardTitleSize: z.coerce.number().int().min(14).max(34),
   cardTextSize: z.coerce.number().int().min(12).max(22)
@@ -400,6 +481,30 @@ export const platformEmailSettingsSchema = z.object({
   })
 });
 
+const platformSmsTemplateSchema = z.object({
+  enabled: z.boolean(),
+  message: z.string().trim().min(1).max(480)
+});
+
+export const platformSmsSettingsSchema = z.object({
+  enabled: z.boolean(),
+  senderName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(11)
+    .regex(/^[a-zA-Z0-9]+$/, "Sender must use letters and numbers only."),
+  reminderMinutesBefore: z.coerce.number().int().min(15).max(2880),
+  creditsRemaining: z.coerce.number().int().min(0).max(999999),
+  lowCreditThreshold: z.coerce.number().int().min(0).max(999999),
+  templates: z.object({
+    reservationConfirmation: platformSmsTemplateSchema,
+    reservationUpdate: platformSmsTemplateSchema,
+    reservationCancellation: platformSmsTemplateSchema,
+    reservationReminder: platformSmsTemplateSchema
+  })
+});
+
 export const createManagedRestaurantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000).optional(),
@@ -407,6 +512,9 @@ export const createManagedRestaurantSchema = z.object({
   phone: z.string().trim().max(32).optional(),
   ownerEmail: z
     .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+    .optional(),
+  ownerPassword: z
+    .union([z.string().min(8, "Le mot de passe doit contenir au moins 8 caractères."), z.literal("")])
     .optional(),
   slug: z.string().trim().regex(/^[a-z0-9-]+$/).optional()
 });
@@ -425,6 +533,11 @@ export const updateManagedRestaurantSchema = createManagedRestaurantSchema.parti
   billingPaidUntil: z.string().trim().max(40).optional(),
   billingLastPaymentDate: z.string().trim().max(40).optional(),
   billingNotes: z.string().trim().max(1000).optional(),
+  smsServiceEnabled: z.boolean().optional(),
+  smsCreditsRemaining: z.coerce.number().int().min(0).max(999999).optional(),
+  smsSentCount: z.coerce.number().int().min(0).max(999999).optional(),
+  smsLowCreditThreshold: z.coerce.number().int().min(0).max(999999).optional(),
+  smsPriceCents: z.coerce.number().int().min(0).max(9999).optional(),
   platformUsers: z
     .array(
       z.object({

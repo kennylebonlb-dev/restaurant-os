@@ -2,13 +2,16 @@ import { createAdminReservationSchema, createReservationSchema } from "@/lib/val
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/server/auth/guards";
+import { requireSession } from "@/server/auth/guards";
 import { sendReservationConfirmation } from "@/server/email";
 import { apiError, created, ok } from "@/server/http";
+import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
+import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
 import {
   createReservation,
   listRestaurantReservations
 } from "@/server/services/reservation-service";
+import { sendReservationConfirmationSms } from "@/server/sms";
 
 type Context = {
   params: Promise<{
@@ -74,8 +77,9 @@ async function findOrCreateReservationUser(data: {
 
 export async function GET(request: Request, context: Context) {
   try {
-    await requireRole(["ADMIN", "STAFF"]);
+    const session = await requireSession();
     const { restaurantId } = await context.params;
+    await requireRestaurantAccess(session, restaurantId, "READ_ONLY");
     const date = new URL(request.url).searchParams.get("date") ?? undefined;
     const reservations = await listRestaurantReservations(restaurantId, date);
 
@@ -87,11 +91,22 @@ export async function GET(request: Request, context: Context) {
 
 export async function POST(request: Request, context: Context) {
   try {
+    assertRateLimit(rateLimitKey(request, "reservation:create"), {
+      limit: 20,
+      windowMs: 60_000
+    });
     const session = await getServerSession(authOptions);
-    const { restaurantId } = await context.params;
-    const payload = await request.json();
+	    const { restaurantId } = await context.params;
+	    const payload = await request.json();
+	    const isRestaurantStaff = session?.user.role === "ADMIN" || session?.user.role === "STAFF";
+	    const isAdminReservation = isRestaurantStaff && (typeof payload.userId === "string" || typeof payload.status === "string");
+      const sendConfirmationSmsForStaff = payload.sendConfirmationSms === true;
 
-    if (session?.user.role === "ADMIN" && typeof payload.userId === "string") {
+	    if (isAdminReservation) {
+	      await requireRestaurantAccess(session, restaurantId, "HOST");
+	    }
+
+	    if (isAdminReservation && typeof payload.userId === "string") {
       const data = createAdminReservationSchema.parse(payload);
       const reservation = await createReservation({
         restaurantId,
@@ -101,6 +116,7 @@ export async function POST(request: Request, context: Context) {
         endTime: data.endTime,
         numberOfGuests: data.numberOfGuests,
         tableId: data.tableId,
+        combinationId: data.combinationId,
         autoAssignTable: data.autoAssignTable,
         tablePreferences: data.tablePreferences,
         firstName: data.firstName,
@@ -114,14 +130,23 @@ export async function POST(request: Request, context: Context) {
         status: data.status
       });
 
-      const emailSent = await sendReservationConfirmation(reservation);
+      const [emailSent, smsSent] = await Promise.all([
+        sendReservationConfirmation(reservation),
+        sendConfirmationSmsForStaff ? sendReservationConfirmationSms(reservation) : Promise.resolve(false)
+      ]);
 
-      return created({ reservation, emailSent });
+      return created({ reservation, emailSent, smsSent });
     }
 
     const data = createReservationSchema.parse(payload);
-    const userId =
-      session?.user.id ??
+    const userId = isRestaurantStaff
+      ? await findOrCreateReservationUser({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email,
+          phone: data.phone
+        })
+      : session?.user.id ??
       (await findOrCreateReservationUser({
         firstName: data.firstName,
         lastName: data.lastName,
@@ -136,6 +161,7 @@ export async function POST(request: Request, context: Context) {
       endTime: data.endTime,
       numberOfGuests: data.numberOfGuests,
       tableId: data.tableId,
+      combinationId: data.combinationId,
       autoAssignTable: data.autoAssignTable,
       tablePreferences: data.tablePreferences,
       firstName: data.firstName,
@@ -148,9 +174,12 @@ export async function POST(request: Request, context: Context) {
       notes: data.notes
     });
 
-    const emailSent = await sendReservationConfirmation(reservation);
+    const [emailSent, smsSent] = await Promise.all([
+      sendReservationConfirmation(reservation),
+      isRestaurantStaff && !payload.sendConfirmationSms ? Promise.resolve(false) : sendReservationConfirmationSms(reservation)
+    ]);
 
-    return created({ reservation, emailSent });
+    return created({ reservation, emailSent, smsSent });
   } catch (error) {
     return apiError(error);
   }

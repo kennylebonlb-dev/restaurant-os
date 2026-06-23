@@ -28,6 +28,7 @@ async function main() {
         footerLogoUrl: "/cest-ma-table-logo.png",
         footerLogoHeight: 32,
         loginVisualUrl: "/login-restaurant-visual.png",
+        adminLoginVisualUrl: "/admin-login-visual-default.svg",
         faviconUrl: "/cest-ma-table-favicon.png",
         logoAlt: "C’est ma table",
         supportEmail: ""
@@ -42,6 +43,7 @@ async function main() {
         footerLogoUrl: "/cest-ma-table-logo.png",
         footerLogoHeight: 32,
         loginVisualUrl: "/login-restaurant-visual.png",
+        adminLoginVisualUrl: "/admin-login-visual-default.svg",
         faviconUrl: "/cest-ma-table-favicon.png",
         logoAlt: "C’est ma table",
         supportEmail: ""
@@ -131,13 +133,51 @@ async function main() {
   });
 
   const tableOne = restaurant.tables.find((table) => table.label === "T1");
+  const tableTwo = restaurant.tables.find((table) => table.label === "T2");
   const vipTable = restaurant.tables.find((table) => table.label === "VIP1");
+
+  await prisma.restaurantUser.upsert({
+    where: {
+      restaurantId_userId: {
+        restaurantId: restaurant.id,
+        userId: admin.id
+      }
+    },
+    update: {
+      role: "OWNER"
+    },
+    create: {
+      restaurantId: restaurant.id,
+      userId: admin.id,
+      role: "OWNER"
+    }
+  });
+
+  const demoClient = await prisma.client.create({
+    data: {
+      restaurantId: restaurant.id,
+      userId: client.id,
+      firstName: "Client",
+      lastName: "Demo",
+      email: clientEmail,
+      phone: "+33 6 00 00 00 00",
+      birthday: new Date("1990-06-15T00:00:00.000Z"),
+      allergies: "Noisettes",
+      preferences: ["Table au calme", "Près d’une fenêtre"],
+      internalNotes: "Client régulier, préfère le service de 19h.",
+      vip: true,
+      noShowRisk: 15,
+      lastVisitAt: new Date("2026-06-10T19:00:00.000Z")
+    }
+  });
 
   if (tableOne) {
     await prisma.reservation.create({
       data: {
+        referenceCode: "TTDEMO01",
         restaurantId: restaurant.id,
         userId: client.id,
+        clientId: demoClient.id,
         tableId: tableOne.id,
         date: new Date("2026-06-15T00:00:00.000Z"),
         startTime: "19:00",
@@ -153,6 +193,29 @@ async function main() {
     });
   }
 
+  if (tableTwo) {
+    await prisma.reservation.create({
+      data: {
+        referenceCode: "TTDEMO02",
+        restaurantId: restaurant.id,
+        userId: client.id,
+        clientId: demoClient.id,
+        tableId: tableTwo.id,
+        date: new Date("2026-06-15T00:00:00.000Z"),
+        startTime: "20:30",
+        endTime: "22:30",
+        numberOfGuests: 2,
+        status: "CONFIRMED",
+        guestFirstName: "Marie",
+        guestLastName: "Bernard",
+        guestEmail: "marie.bernard@example.com",
+        guestPhone: "+33 6 11 22 33 44",
+        birthday: true,
+        notes: "Anniversaire discret."
+      }
+    });
+  }
+
   if (vipTable) {
     await prisma.tableBlock.create({
       data: {
@@ -164,6 +227,57 @@ async function main() {
       }
     });
   }
+
+  await prisma.waitlistEntry.createMany({
+    data: [
+      {
+        restaurantId: restaurant.id,
+        clientId: demoClient.id,
+        date: new Date("2026-06-15T00:00:00.000Z"),
+        requestedTime: "20:00",
+        numberOfGuests: 4,
+        firstName: "Nora",
+        lastName: "Petit",
+        email: "nora.petit@example.com",
+        phone: "+33 6 12 12 12 12",
+        notes: "Prévenir si terrasse disponible.",
+        tablePreferences: ["QUIET"]
+      }
+    ]
+  });
+
+  await prisma.notificationTemplate.createMany({
+    data: [
+      {
+        restaurantId: restaurant.id,
+        key: "reservationConfirmation",
+        channel: "EMAIL",
+        subject: "Votre réservation {{reservationReference}} est confirmée",
+        body: "Bonjour {{customerName}}, votre table est confirmée le {{reservationDate}} à {{reservationTime}}.",
+        variables: ["customerName", "reservationReference", "reservationDate", "reservationTime"]
+      },
+      {
+        restaurantId: restaurant.id,
+        key: "reservationReminder",
+        channel: "SMS",
+        body: "Rappel {{restaurantName}} : votre réservation {{reservationReference}} est prévue à {{reservationTime}}. Adresse : {{restaurantAddress}}.",
+        variables: ["restaurantName", "restaurantAddress", "reservationReference", "reservationTime"]
+      }
+    ]
+  });
+
+  await prisma.auditEvent.create({
+    data: {
+      restaurantId: restaurant.id,
+      actorId: admin.id,
+      action: "seed.dashboardLiveV1",
+      entityType: "restaurant",
+      entityId: restaurant.id,
+      metadata: {
+        message: "Données réalistes Dashboard Live V1"
+      }
+    }
+  });
 
   console.log("Seed complete.");
   console.log(`Admin: ${adminEmail} / password123`);

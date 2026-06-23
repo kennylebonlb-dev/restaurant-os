@@ -18,6 +18,7 @@ import {
   History,
   ImageIcon,
   ImagePlus,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -40,9 +41,16 @@ import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/hooks/use-api";
-import { defaultPlatformEmailSettings, emailTemplateKeys } from "@/server/platform-settings";
+import {
+  defaultPlatformAdminLoginSettings,
+  defaultPlatformEmailSettings,
+  defaultPlatformSmsSettings,
+  emailTemplateKeys,
+  smsTemplateKeys
+} from "@/server/platform-settings";
 import type {
   PlatformBrand,
+  PlatformAdminLoginSettings,
   PlatformEmailSettings,
   PlatformEmailTemplateKey,
   PlatformLandingCustomBlock,
@@ -50,7 +58,9 @@ import type {
   PlatformLandingLink,
   PlatformLandingPlan,
   PlatformLandingSettings,
-  PlatformLandingTextBlock
+  PlatformLandingTextBlock,
+  PlatformSmsSettings,
+  PlatformSmsTemplateKey
 } from "@/server/platform-settings";
 
 type ManagedRestaurant = {
@@ -99,6 +109,11 @@ type SiteEditForm = {
   billingPaidUntil: string;
   billingLastPaymentDate: string;
   billingNotes: string;
+  smsServiceEnabled: boolean;
+  smsCreditsRemaining: number;
+  smsSentCount: number;
+  smsLowCreditThreshold: number;
+  smsPriceCents: number;
   platformUsers: PlatformRestaurantUser[];
 };
 
@@ -124,6 +139,14 @@ type EmailSettingsResponse = {
   emailSettings: PlatformEmailSettings;
 };
 
+type SmsSettingsResponse = {
+  smsSettings: PlatformSmsSettings;
+};
+
+type AdminLoginSettingsResponse = {
+  adminLogin: PlatformAdminLoginSettings;
+};
+
 type SitesResponse = {
   restaurants: ManagedRestaurant[];
 };
@@ -133,12 +156,14 @@ type AdminSection =
   | "appearance"
   | "header"
   | "assets"
+  | "adminLogin"
   | "content"
   | "blocks"
   | "plans"
   | "features"
   | "seo"
   | "mailing"
+  | "sms"
   | "footer"
   | "general"
   | "restaurants";
@@ -150,18 +175,19 @@ type LinkArrayKey = "legalLinks" | "solutionLinks" | "companyLinks";
 type StringListKey = "workflow" | "demoSteps";
 
 const initialBrandForm: PlatformBrand = {
-  siteName: "C’est ma table",
-  logoUrl: "/cest-ma-table-logo.png",
+  siteName: "ToqueTop",
+  logoUrl: "/toquetop-logo.svg",
   logoHeight: 48,
-  footerLogoUrl: "/cest-ma-table-logo.png",
+  footerLogoUrl: "/toquetop-logo.svg",
   footerLogoHeight: 32,
-  marketingLogoUrl: "/cest-ma-table-logo.png",
+  marketingLogoUrl: "/toquetop-logo.svg",
   marketingLogoHeight: 48,
-  marketingFooterLogoUrl: "/cest-ma-table-logo.png",
+  marketingFooterLogoUrl: "/toquetop-logo.svg",
   marketingFooterLogoHeight: 32,
   loginVisualUrl: "/login-restaurant-visual.png",
+  adminLoginVisualUrl: "/admin-login-visual-default.svg",
   faviconUrl: "/cest-ma-table-favicon.png",
-  logoAlt: "C’est ma table",
+  logoAlt: "ToqueTop",
   supportEmail: ""
 };
 
@@ -242,6 +268,7 @@ const initialLandingForm: PlatformLandingSettings = {
     heroTitleSize: 72,
     heroSubtitleSize: 18,
     sectionTitleSize: 48,
+    sectionTitleMaxWidth: 900,
     sectionTextSize: 16,
     cardTitleSize: 20,
     cardTextSize: 14
@@ -357,12 +384,14 @@ const sections: Array<{ id: AdminSection; label: string; description: string; ic
   { id: "appearance", label: "Graphisme", description: "Couleurs et style", icon: Palette },
   { id: "header", label: "Header", description: "Navigation du site", icon: PanelTop },
   { id: "assets", label: "Logo et favicon", description: "Images de marque", icon: ImageIcon },
+  { id: "adminLogin", label: "Page connexion", description: "Connexion restaurant", icon: KeyRound },
   { id: "content", label: "Pages & contenus", description: "Textes principaux", icon: FileText },
   { id: "blocks", label: "Blocs du site", description: "Sections modulaires", icon: Blocks },
   { id: "plans", label: "Forfaits", description: "Offres affichées", icon: BadgeEuro },
   { id: "features", label: "Fonctionnalités", description: "Cartes visibles", icon: ListChecks },
   { id: "seo", label: "SEO", description: "Référencement", icon: Search },
   { id: "mailing", label: "Mailing", description: "Emails envoyés", icon: Mail },
+  { id: "sms", label: "SMS", description: "Messages envoyés", icon: MonitorSmartphone },
   { id: "footer", label: "Footer", description: "Bas de page", icon: PanelBottom },
   { id: "general", label: "Paramètres", description: "Coordonnées", icon: Settings },
   { id: "restaurants", label: "Restaurants", description: "Sites clients", icon: Building2 }
@@ -398,6 +427,18 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function readNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+
+  return fallback;
+}
+
 function readPlatformUsers(value: unknown): PlatformRestaurantUser[] {
   if (!Array.isArray(value)) {
     return [
@@ -430,6 +471,7 @@ function siteEditFormFromRestaurant(site?: ManagedRestaurant): SiteEditForm {
   const subscription = isRecord(settings.subscription) ? settings.subscription : {};
   const owner = isRecord(settings.owner) ? settings.owner : {};
   const billing = isRecord(settings.billing) ? settings.billing : {};
+  const smsService = isRecord(settings.smsService) ? settings.smsService : {};
 
   return {
     name: site?.name ?? "",
@@ -460,6 +502,11 @@ function siteEditFormFromRestaurant(site?: ManagedRestaurant): SiteEditForm {
     billingPaidUntil: readString(billing.paidUntil),
     billingLastPaymentDate: readString(billing.lastPaymentDate),
     billingNotes: readString(billing.notes),
+    smsServiceEnabled: smsService.enabled === true,
+    smsCreditsRemaining: readNumber(smsService.creditsRemaining ?? settings.smsBalance ?? settings.smsRemaining, 0),
+    smsSentCount: readNumber(smsService.sentCount ?? settings.smsSent ?? settings.smsSentCount, 0),
+    smsLowCreditThreshold: readNumber(smsService.lowCreditThreshold, 10),
+    smsPriceCents: readNumber(smsService.priceCents ?? settings.smsPriceCents, 12),
     platformUsers: readPlatformUsers(settings.platformUsers)
   };
 }
@@ -500,15 +547,19 @@ export function PlatformAdminDashboard() {
   const [lastSavedAt, setLastSavedAt] = useState<string>();
   const [draggedBlockId, setDraggedBlockId] = useState<string>();
   const [brandForm, setBrandForm] = useState<PlatformBrand>(initialBrandForm);
+  const [adminLoginForm, setAdminLoginForm] = useState<PlatformAdminLoginSettings>(defaultPlatformAdminLoginSettings);
   const [landingForm, setLandingForm] = useState<PlatformLandingSettings>(initialLandingForm);
   const [emailForm, setEmailForm] = useState<PlatformEmailSettings>(defaultPlatformEmailSettings);
   const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<PlatformEmailTemplateKey>("reservationConfirmation");
+  const [smsForm, setSmsForm] = useState<PlatformSmsSettings>(defaultPlatformSmsSettings);
+  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState<PlatformSmsTemplateKey>("reservationConfirmation");
   const [siteForm, setSiteForm] = useState({
     name: "",
     description: "",
     address: "",
     phone: "",
-    ownerEmail: ""
+    ownerEmail: "",
+    ownerPassword: ""
   });
   const [selectedSiteId, setSelectedSiteId] = useState<string>();
   const [siteEditForm, setSiteEditForm] = useState<SiteEditForm>(() => siteEditFormFromRestaurant());
@@ -527,9 +578,19 @@ export function PlatformAdminDashboard() {
     queryFn: () => apiFetch<LandingResponse>("/api/platform-admin/landing")
   });
 
+  const adminLoginQuery = useQuery({
+    queryKey: ["platform-admin", "admin-login"],
+    queryFn: () => apiFetch<AdminLoginSettingsResponse>("/api/platform-admin/admin-login")
+  });
+
   const emailSettingsQuery = useQuery({
     queryKey: ["platform-admin", "email-settings"],
     queryFn: () => apiFetch<EmailSettingsResponse>("/api/platform-admin/email-settings")
+  });
+
+  const smsSettingsQuery = useQuery({
+    queryKey: ["platform-admin", "sms-settings"],
+    queryFn: () => apiFetch<SmsSettingsResponse>("/api/platform-admin/sms-settings")
   });
 
   const sitesQuery = useQuery({
@@ -550,10 +611,22 @@ export function PlatformAdminDashboard() {
   }, [landingQuery.data?.landing]);
 
   useEffect(() => {
+    if (adminLoginQuery.data?.adminLogin) {
+      setAdminLoginForm(adminLoginQuery.data.adminLogin);
+    }
+  }, [adminLoginQuery.data?.adminLogin]);
+
+  useEffect(() => {
     if (emailSettingsQuery.data?.emailSettings) {
       setEmailForm(emailSettingsQuery.data.emailSettings);
     }
   }, [emailSettingsQuery.data?.emailSettings]);
+
+  useEffect(() => {
+    if (smsSettingsQuery.data?.smsSettings) {
+      setSmsForm(smsSettingsQuery.data.smsSettings);
+    }
+  }, [smsSettingsQuery.data?.smsSettings]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -585,11 +658,27 @@ export function PlatformAdminDashboard() {
       })
   });
 
+  const saveAdminLoginMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<AdminLoginSettingsResponse>("/api/platform-admin/admin-login", {
+        method: "PATCH",
+        body: JSON.stringify(adminLoginForm)
+      })
+  });
+
   const saveEmailSettingsMutation = useMutation({
     mutationFn: () =>
       apiFetch<EmailSettingsResponse>("/api/platform-admin/email-settings", {
         method: "PATCH",
         body: JSON.stringify(emailForm)
+      })
+  });
+
+  const saveSmsSettingsMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<SmsSettingsResponse>("/api/platform-admin/sms-settings", {
+        method: "PATCH",
+        body: JSON.stringify(smsForm)
       })
   });
 
@@ -602,12 +691,13 @@ export function PlatformAdminDashboard() {
           description: siteForm.description || undefined,
           address: siteForm.address || undefined,
           phone: siteForm.phone || undefined,
-          ownerEmail: siteForm.ownerEmail || undefined
+          ownerEmail: siteForm.ownerEmail || undefined,
+          ownerPassword: siteForm.ownerPassword || undefined
         })
       }),
     onSuccess: (data) => {
       setMessage(`Site créé : ${data.restaurant.name}`);
-      setSiteForm({ name: "", description: "", address: "", phone: "", ownerEmail: "" });
+      setSiteForm({ name: "", description: "", address: "", phone: "", ownerEmail: "", ownerPassword: "" });
       queryClient.invalidateQueries({ queryKey: ["platform-admin", "sites"] });
       queryClient.invalidateQueries({ queryKey: ["restaurants"] });
       window.setTimeout(() => setMessage(undefined), 3500);
@@ -726,6 +816,11 @@ export function PlatformAdminDashboard() {
     markDirty();
   }
 
+  function updateAdminLogin<K extends keyof PlatformAdminLoginSettings>(key: K, value: PlatformAdminLoginSettings[K]) {
+    setAdminLoginForm((current) => ({ ...current, [key]: value }));
+    markDirty();
+  }
+
   function updateLandingField<K extends keyof PlatformLandingSettings>(key: K, value: PlatformLandingSettings[K]) {
     setLandingForm((current) => ({ ...current, [key]: value }));
     markDirty();
@@ -770,6 +865,32 @@ export function PlatformAdminDashboard() {
     value: PlatformEmailSettings["templates"][PlatformEmailTemplateKey][K]
   ) {
     setEmailForm((current) => ({
+      ...current,
+      templates: {
+        ...current.templates,
+        [templateKey]: {
+          ...current.templates[templateKey],
+          [field]: value
+        }
+      }
+    }));
+    markDirty();
+  }
+
+  function updateSmsField<K extends keyof Omit<PlatformSmsSettings, "templates">>(
+    key: K,
+    value: PlatformSmsSettings[K]
+  ) {
+    setSmsForm((current) => ({ ...current, [key]: value }));
+    markDirty();
+  }
+
+  function updateSmsTemplate<K extends keyof PlatformSmsSettings["templates"][PlatformSmsTemplateKey]>(
+    templateKey: PlatformSmsTemplateKey,
+    field: K,
+    value: PlatformSmsSettings["templates"][PlatformSmsTemplateKey][K]
+  ) {
+    setSmsForm((current) => ({
       ...current,
       templates: {
         ...current.templates,
@@ -1077,6 +1198,10 @@ export function PlatformAdminDashboard() {
 
     if (dataUrl) {
       updateBrand("marketingLogoUrl", dataUrl);
+      setBrandForm((current) => ({
+        ...current,
+        logoUrl: current.logoUrl === "/toquetop-logo.svg" ? dataUrl : current.logoUrl
+      }));
     }
   }
 
@@ -1093,6 +1218,14 @@ export function PlatformAdminDashboard() {
 
     if (dataUrl) {
       updateBrand("loginVisualUrl", dataUrl);
+    }
+  }
+
+  async function updateAdminLoginVisual(event: ChangeEvent<HTMLInputElement>) {
+    const dataUrl = await imageInputToDataUrl(event);
+
+    if (dataUrl) {
+      updateBrand("adminLoginVisualUrl", dataUrl);
     }
   }
 
@@ -1114,20 +1247,26 @@ export function PlatformAdminDashboard() {
 
   async function saveAll() {
     try {
-      const [brandData, landingData, emailData] = await Promise.all([
+      const [brandData, adminLoginData, landingData, emailData, smsData] = await Promise.all([
         saveBrandMutation.mutateAsync(),
+        saveAdminLoginMutation.mutateAsync(),
         saveLandingMutation.mutateAsync(),
-        saveEmailSettingsMutation.mutateAsync()
+        saveEmailSettingsMutation.mutateAsync(),
+        saveSmsSettingsMutation.mutateAsync()
       ]);
       setBrandForm(brandData.brand);
+      setAdminLoginForm(adminLoginData.adminLogin);
       setLandingForm(landingData.landing);
       setEmailForm(emailData.emailSettings);
+      setSmsForm(smsData.smsSettings);
       setDirty(false);
       setLastSavedAt(new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date()));
       setMessage("Modification effectuée");
       queryClient.invalidateQueries({ queryKey: ["platform-admin", "brand"] });
+      queryClient.invalidateQueries({ queryKey: ["platform-admin", "admin-login"] });
       queryClient.invalidateQueries({ queryKey: ["platform-admin", "landing"] });
       queryClient.invalidateQueries({ queryKey: ["platform-admin", "email-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["platform-admin", "sms-settings"] });
       router.refresh();
       window.setTimeout(() => setMessage(undefined), 3500);
     } catch (error) {
@@ -1245,7 +1384,7 @@ export function PlatformAdminDashboard() {
                 <Eye className="h-4 w-4" />
                 Voir le site
               </Link>
-              <button className="primary-button" type="button" onClick={saveAll} disabled={saveBrandMutation.isPending || saveLandingMutation.isPending}>
+              <button className="primary-button" type="button" onClick={saveAll} disabled={saveBrandMutation.isPending || saveAdminLoginMutation.isPending || saveLandingMutation.isPending || saveEmailSettingsMutation.isPending || saveSmsSettingsMutation.isPending}>
                 <Save className="h-4 w-4" />
                 Enregistrer
               </button>
@@ -1328,6 +1467,7 @@ export function PlatformAdminDashboard() {
                   <RangeField label="Taille du titre principal" max={96} min={42} value={landingForm.typography.heroTitleSize} onChange={(value) => updateTypography("heroTitleSize", value)} />
                   <RangeField label="Taille du sous-titre principal" max={28} min={14} value={landingForm.typography.heroSubtitleSize} onChange={(value) => updateTypography("heroSubtitleSize", value)} />
                   <RangeField label="Taille des titres de section" max={72} min={28} value={landingForm.typography.sectionTitleSize} onChange={(value) => updateTypography("sectionTitleSize", value)} />
+                  <RangeField label="Largeur des titres de section" max={1200} min={420} value={landingForm.typography.sectionTitleMaxWidth} onChange={(value) => updateTypography("sectionTitleMaxWidth", value)} />
                   <RangeField label="Taille des textes de section" max={24} min={13} value={landingForm.typography.sectionTextSize} onChange={(value) => updateTypography("sectionTextSize", value)} />
                   <RangeField label="Taille des titres de cartes" max={34} min={14} value={landingForm.typography.cardTitleSize} onChange={(value) => updateTypography("cardTitleSize", value)} />
                   <RangeField label="Taille des textes de cartes" max={22} min={12} value={landingForm.typography.cardTextSize} onChange={(value) => updateTypography("cardTextSize", value)} />
@@ -1372,12 +1512,22 @@ export function PlatformAdminDashboard() {
             {activeSection === "assets" ? (
               <AdminSectionLayout description="Gère séparément les logos du site vitrine, des sites de réservation, le favicon et le visuel de connexion." icon={<ImageIcon className="h-5 w-5" />} panelClass={panelClass} title="Logo et favicon">
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo vitrine" height={brandForm.marketingLogoHeight} image={brandForm.marketingLogoUrl} title="Logo site vitrine" onUpload={updateMarketingLogo} />
+                  <AssetCard
+                    alt={brandForm.logoAlt}
+                    accept="image/svg+xml,.svg"
+                    buttonLabel="Importer le logo SVG ToqueTop"
+                    description="Format accepté : SVG. L’URL /toquetop-logo.svg servira toujours ce logo."
+                    height={brandForm.marketingLogoHeight}
+                    image={brandForm.marketingLogoUrl}
+                    title="Logo SVG ToqueTop"
+                    onUpload={updateMarketingLogo}
+                  />
                   <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo footer vitrine" height={brandForm.marketingFooterLogoHeight} image={brandForm.marketingFooterLogoUrl} title="Logo footer vitrine" onUpload={updateMarketingFooterLogo} />
                   <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo réservation" height={brandForm.logoHeight} image={brandForm.logoUrl} title="Logo site de réservation" onUpload={updateLogo} />
                   <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo footer réservation" height={brandForm.footerLogoHeight} image={brandForm.footerLogoUrl} title="Logo footer réservation" onUpload={updateFooterLogo} />
                   <AssetCard alt="Favicon" buttonLabel="Remplacer le favicon" height={56} image={brandForm.faviconUrl} title="Favicon" onUpload={updateFavicon} />
-                  <AssetCard alt="Visuel de connexion" buttonLabel="Remplacer le visuel" image={brandForm.loginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel page de connexion" onUpload={updateLoginVisual} />
+                  <AssetCard alt="Visuel de connexion client" buttonLabel="Remplacer le visuel client" image={brandForm.loginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel page connexion client" onUpload={updateLoginVisual} />
+                  <AssetCard alt="Visuel de connexion Dashboard Live" buttonLabel="Remplacer le visuel Dashboard" image={brandForm.adminLoginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel connexion Dashboard Live" onUpload={updateAdminLoginVisual} />
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -1409,6 +1559,57 @@ export function PlatformAdminDashboard() {
                   <button className="secondary-button self-end" type="button" onClick={() => updateBrand("footerLogoUrl", brandForm.logoUrl)}>
                     Utiliser le logo réservation en footer réservation
                   </button>
+                </div>
+              </AdminSectionLayout>
+            ) : null}
+
+            {activeSection === "adminLogin" ? (
+              <AdminSectionLayout
+                description="Modifie les textes affichés sur la page de connexion des restaurateurs."
+                icon={<KeyRound className="h-5 w-5" />}
+                panelClass={panelClass}
+                title="Page connexion"
+              >
+                <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+                  <div className={`rounded-md border p-4 ${panelClass}`}>
+                    <div className="mb-4">
+                      <p className="text-xs font-black uppercase text-moss">Connexion Dashboard Live</p>
+                      <h3 className="mt-1 text-xl font-black">Textes du visuel gauche</h3>
+                      <p className={`mt-2 text-sm font-semibold leading-6 ${mutedText}`}>
+                        Utilise <span className="font-black text-moss">{"{{restaurantName}}"}</span> pour intégrer automatiquement le nom du restaurant sur ses sous-domaines.
+                      </p>
+                    </div>
+                    <div className="grid gap-4">
+                      <Field label="Pastille" value={adminLoginForm.badge} onChange={(value) => updateAdminLogin("badge", value)} />
+                      <Field label="Titre principal" value={adminLoginForm.title} onChange={(value) => updateAdminLogin("title", value)} />
+                      <Textarea label="Description" value={adminLoginForm.description} onChange={(value) => updateAdminLogin("description", value)} />
+                    </div>
+                  </div>
+
+                  <div className={`overflow-hidden rounded-md border ${panelClass}`}>
+                    <div className="relative min-h-[520px] bg-ink text-white">
+                      <img
+                        alt="Aperçu connexion Dashboard Live"
+                        className="absolute inset-0 h-full w-full object-cover"
+                        src="/admin-login-visual"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/10 to-black/75" />
+                      <div className="relative flex min-h-[520px] flex-col justify-between p-8">
+                        <img alt={brandForm.logoAlt} className="h-12 w-auto max-w-[220px] object-contain drop-shadow" src="/toquetop-logo.svg" />
+                        <div>
+                          <p className="mb-4 inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em]">
+                            {adminLoginForm.badge.replace(/\{\{\s*restaurantName\s*\}\}/g, "Au Bureau")}
+                          </p>
+                          <h3 className="text-4xl font-black leading-[0.96]">
+                            {adminLoginForm.title.replace(/\{\{\s*restaurantName\s*\}\}/g, "Au Bureau")}
+                          </h3>
+                          <p className="mt-5 max-w-md text-sm font-semibold leading-6 text-white/78">
+                            {adminLoginForm.description.replace(/\{\{\s*restaurantName\s*\}\}/g, "Au Bureau")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </AdminSectionLayout>
             ) : null}
@@ -1675,6 +1876,127 @@ export function PlatformAdminDashboard() {
                     <EmailTemplatePreview emailSettings={emailForm} templateKey={selectedEmailTemplate} brand={brandForm} />
                   </div>
                 </div>
+
+              </AdminSectionLayout>
+            ) : null}
+
+            {activeSection === "sms" ? (
+              <AdminSectionLayout description="Configure les SMS envoyés automatiquement : confirmations, modifications, annulations et rappels de réservation." icon={<MonitorSmartphone className="h-5 w-5" />} panelClass={panelClass} title="SMS">
+                <div className="grid gap-4 rounded-md border border-ink/10 bg-white p-4 text-ink lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="grid gap-4">
+                    <div>
+                      <p className="text-xs font-black uppercase text-moss">SMS transactionnels</p>
+                      <h3 className="mt-1 text-xl font-black">Service SMS</h3>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-ink/60">
+                        Configure les SMS envoyés lors des confirmations, modifications, annulations et rappels de réservation.
+                      </p>
+                    </div>
+                    <Toggle
+                      label="Activer l’envoi de SMS"
+                      checked={smsForm.enabled}
+                      onChange={(value) => updateSmsField("enabled", value)}
+                    />
+                    <Field label="Nom d’expéditeur SMS" value={smsForm.senderName} onChange={(value) => updateSmsField("senderName", value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 11))} />
+                    <div className={`rounded-md border p-4 ${smsForm.creditsRemaining <= smsForm.lowCreditThreshold ? "border-amber-300 bg-amber-50" : "border-ink/10 bg-linen"}`}>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-sm font-semibold">
+                          SMS disponibles
+                          <input
+                            className="control mt-1 w-full"
+                            min={0}
+                            type="number"
+                            value={smsForm.creditsRemaining}
+                            onChange={(event) => updateSmsField("creditsRemaining", Number(event.target.value))}
+                          />
+                        </label>
+                        <label className="text-sm font-semibold">
+                          Alerte stock faible
+                          <input
+                            className="control mt-1 w-full"
+                            min={0}
+                            type="number"
+                            value={smsForm.lowCreditThreshold}
+                            onChange={(event) => updateSmsField("lowCreditThreshold", Number(event.target.value))}
+                          />
+                        </label>
+                      </div>
+                      {smsForm.creditsRemaining <= smsForm.lowCreditThreshold ? (
+                        <p className="mt-3 text-sm font-black text-amber-800">
+                          Attention : il reste peu de SMS disponibles.
+                        </p>
+                      ) : null}
+                    </div>
+                    <label className="text-sm font-semibold">
+                      Rappel avant réservation : {smsForm.reminderMinutesBefore} minutes
+                      <input
+                        className="control mt-1 w-full"
+                        min={15}
+                        max={2880}
+                        type="number"
+                        value={smsForm.reminderMinutesBefore}
+                        onChange={(event) => updateSmsField("reminderMinutesBefore", Number(event.target.value))}
+                      />
+                    </label>
+                    <div className="rounded-md border border-ink/10 bg-linen p-4">
+                      <p className="text-sm font-black">Activer chaque SMS</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {smsTemplateKeys.map((templateKey) => (
+                          <Toggle
+                            key={templateKey}
+                            label={smsTemplateLabel(templateKey)}
+                            checked={smsForm.templates[templateKey].enabled}
+                            onChange={(value) => updateSmsTemplate(templateKey, "enabled", value)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-ink/10 bg-linen p-4">
+                      <p className="text-sm font-black">Variables SMS</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-ink/60">
+                        {"{{siteName}}, {{customerName}}, {{restaurantName}}, {{restaurantAddress}}, {{reservationReference}}, {{reservationDate}}, {{reservationTime}}, {{reservationEndTime}}, {{guests}}, {{tableLabel}}"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <div className="grid gap-2 rounded-md border border-ink/10 bg-linen p-3 text-ink sm:grid-cols-2">
+                      {smsTemplateKeys.map((templateKey) => (
+                        <button
+                          key={templateKey}
+                          className={`rounded-md px-3 py-2 text-left text-sm font-black transition ${
+                            selectedSmsTemplate === templateKey ? "bg-[#ead6bd] text-ink" : "bg-white text-ink/70 hover:text-ink"
+                          }`}
+                          type="button"
+                          onClick={() => setSelectedSmsTemplate(templateKey)}
+                        >
+                          {smsTemplateLabel(templateKey)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className={`rounded-md border p-4 ${panelClass}`}>
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase text-moss">Modèle SMS</p>
+                          <h3 className="text-lg font-black">{smsTemplateLabel(selectedSmsTemplate)}</h3>
+                        </div>
+                        <Toggle
+                          label="Actif"
+                          checked={smsForm.templates[selectedSmsTemplate].enabled}
+                          onChange={(value) => updateSmsTemplate(selectedSmsTemplate, "enabled", value)}
+                        />
+                      </div>
+                      <Textarea
+                        label="Message SMS"
+                        value={smsForm.templates[selectedSmsTemplate].message}
+                        onChange={(value) => updateSmsTemplate(selectedSmsTemplate, "message", value.slice(0, 480))}
+                      />
+                      <p className={`mt-2 text-xs font-bold ${mutedText}`}>
+                        {smsForm.templates[selectedSmsTemplate].message.length}/480 caractères
+                      </p>
+                    </div>
+                    <SmsTemplatePreview smsSettings={smsForm} templateKey={selectedSmsTemplate} />
+                  </div>
+                </div>
               </AdminSectionLayout>
             ) : null}
 
@@ -1716,7 +2038,8 @@ export function PlatformAdminDashboard() {
                   <h3 className="text-lg font-black">Créer un nouveau site restaurant</h3>
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <Field label="Nom du restaurant" required value={siteForm.name} onChange={(value) => setSiteForm((current) => ({ ...current, name: value }))} />
-                    <Field label="E-mail du restaurant" type="email" value={siteForm.ownerEmail} onChange={(value) => setSiteForm((current) => ({ ...current, ownerEmail: value }))} />
+                    <Field label="Identifiant administrateur" type="email" value={siteForm.ownerEmail} onChange={(value) => setSiteForm((current) => ({ ...current, ownerEmail: value }))} />
+                    <Field label="Mot de passe administrateur" type="password" value={siteForm.ownerPassword} onChange={(value) => setSiteForm((current) => ({ ...current, ownerPassword: value }))} />
                     <Field label="Téléphone" value={siteForm.phone} onChange={(value) => setSiteForm((current) => ({ ...current, phone: value }))} />
                     <Field label="Adresse" value={siteForm.address} onChange={(value) => setSiteForm((current) => ({ ...current, address: value }))} />
                     <Textarea label="Description courte" value={siteForm.description} onChange={(value) => setSiteForm((current) => ({ ...current, description: value }))} />
@@ -1926,6 +2249,65 @@ export function PlatformAdminDashboard() {
                             <Field label="Dernier paiement" type="date" value={siteEditForm.billingLastPaymentDate} onChange={(value) => setSiteEditForm((current) => ({ ...current, billingLastPaymentDate: value }))} />
                             <Textarea label="Notes de facturation" value={siteEditForm.billingNotes} onChange={(value) => setSiteEditForm((current) => ({ ...current, billingNotes: value }))} />
                           </div>
+                        </div>
+
+                        <div className="rounded-md border border-ink/10 bg-white/50 p-4">
+                          <div className="mb-4 flex items-center gap-2">
+                            <MonitorSmartphone className="h-5 w-5 text-moss" />
+                            <h4 className="text-lg font-black">Service SMS du restaurant</h4>
+                          </div>
+                          <div className="grid gap-4 lg:grid-cols-2">
+                            <Toggle
+                              label="Option SMS activée"
+                              checked={siteEditForm.smsServiceEnabled}
+                              onChange={(value) => setSiteEditForm((current) => ({ ...current, smsServiceEnabled: value }))}
+                            />
+                            <label className="text-sm font-semibold">
+                              SMS restants
+                              <input
+                                className="control mt-1 w-full"
+                                min={0}
+                                type="number"
+                                value={siteEditForm.smsCreditsRemaining}
+                                onChange={(event) => setSiteEditForm((current) => ({ ...current, smsCreditsRemaining: Number(event.target.value) || 0 }))}
+                              />
+                            </label>
+                            <label className="text-sm font-semibold">
+                              SMS envoyés
+                              <input
+                                className="control mt-1 w-full"
+                                min={0}
+                                type="number"
+                                value={siteEditForm.smsSentCount}
+                                onChange={(event) => setSiteEditForm((current) => ({ ...current, smsSentCount: Number(event.target.value) || 0 }))}
+                              />
+                            </label>
+                            <label className="text-sm font-semibold">
+                              Alerte stock faible
+                              <input
+                                className="control mt-1 w-full"
+                                min={0}
+                                type="number"
+                                value={siteEditForm.smsLowCreditThreshold}
+                                onChange={(event) => setSiteEditForm((current) => ({ ...current, smsLowCreditThreshold: Number(event.target.value) || 0 }))}
+                              />
+                            </label>
+                            <label className="text-sm font-semibold">
+                              Prix par SMS (centimes)
+                              <input
+                                className="control mt-1 w-full"
+                                min={0}
+                                type="number"
+                                value={siteEditForm.smsPriceCents}
+                                onChange={(event) => setSiteEditForm((current) => ({ ...current, smsPriceCents: Number(event.target.value) || 0 }))}
+                              />
+                            </label>
+                          </div>
+                          {siteEditForm.smsCreditsRemaining <= siteEditForm.smsLowCreditThreshold ? (
+                            <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm font-black text-amber-800">
+                              Alerte : ce restaurant arrive bientôt à court de SMS.
+                            </p>
+                          ) : null}
                         </div>
 
                         <div className="rounded-md border border-ink/10 bg-white/50 p-4">
@@ -2208,7 +2590,9 @@ function Checklist({ children, title }: { children: ReactNode; title: string }) 
 
 function AssetCard({
   alt,
+  accept = "image/svg+xml,.svg,image/png,image/jpeg,image/webp,image/*",
   buttonLabel,
+  description,
   height,
   image,
   imageClassName,
@@ -2216,7 +2600,9 @@ function AssetCard({
   title
 }: {
   alt: string;
+  accept?: string;
   buttonLabel: string;
+  description?: string;
   height?: number;
   image: string;
   imageClassName?: string;
@@ -2226,13 +2612,14 @@ function AssetCard({
   return (
     <div className="rounded-md border border-ink/10 bg-linen p-4 text-sm font-semibold text-ink">
       <p>{title}</p>
+      {description ? <p className="mt-1 text-xs font-semibold leading-5 text-ink/55">{description}</p> : null}
       <span className="mt-3 flex min-h-32 items-center justify-center overflow-hidden rounded-md bg-white p-3">
         <img src={image} alt={alt} className={imageClassName ?? "max-w-full object-contain"} style={height ? { height } : undefined} />
       </span>
       <label className="secondary-button mt-3 w-full cursor-pointer">
         <ImagePlus className="h-4 w-4" />
         {buttonLabel}
-        <input className="sr-only" type="file" accept="image/*" onChange={onUpload} />
+        <input className="sr-only" type="file" accept={accept} onChange={onUpload} />
       </label>
     </div>
   );
@@ -2537,7 +2924,7 @@ function replacePreviewVariables(value: string) {
     customerEmail: "jean.dupont@email.fr",
     restaurantName: "Al Gusto",
     restaurantAddress: "902 rue de Bailleul, Nieppe",
-    reservationReference: "123456ABC123456",
+    reservationReference: "TT8K4M7P",
     reservationDate: "samedi 20 juin 2026",
     reservationTime: "20:15",
     reservationEndTime: "22:15",
@@ -2609,6 +2996,29 @@ function EmailTemplatePreview({
   );
 }
 
+function SmsTemplatePreview({
+  smsSettings,
+  templateKey
+}: {
+  smsSettings: PlatformSmsSettings;
+  templateKey: PlatformSmsTemplateKey;
+}) {
+  const template = smsSettings.templates[templateKey];
+  const message = replacePreviewVariables(template.message);
+
+  return (
+    <div className="rounded-md border border-ink/10 bg-linen p-4 text-ink">
+      <p className="text-xs font-black uppercase text-ink/45">Aperçu SMS</p>
+      <div className="mt-3 max-w-md rounded-[20px] bg-[#14735d] px-4 py-3 text-sm font-semibold leading-6 text-white shadow-sm">
+        {message}
+      </div>
+      <p className="mt-3 text-xs font-bold text-ink/50">
+        Expéditeur : {smsSettings.senderName}
+      </p>
+    </div>
+  );
+}
+
 function TimelineItem({ text, title }: { text: string; title: string }) {
   return (
     <div className="rounded-md border border-ink/10 bg-white/50 p-3">
@@ -2622,6 +3032,17 @@ function emailTemplateLabel(key: PlatformEmailTemplateKey) {
   const labels: Record<PlatformEmailTemplateKey, string> = {
     registration: "Inscription",
     passwordReset: "Mot de passe oublié",
+    reservationConfirmation: "Confirmation réservation",
+    reservationUpdate: "Modification réservation",
+    reservationCancellation: "Annulation réservation",
+    reservationReminder: "Rappel réservation"
+  };
+
+  return labels[key];
+}
+
+function smsTemplateLabel(key: PlatformSmsTemplateKey) {
+  const labels: Record<PlatformSmsTemplateKey, string> = {
     reservationConfirmation: "Confirmation réservation",
     reservationUpdate: "Modification réservation",
     reservationCancellation: "Annulation réservation",

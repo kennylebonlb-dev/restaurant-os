@@ -3,6 +3,7 @@ import { forgotPasswordSchema } from "@/lib/validators";
 import { prisma } from "@/lib/prisma";
 import { sendPasswordResetEmail } from "@/server/email";
 import { apiError, ok, parseJson } from "@/server/http";
+import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
 
 const RESET_TOKEN_TTL_MINUTES = 30;
 
@@ -14,8 +15,22 @@ function passwordResetIdentifier(email: string) {
   return `password-reset:${email}`;
 }
 
+function requestBaseUrl(request: Request) {
+  const origin = request.headers.get("origin");
+
+  if (origin) {
+    return origin.replace(/\/$/, "");
+  }
+
+  return (process.env.APP_URL || process.env.NEXTAUTH_URL || new URL(request.url).origin).replace(/\/$/, "");
+}
+
 export async function POST(request: Request) {
   try {
+    assertRateLimit(rateLimitKey(request, "auth:forgot-password"), {
+      limit: 5,
+      windowMs: 15 * 60_000
+    });
     const data = await parseJson(request, forgotPasswordSchema);
     const user = await prisma.user.findUnique({
       where: {
@@ -47,8 +62,8 @@ export async function POST(request: Request) {
         }
       });
 
-      const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const resetUrl = `${appUrl.replace(/\/$/, "")}/login?email=${encodeURIComponent(data.email)}&resetToken=${encodeURIComponent(token)}`;
+      const resetPath = data.redirectPath ?? "/login";
+      const resetUrl = `${requestBaseUrl(request)}${resetPath}?email=${encodeURIComponent(data.email)}&resetToken=${encodeURIComponent(token)}`;
 
       await sendPasswordResetEmail({
         email: user.email,

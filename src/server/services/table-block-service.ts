@@ -90,6 +90,14 @@ export async function createTableBlock(input: {
           customerEmail: input.customerEmail,
           customerPhone: input.customerPhone,
           notes: input.notes
+        },
+        include: {
+          table: {
+            select: {
+              id: true,
+              label: true
+            }
+          }
         }
       });
 

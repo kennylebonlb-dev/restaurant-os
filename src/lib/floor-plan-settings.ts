@@ -1,5 +1,6 @@
 import {
   tableFeatures,
+  type FloorRoom,
   type FloorTable,
   type TableAutoAssignPriority,
   type TableCombination,
@@ -9,8 +10,8 @@ import {
 } from "@/lib/domain";
 
 const DEFAULT_2D_PLAN_IMAGE = "/floor-plans/restaurant-2d.png";
-const MIN_TABLE_DISPLAY_SCALE = 0.6;
-const MAX_TABLE_DISPLAY_SCALE = 1.8;
+const MIN_TABLE_DISPLAY_SCALE = 0.5;
+const MAX_TABLE_DISPLAY_SCALE = 2.4;
 const DEFAULT_TABLE_VIEW_IMAGE_CROP: TableViewImageCrop = { x: 50, y: 50, zoom: 1 };
 const MIN_TABLE_VIEW_IMAGE_ZOOM = 1;
 const MAX_TABLE_VIEW_IMAGE_ZOOM = 2.4;
@@ -204,6 +205,10 @@ export function tableCombinationsFromSettings(settings?: Record<string, unknown>
       const tableIds = Array.isArray(record.tableIds)
         ? record.tableIds.filter((tableId): tableId is string => typeof tableId === "string")
         : [];
+      const placement =
+        record.placement === "LEFT" || record.placement === "BOTTOM" || record.placement === "TOP"
+          ? record.placement
+          : "RIGHT";
 
       if (!id || !label || tableIds.length < 2) {
         return null;
@@ -212,10 +217,39 @@ export function tableCombinationsFromSettings(settings?: Record<string, unknown>
       return {
         id,
         label,
-        tableIds: Array.from(new Set(tableIds))
+        tableIds: Array.from(new Set(tableIds)),
+        placement
       };
     })
     .filter((combination): combination is TableCombination => Boolean(combination));
+}
+
+export function tableBasePositionsFromSettings(settings?: Record<string, unknown> | null) {
+  const basePositions = settings?.tableBasePositions;
+
+  if (!basePositions || typeof basePositions !== "object" || Array.isArray(basePositions)) {
+    return {} as Record<string, { positionX: number; positionY: number }>;
+  }
+
+  return Object.entries(basePositions as Record<string, unknown>).reduce<Record<string, { positionX: number; positionY: number }>>(
+    (positions, [tableId, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return positions;
+      }
+
+      const record = value as Record<string, unknown>;
+
+      if (typeof record.positionX === "number" && typeof record.positionY === "number") {
+        positions[tableId] = {
+          positionX: record.positionX,
+          positionY: record.positionY
+        };
+      }
+
+      return positions;
+    },
+    {}
+  );
 }
 
 export function defaultTableDisplayScaleFromSettings(settings?: Record<string, unknown> | null) {
@@ -325,6 +359,23 @@ export function withTableCombinations(
   };
 }
 
+export function withTableBasePosition(
+  settings: Record<string, unknown>,
+  tableId: string,
+  position: { positionX: number; positionY: number }
+) {
+  return {
+    ...settings,
+    tableBasePositions: {
+      ...tableBasePositionsFromSettings(settings),
+      [tableId]: {
+        positionX: position.positionX,
+        positionY: position.positionY
+      }
+    }
+  };
+}
+
 export function withDefaultTableDisplayScale(
   settings: Record<string, unknown>,
   displayScale: number,
@@ -335,6 +386,65 @@ export function withDefaultTableDisplayScale(
     defaultTableDisplayScale: normalizeTableDisplayScale(displayScale),
     lockTableDisplayScale: locked
   };
+}
+
+export function defaultFloorRoom(): FloorRoom {
+  return {
+    id: "main-room",
+    name: "Salle principale",
+    type: "MAIN",
+    active: true
+  };
+}
+
+export function floorRoomsFromSettings(settings?: Record<string, unknown> | null): FloorRoom[] {
+  const value = settings?.floorPlanRooms;
+
+  if (!Array.isArray(value)) {
+    return [defaultFloorRoom()];
+  }
+
+  const rooms = value
+    .filter((room): room is Record<string, unknown> => Boolean(room) && typeof room === "object")
+    .map((room, index): FloorRoom => {
+      const type = room.type === "FLOOR" || room.type === "TERRACE" || room.type === "PRIVATE" || room.type === "ROOFTOP"
+        ? room.type
+        : index === 0 ? "MAIN" : "FLOOR";
+
+      return {
+        id: typeof room.id === "string" && room.id.trim() ? room.id : `room-${index + 1}`,
+        name: typeof room.name === "string" && room.name.trim() ? room.name : `Salle ${index + 1}`,
+        type,
+        active: room.active !== false,
+        activeEndDate: typeof room.activeEndDate === "string" ? room.activeEndDate : undefined,
+        activeEndTime: typeof room.activeEndTime === "string" ? room.activeEndTime : undefined,
+        activeStartDate: typeof room.activeStartDate === "string" ? room.activeStartDate : undefined,
+        activeStartTime: typeof room.activeStartTime === "string" ? room.activeStartTime : undefined,
+        draftStatus: room.draftStatus === "DRAFT" ? "DRAFT" : "PUBLISHED",
+        locked: room.locked === true,
+        plan2dDataUrl: typeof room.plan2dDataUrl === "string" && room.plan2dDataUrl.startsWith("data:") ? room.plan2dDataUrl : undefined,
+        modelDataUrl: typeof room.modelDataUrl === "string" && room.modelDataUrl.startsWith("data:") ? room.modelDataUrl : undefined,
+        scheduleEnabled: room.scheduleEnabled === true
+      };
+    });
+
+  return rooms.length > 0 ? rooms : [defaultFloorRoom()];
+}
+
+export function tableRoomsFromSettings(settings?: Record<string, unknown> | null) {
+  const value = settings?.tableRooms;
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.entries(value).reduce<Record<string, string>>((rooms, [tableId, roomId]) => {
+    if (typeof roomId === "string" && roomId.trim()) {
+      rooms[tableId] = roomId;
+    }
+
+    return rooms;
+  }, {});
 }
 
 export function applyFloorPlanSettings(

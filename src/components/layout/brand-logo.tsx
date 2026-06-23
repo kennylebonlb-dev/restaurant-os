@@ -18,7 +18,8 @@ export function BrandLogo({
   const brandQuery = useQuery({
     queryKey: ["platform-brand"],
     queryFn: () => apiFetch<BrandResponse>("/api/platform-brand"),
-    staleTime: 60_000
+    initialData: { brand: initialBrand },
+    staleTime: Number.POSITIVE_INFINITY
   });
   const brand = brandQuery.data?.brand ?? initialBrand;
   const src = variant === "footer" ? brand.footerLogoUrl : brand.logoUrl;

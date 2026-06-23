@@ -109,7 +109,8 @@ export default async function HomePage() {
   };
   const sectionTitleStyle: CSSProperties = {
     fontFamily: landing.appearance.headingFont,
-    fontSize: landing.typography.sectionTitleSize
+    fontSize: landing.typography.sectionTitleSize,
+    maxWidth: landing.typography.sectionTitleMaxWidth
   };
   const sectionTextStyle: CSSProperties = {
     fontSize: landing.typography.sectionTextSize

@@ -150,6 +150,24 @@ textarea {
   animation: landingServiceToast 900ms ease both;
 }
 
+.dashboard-loading-bar {
+  animation: dashboardLoadingBar 1.35s ease-in-out infinite;
+  transform-origin: left center;
+  will-change: transform;
+}
+
+@keyframes dashboardLoadingBar {
+  0% {
+    transform: translateX(-110%) scaleX(0.45);
+  }
+  45% {
+    transform: translateX(75%) scaleX(1);
+  }
+  100% {
+    transform: translateX(320%) scaleX(0.45);
+  }
+}
+
 @keyframes landingHeroDrift {
   from {
     transform: scale(1.05) translate3d(-0.8rem, 0, 0);
@@ -207,7 +225,13 @@ textarea {
   .landing-hero-image,
   .landing-fade-up,
   .landing-fade-up-stagger,
-  .landing-service-toast {
+  .landing-service-toast,
+  .dashboard-loading-bar {
     animation: none;
+  }
+
+  .dashboard-loading-bar {
+    transform: none;
+    width: 100%;
   }
 }

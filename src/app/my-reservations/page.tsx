@@ -529,7 +529,7 @@ function ReservationList({
                 <div>
                   <p className="text-sm font-bold text-ink">{reservation.restaurant.name}</p>
                   <p className="mt-1 text-xs font-black uppercase text-moss">
-                    Réf. {reservation.referenceCode ?? reservation.id}
+                    Réf. {reservation.referenceCode ?? "En attente"}
                   </p>
                   <p className="text-sm text-ink/65">
                     {dateOnly(reservation.date)} · {reservation.startTime}-{reservation.endTime} ·{" "}
