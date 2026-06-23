@@ -2371,7 +2371,8 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
             >
               <button
                 className={clsx(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-bold transition hover:bg-sage/60",
+                  "flex w-full items-center rounded-md py-2 text-left text-sm font-bold transition hover:bg-sage/60",
+                  sidebarCollapsed ? "justify-center gap-0 px-0" : "gap-3 px-3",
                   section === item.id ? "bg-moss text-white hover:bg-moss" : "text-ink/70"
                 )}
                 type="button"
@@ -2383,8 +2384,15 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                   }
                 }}
               >
-                {item.icon}
-                <span className={clsx("whitespace-nowrap transition-opacity duration-100", sidebarCollapsed ? "pointer-events-none opacity-0" : "opacity-100")}>
+                <span className="grid h-5 w-5 shrink-0 place-items-center">
+                  {item.icon}
+                </span>
+                <span
+                  className={clsx(
+                    "overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-100",
+                    sidebarCollapsed ? "pointer-events-none max-w-0 opacity-0" : "max-w-44 opacity-100"
+                  )}
+                >
                   {item.label}
                 </span>
               </button>
