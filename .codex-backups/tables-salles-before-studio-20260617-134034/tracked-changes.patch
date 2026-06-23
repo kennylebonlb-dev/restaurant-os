@@ -1,0 +1,3657 @@
+diff --git a/README.md b/README.md
+index bb3a95a..63e35d8 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# C’est ma table
++# ToqueTop / C’est ma table
+ 
+ Production-ready MVP foundation for restaurant booking and table operations.
+ 
+@@ -11,6 +11,7 @@ Production-ready MVP foundation for restaurant booking and table operations.
+ - NextAuth credentials auth with role-based access
+ - Socket.io realtime events through a custom Next server
+ - Resend email helpers
++- Brevo SMS helpers
+ - AWS S3 image upload helper
+ 
+ ## Core Architecture
+@@ -20,8 +21,10 @@ src/app/api                API route controllers
+ src/server/services        Domain services and business rules
+ src/server/realtime.ts     Socket.io event bridge
+ src/server/email.ts        Reservation email templates
++src/server/sms.ts          Transactional SMS helpers
+ src/server/storage/s3.ts   S3 image upload/delete helpers
+ src/components             Client and admin interfaces
++src/components/dashboard   Dashboard Live V1 restaurant admin
+ src/stores                 Zustand UI state
+ prisma/schema.prisma       PostgreSQL data model
+ ```
+@@ -50,7 +53,13 @@ npm install
+ 4. Prepare the database:
+ 
+ ```bash
+-npm run db:push
++npx prisma migrate dev --name dashboard_live_v1
++npx prisma db seed
++```
++
++The legacy shortcut is still available:
++
++```bash
+ npm run db:seed
+ ```
+ 
+@@ -62,11 +71,122 @@ npm run dev
+ 
+ Open `http://localhost:3000`.
+ 
++## Required Commands
++
++```bash
++npm run dev
++npm run build
++npm run test
++npm run test:e2e
++npx prisma migrate dev --name dashboard_live_v1
++npx prisma db seed
++```
++
+ ## Seed Accounts
+ 
+ - Admin: `admin@smartable.local` / `password123`
+ - Client: `client@smartable.local` / `password123`
+ 
++## Dashboard Live V1
++
++The restaurant admin dashboard is available at `/admin`.
++
++Implemented V1 scope:
++
++- Fixed header with ToqueTop branding, Dashboard Live title, and restaurant identity.
++- Collapsible sidebar with the requested sections: setup guide, general, reservations, CRM, services, gallery, gift cards, team, notifications, integrations, subscription, statistics.
++- General submenu cards for restaurant, opening hours, tables and rooms, reservation settings, tags, reservation types, connections, advanced.
++- Live floor plan centered on the existing 2D/3D floor plan component.
++- Existing interactions preserved: table selection, drag/drop, zoom, 2D/3D switching, table status labels, realtime refresh.
++- Reservation views: list, calendar-style cards, timeline bars.
++- Quick actions: create reservation, edit reservation, cancel reservation, assign selected table, block selected table, mark guest arrived, contact guest, add waitlist entry.
++- CRM minimal: customer profile fields, VIP flag, no-show risk, allergies, preferences, internal notes, reservation history.
++- Waitlist API and UI entry flow.
++- Chef Toque V1: local rules engine for service occupancy, birthdays, no-show risk, table conflicts, peak/weak slots, waitlist pressure.
++- Restaurant notification templates API for email/SMS templates with variables.
++- Audit events API for admin actions.
++
++## Realtime Contract
++
++Socket.IO uses restaurant rooms named:
++
++```text
++restaurant:{id}
++```
++
++Supported V1 events:
++
++```text
++reservation_created
++reservation_updated
++reservation_cancelled
++table_blocked
++table_unblocked
++plan_updated
++client_updated
++waitlist_updated
++service_status_updated
++```
++
++Legacy events such as `reservation:created` and `layout:updated` are still emitted for backwards compatibility and mirrored to the V1 event names.
++
++## Data Model Additions
++
++Dashboard Live V1 adds:
++
++- `Client`
++- `WaitlistEntry`
++- `AuditEvent`
++- `NotificationTemplate`
++- `RestaurantUser`
++
++`Reservation` now supports:
++
++- `clientId`
++- `arrivedAt`
++- `noShow`
++
++These changes are additive and non-destructive.
++
++## Testing
++
++```bash
++npm run test
++npm run test:e2e
++```
++
++Current tests cover:
++
++- Reservation overlap logic.
++- Reservation, client, waitlist and template validators.
++- Contract-level create/update/cancel reservation flow.
++
++## Manual QA Checklist
++
++1. Sign in as `admin@smartable.local`.
++2. Open `/admin`.
++3. Verify the fixed header, collapsible sidebar and Dashboard Live title.
++4. Switch between 2D and 3D floor plan.
++5. Drag a table on the 2D plan and confirm it persists after refresh.
++6. Create a reservation from quick actions.
++7. Select the reservation, assign a table, then mark the client as arrived.
++8. Cancel a reservation and confirm realtime list refresh.
++9. Select a table and create a block for a time range.
++10. Add a waitlist entry.
++11. Open CRM, search a client, and verify reservation history/no-show/VIP data.
++12. Confirm Chef Toque displays recommendations for the selected date.
++13. Confirm `/reservation` and restaurant subdomains still load public booking.
++14. Confirm `/login` remains headerless/footerless and the visual stays fixed on desktop.
++
++## Legacy Local Setup Alternative
++
++If you are not using migrations during a quick prototype:
++
++```bash
++npm run db:push
++npm run db:seed
++```
++
+ ## MVP Coverage
+ 
+ - Email/password auth
+diff --git a/package.json b/package.json
+index 28a4b86..4731337 100644
+--- a/package.json
++++ b/package.json
+@@ -19,6 +19,8 @@
+     "db:migrate": "prisma migrate dev",
+     "db:push": "prisma db push",
+     "db:seed": "tsx prisma/seed.ts",
++    "test": "tsx src/server/services/reservation-service.test.ts && tsx __tests__/dashboard-live.test.ts",
++    "test:e2e": "tsx e2e/reservation-flow.e2e.ts",
+     "test:logic": "tsx src/server/services/reservation-service.test.ts"
+   },
+   "dependencies": {
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index f43c25a..06691a7 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -31,6 +31,25 @@ enum TableBlockReason {
+   EVENT
+ }
+ 
++enum RestaurantStaffRole {
++  OWNER
++  MANAGER
++  HOST
++  READ_ONLY
++}
++
++enum WaitlistStatus {
++  WAITING
++  SEATED
++  CANCELLED
++  EXPIRED
++}
++
++enum NotificationChannel {
++  EMAIL
++  SMS
++}
++
+ model User {
+   id            String        @id @default(cuid())
+   name          String?
+@@ -47,7 +66,10 @@ model User {
+   accounts      Account[]
+   sessions      Session[]
+   restaurants   Restaurant[]  @relation("RestaurantOwner")
++  restaurantAccess RestaurantUser[]
+   reservations  Reservation[]
++  clients       Client[]
++  auditEvents   AuditEvent[]
+   createdAt     DateTime      @default(now())
+   updatedAt     DateTime      @updatedAt
+ 
+@@ -109,6 +131,11 @@ model Restaurant {
+   layoutLocked Boolean       @default(false)
+   tables       Table[]
+   reservations Reservation[]
++  clients      Client[]
++  waitlistEntries WaitlistEntry[]
++  auditEvents  AuditEvent[]
++  notificationTemplates NotificationTemplate[]
++  staff        RestaurantUser[]
+   createdAt    DateTime      @default(now())
+   updatedAt    DateTime      @updatedAt
+ 
+@@ -144,6 +171,8 @@ model Reservation {
+   restaurant     Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+   userId         String
+   user           User              @relation(fields: [userId], references: [id], onDelete: Restrict)
++  clientId       String?
++  client         Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+   tableId        String?
+   table          Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
+   guestFirstName String?
+@@ -159,10 +188,13 @@ model Reservation {
+   highChair      Boolean           @default(false)
+   birthday       Boolean           @default(false)
+   romanticDinner Boolean           @default(false)
++  arrivedAt      DateTime?
++  noShow         Boolean           @default(false)
+   createdAt      DateTime          @default(now())
+   updatedAt      DateTime          @updatedAt
+ 
+   @@index([restaurantId, date])
++  @@index([clientId, date])
+   @@index([tableId, date, startTime, endTime])
+   @@index([userId, date])
+   @@map("reservations")
+@@ -197,3 +229,106 @@ model PlatformSetting {
+ 
+   @@map("platform_settings")
+ }
++
++model Client {
++  id             String        @id @default(cuid())
++  restaurantId   String
++  restaurant     Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
++  userId         String?
++  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
++  firstName      String
++  lastName       String
++  email          String?
++  phone          String?
++  birthday       DateTime?     @db.Date
++  allergies      String?
++  preferences    Json          @default("[]")
++  internalNotes  String?
++  vip            Boolean       @default(false)
++  noShowRisk     Int           @default(0)
++  lastVisitAt    DateTime?
++  reservations   Reservation[]
++  waitlistEntries WaitlistEntry[]
++  createdAt      DateTime      @default(now())
++  updatedAt      DateTime      @updatedAt
++
++  @@unique([restaurantId, email])
++  @@index([restaurantId, lastName, firstName])
++  @@index([restaurantId, phone])
++  @@index([userId])
++  @@map("clients")
++}
++
++model WaitlistEntry {
++  id               String         @id @default(cuid())
++  restaurantId     String
++  restaurant       Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
++  clientId         String?
++  client           Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
++  date             DateTime       @db.Date
++  requestedTime    String?        @db.VarChar(5)
++  numberOfGuests   Int
++  status           WaitlistStatus @default(WAITING)
++  firstName        String
++  lastName         String
++  email            String?
++  phone            String?
++  notes            String?
++  tablePreferences Json           @default("[]")
++  createdAt        DateTime       @default(now())
++  updatedAt        DateTime       @updatedAt
++
++  @@index([restaurantId, date, status])
++  @@index([clientId])
++  @@map("waitlist_entries")
++}
++
++model AuditEvent {
++  id           String      @id @default(cuid())
++  restaurantId String
++  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
++  actorId      String?
++  actor        User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
++  action       String
++  entityType   String
++  entityId     String?
++  metadata     Json        @default("{}")
++  createdAt    DateTime    @default(now())
++
++  @@index([restaurantId, createdAt])
++  @@index([actorId])
++  @@map("audit_events")
++}
++
++model NotificationTemplate {
++  id           String              @id @default(cuid())
++  restaurantId String
++  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
++  key          String
++  channel      NotificationChannel
++  subject      String?
++  body         String
++  enabled      Boolean             @default(true)
++  variables    Json                @default("[]")
++  createdAt    DateTime            @default(now())
++  updatedAt    DateTime            @updatedAt
++
++  @@unique([restaurantId, key, channel])
++  @@index([restaurantId, channel])
++  @@map("notification_templates")
++}
++
++model RestaurantUser {
++  id           String              @id @default(cuid())
++  restaurantId String
++  restaurant   Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
++  userId       String
++  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
++  role         RestaurantStaffRole @default(HOST)
++  createdAt    DateTime            @default(now())
++  updatedAt    DateTime            @updatedAt
++
++  @@unique([restaurantId, userId])
++  @@index([userId])
++  @@map("restaurant_users")
++}
+diff --git a/prisma/seed.ts b/prisma/seed.ts
+index bc0dcf5..47fa559 100644
+--- a/prisma/seed.ts
++++ b/prisma/seed.ts
+@@ -28,6 +28,7 @@ async function main() {
+         footerLogoUrl: "/cest-ma-table-logo.png",
+         footerLogoHeight: 32,
+         loginVisualUrl: "/login-restaurant-visual.png",
++        adminLoginVisualUrl: "/login-restaurant-visual.png",
+         faviconUrl: "/cest-ma-table-favicon.png",
+         logoAlt: "C’est ma table",
+         supportEmail: ""
+@@ -42,6 +43,7 @@ async function main() {
+         footerLogoUrl: "/cest-ma-table-logo.png",
+         footerLogoHeight: 32,
+         loginVisualUrl: "/login-restaurant-visual.png",
++        adminLoginVisualUrl: "/login-restaurant-visual.png",
+         faviconUrl: "/cest-ma-table-favicon.png",
+         logoAlt: "C’est ma table",
+         supportEmail: ""
+@@ -131,13 +133,51 @@ async function main() {
+   });
+ 
+   const tableOne = restaurant.tables.find((table) => table.label === "T1");
++  const tableTwo = restaurant.tables.find((table) => table.label === "T2");
+   const vipTable = restaurant.tables.find((table) => table.label === "VIP1");
+ 
++  await prisma.restaurantUser.upsert({
++    where: {
++      restaurantId_userId: {
++        restaurantId: restaurant.id,
++        userId: admin.id
++      }
++    },
++    update: {
++      role: "OWNER"
++    },
++    create: {
++      restaurantId: restaurant.id,
++      userId: admin.id,
++      role: "OWNER"
++    }
++  });
++
++  const demoClient = await prisma.client.create({
++    data: {
++      restaurantId: restaurant.id,
++      userId: client.id,
++      firstName: "Client",
++      lastName: "Demo",
++      email: clientEmail,
++      phone: "+33 6 00 00 00 00",
++      birthday: new Date("1990-06-15T00:00:00.000Z"),
++      allergies: "Noisettes",
++      preferences: ["Table au calme", "Près d’une fenêtre"],
++      internalNotes: "Client régulier, préfère le service de 19h.",
++      vip: true,
++      noShowRisk: 15,
++      lastVisitAt: new Date("2026-06-10T19:00:00.000Z")
++    }
++  });
++
+   if (tableOne) {
+     await prisma.reservation.create({
+       data: {
++        referenceCode: "TTDEMO01",
+         restaurantId: restaurant.id,
+         userId: client.id,
++        clientId: demoClient.id,
+         tableId: tableOne.id,
+         date: new Date("2026-06-15T00:00:00.000Z"),
+         startTime: "19:00",
+@@ -153,6 +193,29 @@ async function main() {
+     });
+   }
+ 
++  if (tableTwo) {
++    await prisma.reservation.create({
++      data: {
++        referenceCode: "TTDEMO02",
++        restaurantId: restaurant.id,
++        userId: client.id,
++        clientId: demoClient.id,
++        tableId: tableTwo.id,
++        date: new Date("2026-06-15T00:00:00.000Z"),
++        startTime: "20:30",
++        endTime: "22:30",
++        numberOfGuests: 2,
++        status: "CONFIRMED",
++        guestFirstName: "Marie",
++        guestLastName: "Bernard",
++        guestEmail: "marie.bernard@example.com",
++        guestPhone: "+33 6 11 22 33 44",
++        birthday: true,
++        notes: "Anniversaire discret."
++      }
++    });
++  }
++
+   if (vipTable) {
+     await prisma.tableBlock.create({
+       data: {
+@@ -165,6 +228,57 @@ async function main() {
+     });
+   }
+ 
++  await prisma.waitlistEntry.createMany({
++    data: [
++      {
++        restaurantId: restaurant.id,
++        clientId: demoClient.id,
++        date: new Date("2026-06-15T00:00:00.000Z"),
++        requestedTime: "20:00",
++        numberOfGuests: 4,
++        firstName: "Nora",
++        lastName: "Petit",
++        email: "nora.petit@example.com",
++        phone: "+33 6 12 12 12 12",
++        notes: "Prévenir si terrasse disponible.",
++        tablePreferences: ["QUIET"]
++      }
++    ]
++  });
++
++  await prisma.notificationTemplate.createMany({
++    data: [
++      {
++        restaurantId: restaurant.id,
++        key: "reservationConfirmation",
++        channel: "EMAIL",
++        subject: "Votre réservation {{reservationReference}} est confirmée",
++        body: "Bonjour {{customerName}}, votre table est confirmée le {{reservationDate}} à {{reservationTime}}.",
++        variables: ["customerName", "reservationReference", "reservationDate", "reservationTime"]
++      },
++      {
++        restaurantId: restaurant.id,
++        key: "reservationReminder",
++        channel: "SMS",
++        body: "Rappel {{restaurantName}} : votre réservation {{reservationReference}} est prévue à {{reservationTime}}. Adresse : {{restaurantAddress}}.",
++        variables: ["restaurantName", "restaurantAddress", "reservationReference", "reservationTime"]
++      }
++    ]
++  });
++
++  await prisma.auditEvent.create({
++    data: {
++      restaurantId: restaurant.id,
++      actorId: admin.id,
++      action: "seed.dashboardLiveV1",
++      entityType: "restaurant",
++      entityId: restaurant.id,
++      metadata: {
++        message: "Données réalistes Dashboard Live V1"
++      }
++    }
++  });
++
+   console.log("Seed complete.");
+   console.log(`Admin: ${adminEmail} / password123`);
+   console.log(`Client: ${clientEmail} / password123`);
+diff --git a/server.ts b/server.ts
+index 9d21898..77b3511 100644
+--- a/server.ts
++++ b/server.ts
+@@ -29,16 +29,26 @@ setRealtimeServer(io);
+ io.on("connection", (socket) => {
+   socket.join("smartable:global");
+ 
+-  socket.on("restaurant:join", (restaurantId: string) => {
++  socket.on("restaurant:join", (restaurantId: string, ack?: (response: { ok: boolean; room?: string }) => void) => {
+     if (restaurantId) {
+-      socket.join(`restaurant:${restaurantId}`);
++      const room = `restaurant:${restaurantId}`;
++      socket.join(room);
++      ack?.({ ok: true, room });
++      return;
+     }
++
++    ack?.({ ok: false });
+   });
+ 
+-  socket.on("restaurant:leave", (restaurantId: string) => {
++  socket.on("restaurant:leave", (restaurantId: string, ack?: (response: { ok: boolean; room?: string }) => void) => {
+     if (restaurantId) {
+-      socket.leave(`restaurant:${restaurantId}`);
++      const room = `restaurant:${restaurantId}`;
++      socket.leave(room);
++      ack?.({ ok: true, room });
++      return;
+     }
++
++    ack?.({ ok: false });
+   });
+ });
+ 
+diff --git a/src/app/admin/page.tsx b/src/app/admin/page.tsx
+index 4335433..4b4f9ae 100644
+--- a/src/app/admin/page.tsx
++++ b/src/app/admin/page.tsx
+@@ -1,5 +1,5 @@
+-import { AdminDashboard } from "@/components/admin/admin-dashboard";
++import { DashboardLive } from "@/components/dashboard/dashboard-live";
+ 
+ export default function AdminPage() {
+-  return <AdminDashboard />;
++  return <DashboardLive />;
+ }
+diff --git a/src/app/api/admin/analytics/[restaurantId]/route.ts b/src/app/api/admin/analytics/[restaurantId]/route.ts
+index 33fa626..416bc9e 100644
+--- a/src/app/api/admin/analytics/[restaurantId]/route.ts
++++ b/src/app/api/admin/analytics/[restaurantId]/route.ts
+@@ -1,6 +1,7 @@
+ import { dateStringSchema } from "@/lib/validators";
+-import { requireRole } from "@/server/auth/guards";
++import { requireSession } from "@/server/auth/guards";
+ import { apiError, ok } from "@/server/http";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import { getDailyAnalytics } from "@/server/services/analytics-service";
+ 
+ type Context = {
+@@ -11,8 +12,9 @@ type Context = {
+ 
+ export async function GET(request: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN", "STAFF"]);
++    const session = await requireSession();
+     const { restaurantId } = await context.params;
++    await requireRestaurantAccess(session, restaurantId, "READ_ONLY");
+     const date = dateStringSchema.parse(
+       new URL(request.url).searchParams.get("date") ?? new Date().toISOString().slice(0, 10)
+     );
+diff --git a/src/app/api/auth/forgot-password/route.ts b/src/app/api/auth/forgot-password/route.ts
+index 43131d8..8215b7a 100644
+--- a/src/app/api/auth/forgot-password/route.ts
++++ b/src/app/api/auth/forgot-password/route.ts
+@@ -3,6 +3,7 @@ import { forgotPasswordSchema } from "@/lib/validators";
+ import { prisma } from "@/lib/prisma";
+ import { sendPasswordResetEmail } from "@/server/email";
+ import { apiError, ok, parseJson } from "@/server/http";
++import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
+ 
+ const RESET_TOKEN_TTL_MINUTES = 30;
+ 
+@@ -14,8 +15,22 @@ function passwordResetIdentifier(email: string) {
+   return `password-reset:${email}`;
+ }
+ 
++function requestBaseUrl(request: Request) {
++  const origin = request.headers.get("origin");
++
++  if (origin) {
++    return origin.replace(/\/$/, "");
++  }
++
++  return (process.env.APP_URL || process.env.NEXTAUTH_URL || new URL(request.url).origin).replace(/\/$/, "");
++}
++
+ export async function POST(request: Request) {
+   try {
++    assertRateLimit(rateLimitKey(request, "auth:forgot-password"), {
++      limit: 5,
++      windowMs: 15 * 60_000
++    });
+     const data = await parseJson(request, forgotPasswordSchema);
+     const user = await prisma.user.findUnique({
+       where: {
+@@ -47,8 +62,8 @@ export async function POST(request: Request) {
+         }
+       });
+ 
+-      const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+-      const resetUrl = `${appUrl.replace(/\/$/, "")}/login?email=${encodeURIComponent(data.email)}&resetToken=${encodeURIComponent(token)}`;
++      const resetPath = data.redirectPath ?? "/login";
++      const resetUrl = `${requestBaseUrl(request)}${resetPath}?email=${encodeURIComponent(data.email)}&resetToken=${encodeURIComponent(token)}`;
+ 
+       await sendPasswordResetEmail({
+         email: user.email,
+diff --git a/src/app/api/guest-reservations/[reservationId]/reminder/route.ts b/src/app/api/guest-reservations/[reservationId]/reminder/route.ts
+index df1e522..059bcf6 100644
+--- a/src/app/api/guest-reservations/[reservationId]/reminder/route.ts
++++ b/src/app/api/guest-reservations/[reservationId]/reminder/route.ts
+@@ -2,7 +2,9 @@ import { guestReservationLookupSchema } from "@/lib/validators";
+ import { sendReservationReminder } from "@/server/email";
+ import { apiError, ok, parseJson } from "@/server/http";
+ import { NotFoundError } from "@/server/errors";
++import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
+ import { listGuestReservations } from "@/server/services/reservation-service";
++import { sendReservationReminderSms } from "@/server/sms";
+ 
+ type Context = {
+   params: Promise<{
+@@ -12,6 +14,10 @@ type Context = {
+ 
+ export async function POST(request: Request, context: Context) {
+   try {
++    assertRateLimit(rateLimitKey(request, "guest-reservation:reminder"), {
++      limit: 8,
++      windowMs: 60_000
++    });
+     const { reservationId } = await context.params;
+     const guest = await parseJson(request, guestReservationLookupSchema);
+     const reservations = await listGuestReservations(guest);
+@@ -21,9 +27,12 @@ export async function POST(request: Request, context: Context) {
+       throw new NotFoundError("Reservation not found.");
+     }
+ 
+-    const emailSent = await sendReservationReminder(reservation);
++    const [emailSent, smsSent] = await Promise.all([
++      sendReservationReminder(reservation),
++      sendReservationReminderSms(reservation)
++    ]);
+ 
+-    return ok({ sent: emailSent });
++    return ok({ sent: emailSent || smsSent, emailSent, smsSent });
+   } catch (error) {
+     return apiError(error);
+   }
+diff --git a/src/app/api/guest-reservations/[reservationId]/route.ts b/src/app/api/guest-reservations/[reservationId]/route.ts
+index d813d49..6ea7e8d 100644
+--- a/src/app/api/guest-reservations/[reservationId]/route.ts
++++ b/src/app/api/guest-reservations/[reservationId]/route.ts
+@@ -2,6 +2,7 @@ import { customerReservationUpdateSchema, guestReservationLookupSchema } from "@
+ import { sendReservationCancellation, sendReservationUpdate } from "@/server/email";
+ import { apiError, noContent, ok, parseJson } from "@/server/http";
+ import { cancelGuestReservation, updateGuestReservation } from "@/server/services/reservation-service";
++import { sendReservationCancellationSms, sendReservationUpdateSms } from "@/server/sms";
+ 
+ type Context = {
+   params: Promise<{
+@@ -17,9 +18,12 @@ export async function PATCH(request: Request, context: Context) {
+     const data = customerReservationUpdateSchema.parse(payload);
+     const reservation = await updateGuestReservation(reservationId, guest, data);
+ 
+-    const emailSent = await sendReservationUpdate(reservation);
++    const [emailSent, smsSent] = await Promise.all([
++      sendReservationUpdate(reservation),
++      sendReservationUpdateSms(reservation)
++    ]);
+ 
+-    return ok({ reservation, emailSent });
++    return ok({ reservation, emailSent, smsSent });
+   } catch (error) {
+     return apiError(error);
+   }
+@@ -31,7 +35,10 @@ export async function DELETE(request: Request, context: Context) {
+     const data = await parseJson(request, guestReservationLookupSchema);
+     const reservation = await cancelGuestReservation(reservationId, data);
+ 
+-    await sendReservationCancellation(reservation);
++    await Promise.all([
++      sendReservationCancellation(reservation),
++      sendReservationCancellationSms(reservation)
++    ]);
+ 
+     return noContent();
+   } catch (error) {
+diff --git a/src/app/api/guest-reservations/route.ts b/src/app/api/guest-reservations/route.ts
+index 07f998b..83f8cdd 100644
+--- a/src/app/api/guest-reservations/route.ts
++++ b/src/app/api/guest-reservations/route.ts
+@@ -1,9 +1,14 @@
+ import { guestReservationLookupSchema } from "@/lib/validators";
+ import { apiError, ok, parseJson } from "@/server/http";
++import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
+ import { listGuestReservations } from "@/server/services/reservation-service";
+ 
+ export async function POST(request: Request) {
+   try {
++    assertRateLimit(rateLimitKey(request, "guest-reservation:lookup"), {
++      limit: 12,
++      windowMs: 60_000
++    });
+     const data = await parseJson(request, guestReservationLookupSchema);
+     const reservations = await listGuestReservations(data);
+ 
+diff --git a/src/app/api/platform-admin/sites/[restaurantId]/route.ts b/src/app/api/platform-admin/sites/[restaurantId]/route.ts
+index cf77d32..9f6e2b3 100644
+--- a/src/app/api/platform-admin/sites/[restaurantId]/route.ts
++++ b/src/app/api/platform-admin/sites/[restaurantId]/route.ts
+@@ -1,4 +1,4 @@
+-import type { Prisma } from "@prisma/client";
++import type { Prisma, RestaurantStaffRole } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+ import { inferTimeZoneFromAddress } from "@/lib/time";
+ import { updateManagedRestaurantSchema } from "@/lib/validators";
+@@ -12,6 +12,115 @@ type Context = {
+   }>;
+ };
+ 
++type PlatformUserRole = "OWNER" | "MANAGER" | "FLOOR_MANAGER" | "WAITER";
++
++function restaurantRoleFromPlatformRole(role: PlatformUserRole): RestaurantStaffRole {
++  if (role === "OWNER") {
++    return "OWNER";
++  }
++
++  if (role === "MANAGER") {
++    return "MANAGER";
++  }
++
++  return "HOST";
++}
++
++async function findOrCreateAccessUser(input: {
++  email: string;
++  firstName?: string;
++  lastName?: string;
++  phone?: string;
++}) {
++  const email = input.email.trim().toLowerCase();
++
++  if (!email) {
++    return null;
++  }
++
++  const name = [input.firstName, input.lastName].filter(Boolean).join(" ").trim() || email;
++
++  return prisma.user.upsert({
++    where: {
++      email
++    },
++    update: {
++      name,
++      firstName: input.firstName || undefined,
++      lastName: input.lastName || undefined,
++      contactEmail: email,
++      phone: input.phone || undefined
++    },
++    create: {
++      email,
++      name,
++      firstName: input.firstName || null,
++      lastName: input.lastName || null,
++      contactEmail: email,
++      phone: input.phone || null,
++      role: "CLIENT"
++    },
++    select: {
++      id: true
++    }
++  });
++}
++
++async function grantRestaurantAccess(input: {
++  restaurantId: string;
++  userId: string;
++  role: RestaurantStaffRole;
++}) {
++  await prisma.restaurantUser.upsert({
++    where: {
++      restaurantId_userId: {
++        restaurantId: input.restaurantId,
++        userId: input.userId
++      }
++    },
++    update: {
++      role: input.role
++    },
++    create: {
++      restaurantId: input.restaurantId,
++      userId: input.userId,
++      role: input.role
++    }
++  });
++}
++
++async function syncPlatformRestaurantUsers(
++  restaurantId: string,
++  users: Array<{
++    role: PlatformUserRole;
++    firstName?: string;
++    lastName?: string;
++    email?: string;
++    phone?: string;
++  }> = []
++) {
++  for (const userInput of users) {
++    const email = userInput.email;
++
++    if (!email) {
++      continue;
++    }
++
++    const user = await findOrCreateAccessUser({
++      ...userInput,
++      email
++    });
++
++    if (user) {
++      await grantRestaurantAccess({
++        restaurantId,
++        userId: user.id,
++        role: restaurantRoleFromPlatformRole(userInput.role)
++      });
++    }
++  }
++}
++
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+ }
+@@ -59,14 +168,25 @@ export async function PATCH(request: Request, context: Context) {
+       : {};
+     const currentOwner = isRecord(currentSettings.owner) ? currentSettings.owner : {};
+     const currentBilling = isRecord(currentSettings.billing) ? currentSettings.billing : {};
++    const ownerEmail = String(data.ownerEmail ?? currentSettings.ownerEmail ?? currentOwner.email ?? "")
++      .trim()
++      .toLowerCase();
++    const owner = ownerEmail
++      ? await findOrCreateAccessUser({
++          email: ownerEmail,
++          firstName: data.ownerFirstName ?? String(currentOwner.firstName ?? ""),
++          lastName: data.ownerLastName ?? String(currentOwner.lastName ?? ""),
++          phone: data.ownerPhone ?? String(currentOwner.phone ?? "")
++        })
++      : null;
+     const settings = {
+       ...currentSettings,
+-      ownerEmail: data.ownerEmail ?? currentSettings.ownerEmail ?? "",
++      ownerEmail,
+       owner: {
+         ...currentOwner,
+         firstName: data.ownerFirstName ?? currentOwner.firstName ?? "",
+         lastName: data.ownerLastName ?? currentOwner.lastName ?? "",
+-        email: data.ownerEmail ?? currentSettings.ownerEmail ?? currentOwner.email ?? "",
++        email: ownerEmail,
+         phone: data.ownerPhone ?? currentOwner.phone ?? "",
+         address: data.ownerAddress ?? currentOwner.address ?? ""
+       },
+@@ -98,12 +218,23 @@ export async function PATCH(request: Request, context: Context) {
+         description: data.description,
+         address: data.address,
+         phone: data.phone,
++        ownerId: owner?.id,
+         timezone: data.address ? inferTimeZoneFromAddress(data.address) : undefined,
+         settings: settings as Prisma.InputJsonValue
+       },
+       select: restaurantSelect
+     });
+ 
++    if (owner) {
++      await grantRestaurantAccess({
++        restaurantId,
++        userId: owner.id,
++        role: "OWNER"
++      });
++    }
++
++    await syncPlatformRestaurantUsers(restaurantId, data.platformUsers ?? []);
++
+     return ok({ restaurant });
+   } catch (error) {
+     return apiError(error);
+diff --git a/src/app/api/platform-admin/sites/route.ts b/src/app/api/platform-admin/sites/route.ts
+index 3e8221e..831b2cb 100644
+--- a/src/app/api/platform-admin/sites/route.ts
++++ b/src/app/api/platform-admin/sites/route.ts
+@@ -1,3 +1,5 @@
++import type { RestaurantStaffRole } from "@prisma/client";
++import { hash } from "bcryptjs";
+ import { prisma } from "@/lib/prisma";
+ import { buildRestaurantSlug, defaultOpeningHours, defaultRestaurantSettings } from "@/lib/site-defaults";
+ import { inferTimeZoneFromAddress } from "@/lib/time";
+@@ -5,6 +7,120 @@ import { createManagedRestaurantSchema } from "@/lib/validators";
+ import { apiError, created, ok, parseJson } from "@/server/http";
+ import { requirePlatformAdmin } from "@/server/platform-admin-auth";
+ 
++type PlatformUserRole = "OWNER" | "MANAGER" | "FLOOR_MANAGER" | "WAITER";
++
++function restaurantRoleFromPlatformRole(role: PlatformUserRole): RestaurantStaffRole {
++  if (role === "OWNER") {
++    return "OWNER";
++  }
++
++  if (role === "MANAGER") {
++    return "MANAGER";
++  }
++
++  return "HOST";
++}
++
++async function findOrCreateAccessUser(input: {
++  email: string;
++  firstName?: string;
++  lastName?: string;
++  password?: string;
++  phone?: string;
++}) {
++  const email = input.email.trim().toLowerCase();
++
++  if (!email) {
++    return null;
++  }
++
++  const name = [input.firstName, input.lastName].filter(Boolean).join(" ").trim() || email;
++  const passwordHash = input.password ? await hash(input.password, 12) : undefined;
++
++  return prisma.user.upsert({
++    where: {
++      email
++    },
++    update: {
++      name,
++      firstName: input.firstName || undefined,
++      lastName: input.lastName || undefined,
++      contactEmail: email,
++      passwordHash,
++      phone: input.phone || undefined
++    },
++    create: {
++      email,
++      name,
++      firstName: input.firstName || null,
++      lastName: input.lastName || null,
++      contactEmail: email,
++      phone: input.phone || null,
++      passwordHash,
++      role: "CLIENT"
++    },
++    select: {
++      id: true,
++      email: true
++    }
++  });
++}
++
++async function grantRestaurantAccess(input: {
++  restaurantId: string;
++  userId: string;
++  role: ReturnType<typeof restaurantRoleFromPlatformRole>;
++}) {
++  await prisma.restaurantUser.upsert({
++    where: {
++      restaurantId_userId: {
++        restaurantId: input.restaurantId,
++        userId: input.userId
++      }
++    },
++    update: {
++      role: input.role
++    },
++    create: {
++      restaurantId: input.restaurantId,
++      userId: input.userId,
++      role: input.role
++    }
++  });
++}
++
++async function syncPlatformRestaurantUsers(
++  restaurantId: string,
++  users: Array<{
++    role: PlatformUserRole;
++    firstName?: string;
++    lastName?: string;
++    email?: string;
++    phone?: string;
++  }> = []
++) {
++  for (const userInput of users) {
++    const email = userInput.email;
++
++    if (!email) {
++      continue;
++    }
++
++    const user = await findOrCreateAccessUser({
++      ...userInput,
++      email
++    });
++
++    if (user) {
++      await grantRestaurantAccess({
++        restaurantId,
++        userId: user.id,
++        role: restaurantRoleFromPlatformRole(userInput.role)
++      });
++    }
++  }
++}
++
+ async function uniqueRestaurantSlug(name: string, requestedSlug?: string) {
+   const baseSlug = requestedSlug || buildRestaurantSlug(name);
+   let slug = baseSlug;
+@@ -126,6 +242,13 @@ export async function POST(request: Request) {
+     await requirePlatformAdmin();
+     const data = await parseJson(request, createManagedRestaurantSchema);
+     const slug = await uniqueRestaurantSlug(data.name, data.slug);
++    const ownerEmail = data.ownerEmail?.trim().toLowerCase();
++    const owner = ownerEmail
++      ? await findOrCreateAccessUser({
++          email: ownerEmail,
++          password: data.ownerPassword || undefined
++        })
++      : null;
+ 
+     const restaurant = await prisma.restaurant.create({
+       data: {
+@@ -135,10 +258,11 @@ export async function POST(request: Request) {
+         address: data.address || null,
+         phone: data.phone || null,
+         timezone: inferTimeZoneFromAddress(data.address),
++        ownerId: owner?.id,
+         openingHours: defaultOpeningHours(),
+         settings: {
+           ...defaultRestaurantSettings,
+-          ownerEmail: data.ownerEmail || ""
++          ownerEmail: ownerEmail || ""
+         },
+         menu: []
+       },
+@@ -162,6 +286,14 @@ export async function POST(request: Request) {
+       }
+     });
+ 
++    if (owner) {
++      await grantRestaurantAccess({
++        restaurantId: restaurant.id,
++        userId: owner.id,
++        role: "OWNER"
++      });
++    }
++
+     return created({ restaurant: (await withRestaurantMetrics([restaurant]))[0] });
+   } catch (error) {
+     return apiError(error);
+diff --git a/src/app/api/reservations/[reservationId]/reminder/route.ts b/src/app/api/reservations/[reservationId]/reminder/route.ts
+index 31fffc8..ccba01d 100644
+--- a/src/app/api/reservations/[reservationId]/reminder/route.ts
++++ b/src/app/api/reservations/[reservationId]/reminder/route.ts
+@@ -3,6 +3,8 @@ import { requireSession } from "@/server/auth/guards";
+ import { sendReservationReminder } from "@/server/email";
+ import { apiError, ok } from "@/server/http";
+ import { NotFoundError } from "@/server/errors";
++import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
++import { sendReservationReminderSms } from "@/server/sms";
+ 
+ type Context = {
+   params: Promise<{
+@@ -10,8 +12,12 @@ type Context = {
+   }>;
+ };
+ 
+-export async function POST(_: Request, context: Context) {
++export async function POST(request: Request, context: Context) {
+   try {
++    assertRateLimit(rateLimitKey(request, "reservation:reminder"), {
++      limit: 20,
++      windowMs: 60_000
++    });
+     const session = await requireSession();
+     const { reservationId } = await context.params;
+     const reservation = await prisma.reservation.findUnique({
+@@ -31,7 +37,8 @@ export async function POST(_: Request, context: Context) {
+             id: true,
+             email: true,
+             name: true,
+-            contactEmail: true
++            contactEmail: true,
++            phone: true
+           }
+         }
+       }
+@@ -47,9 +54,12 @@ export async function POST(_: Request, context: Context) {
+       throw new NotFoundError("Reservation not found.");
+     }
+ 
+-    const emailSent = await sendReservationReminder(reservation);
++    const [emailSent, smsSent] = await Promise.all([
++      sendReservationReminder(reservation),
++      sendReservationReminderSms(reservation)
++    ]);
+ 
+-    return ok({ sent: emailSent });
++    return ok({ sent: emailSent || smsSent, emailSent, smsSent });
+   } catch (error) {
+     return apiError(error);
+   }
+diff --git a/src/app/api/reservations/[reservationId]/route.ts b/src/app/api/reservations/[reservationId]/route.ts
+index e71f7ad..0951957 100644
+--- a/src/app/api/reservations/[reservationId]/route.ts
++++ b/src/app/api/reservations/[reservationId]/route.ts
+@@ -7,6 +7,7 @@ import {
+   updateReservation,
+   updateUserReservation
+ } from "@/server/services/reservation-service";
++import { sendReservationCancellationSms, sendReservationUpdateSms } from "@/server/sms";
+ 
+ type Context = {
+   params: Promise<{
+@@ -24,12 +25,14 @@ export async function PATCH(request: Request, context: Context) {
+       ? await updateReservation(reservationId, data)
+       : await updateUserReservation(reservationId, session.user.id, data);
+ 
+-    const emailSent =
+-      isAdmin && "status" in data && data.status === "CANCELLED"
+-        ? await sendReservationCancellation(reservation)
+-        : await sendReservationUpdate(reservation);
++    const isCancellation = isAdmin && "status" in data && data.status === "CANCELLED";
++    const [emailSent, smsSent] = await Promise.all(
++      isCancellation
++        ? [sendReservationCancellation(reservation), sendReservationCancellationSms(reservation)]
++        : [sendReservationUpdate(reservation), sendReservationUpdateSms(reservation)]
++    );
+ 
+-    return ok({ reservation, emailSent });
++    return ok({ reservation, emailSent, smsSent });
+   } catch (error) {
+     return apiError(error);
+   }
+@@ -44,7 +47,10 @@ export async function DELETE(_: Request, context: Context) {
+       session.user.role === "ADMIN" || session.user.role === "STAFF" ? undefined : session.user.id
+     );
+ 
+-    await sendReservationCancellation(reservation);
++    await Promise.all([
++      sendReservationCancellation(reservation),
++      sendReservationCancellationSms(reservation)
++    ]);
+ 
+     return noContent();
+   } catch (error) {
+diff --git a/src/app/api/restaurants/[restaurantId]/reservations/route.ts b/src/app/api/restaurants/[restaurantId]/reservations/route.ts
+index 36d2179..967ceb1 100644
+--- a/src/app/api/restaurants/[restaurantId]/reservations/route.ts
++++ b/src/app/api/restaurants/[restaurantId]/reservations/route.ts
+@@ -2,13 +2,16 @@ import { createAdminReservationSchema, createReservationSchema } from "@/lib/val
+ import { getServerSession } from "next-auth";
+ import { authOptions } from "@/lib/auth";
+ import { prisma } from "@/lib/prisma";
+-import { requireRole } from "@/server/auth/guards";
++import { requireSession } from "@/server/auth/guards";
+ import { sendReservationConfirmation } from "@/server/email";
+ import { apiError, created, ok } from "@/server/http";
++import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import {
+   createReservation,
+   listRestaurantReservations
+ } from "@/server/services/reservation-service";
++import { sendReservationConfirmationSms } from "@/server/sms";
+ 
+ type Context = {
+   params: Promise<{
+@@ -74,8 +77,9 @@ async function findOrCreateReservationUser(data: {
+ 
+ export async function GET(request: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN", "STAFF"]);
++    const session = await requireSession();
+     const { restaurantId } = await context.params;
++    await requireRestaurantAccess(session, restaurantId, "READ_ONLY");
+     const date = new URL(request.url).searchParams.get("date") ?? undefined;
+     const reservations = await listRestaurantReservations(restaurantId, date);
+ 
+@@ -87,11 +91,20 @@ export async function GET(request: Request, context: Context) {
+ 
+ export async function POST(request: Request, context: Context) {
+   try {
++    assertRateLimit(rateLimitKey(request, "reservation:create"), {
++      limit: 20,
++      windowMs: 60_000
++    });
+     const session = await getServerSession(authOptions);
+     const { restaurantId } = await context.params;
+     const payload = await request.json();
++    const isRestaurantStaff = session?.user.role === "ADMIN" || session?.user.role === "STAFF";
++
++    if (isRestaurantStaff) {
++      await requireRestaurantAccess(session, restaurantId, "HOST");
++    }
+ 
+-    if (session?.user.role === "ADMIN" && typeof payload.userId === "string") {
++    if (isRestaurantStaff && typeof payload.userId === "string") {
+       const data = createAdminReservationSchema.parse(payload);
+       const reservation = await createReservation({
+         restaurantId,
+@@ -114,14 +127,23 @@ export async function POST(request: Request, context: Context) {
+         status: data.status
+       });
+ 
+-      const emailSent = await sendReservationConfirmation(reservation);
++      const [emailSent, smsSent] = await Promise.all([
++        sendReservationConfirmation(reservation),
++        sendReservationConfirmationSms(reservation)
++      ]);
+ 
+-      return created({ reservation, emailSent });
++      return created({ reservation, emailSent, smsSent });
+     }
+ 
+     const data = createReservationSchema.parse(payload);
+-    const userId =
+-      session?.user.id ??
++    const userId = isRestaurantStaff
++      ? await findOrCreateReservationUser({
++          firstName: data.firstName,
++          lastName: data.lastName,
++          email: data.email,
++          phone: data.phone
++        })
++      : session?.user.id ??
+       (await findOrCreateReservationUser({
+         firstName: data.firstName,
+         lastName: data.lastName,
+@@ -148,9 +170,12 @@ export async function POST(request: Request, context: Context) {
+       notes: data.notes
+     });
+ 
+-    const emailSent = await sendReservationConfirmation(reservation);
++    const [emailSent, smsSent] = await Promise.all([
++      sendReservationConfirmation(reservation),
++      sendReservationConfirmationSms(reservation)
++    ]);
+ 
+-    return created({ reservation, emailSent });
++    return created({ reservation, emailSent, smsSent });
+   } catch (error) {
+     return apiError(error);
+   }
+diff --git a/src/app/api/restaurants/[restaurantId]/route.ts b/src/app/api/restaurants/[restaurantId]/route.ts
+index 58ac3c6..666e87c 100644
+--- a/src/app/api/restaurants/[restaurantId]/route.ts
++++ b/src/app/api/restaurants/[restaurantId]/route.ts
+@@ -1,7 +1,8 @@
+ import { updateRestaurantSchema } from "@/lib/validators";
+ import { inferTimeZoneFromAddress } from "@/lib/time";
+-import { requireRole } from "@/server/auth/guards";
++import { requireSession } from "@/server/auth/guards";
+ import { apiError, noContent, ok, parseJson } from "@/server/http";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import {
+   deleteRestaurant,
+   getRestaurant,
+@@ -26,8 +27,9 @@ export async function GET(_: Request, context: Context) {
+ 
+ export async function PATCH(request: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN"]);
++    const session = await requireSession();
+     const { restaurantId } = await context.params;
++    await requireRestaurantAccess(session, restaurantId, "MANAGER");
+     const data = await parseJson(request, updateRestaurantSchema);
+     const restaurant = await updateRestaurant(
+       restaurantId,
+@@ -47,8 +49,9 @@ export async function PATCH(request: Request, context: Context) {
+ 
+ export async function DELETE(_: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN"]);
++    const session = await requireSession();
+     const { restaurantId } = await context.params;
++    await requireRestaurantAccess(session, restaurantId, "OWNER");
+     await deleteRestaurant(restaurantId);
+ 
+     return noContent();
+diff --git a/src/app/api/restaurants/[restaurantId]/tables/route.ts b/src/app/api/restaurants/[restaurantId]/tables/route.ts
+index cb1a707..3fe9c66 100644
+--- a/src/app/api/restaurants/[restaurantId]/tables/route.ts
++++ b/src/app/api/restaurants/[restaurantId]/tables/route.ts
+@@ -1,6 +1,7 @@
+ import { createTableSchema } from "@/lib/validators";
+-import { requireRole } from "@/server/auth/guards";
++import { requireSession } from "@/server/auth/guards";
+ import { apiError, created, ok, parseJson } from "@/server/http";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import { createTable, listTables } from "@/server/services/table-service";
+ 
+ type Context = {
+@@ -21,8 +22,9 @@ export async function GET(_: Request, context: Context) {
+ 
+ export async function POST(request: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN"]);
++    const session = await requireSession();
+     const { restaurantId } = await context.params;
++    await requireRestaurantAccess(session, restaurantId, "MANAGER");
+     const data = await parseJson(request, createTableSchema);
+     const table = await createTable({
+       restaurantId,
+diff --git a/src/app/api/table-blocks/[blockId]/route.ts b/src/app/api/table-blocks/[blockId]/route.ts
+index 693dfe7..c90d984 100644
+--- a/src/app/api/table-blocks/[blockId]/route.ts
++++ b/src/app/api/table-blocks/[blockId]/route.ts
+@@ -1,5 +1,8 @@
+-import { requireRole } from "@/server/auth/guards";
++import { prisma } from "@/lib/prisma";
++import { requireSession } from "@/server/auth/guards";
++import { NotFoundError } from "@/server/errors";
+ import { apiError, noContent } from "@/server/http";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import { deleteTableBlock } from "@/server/services/table-block-service";
+ 
+ type Context = {
+@@ -8,10 +11,32 @@ type Context = {
+   }>;
+ };
+ 
++async function getBlockRestaurantId(blockId: string) {
++  const block = await prisma.tableBlock.findUnique({
++    where: {
++      id: blockId
++    },
++    select: {
++      table: {
++        select: {
++          restaurantId: true
++        }
++      }
++    }
++  });
++
++  if (!block) {
++    throw new NotFoundError("Table block not found.");
++  }
++
++  return block.table.restaurantId;
++}
++
+ export async function DELETE(_: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN", "STAFF"]);
++    const session = await requireSession();
+     const { blockId } = await context.params;
++    await requireRestaurantAccess(session, await getBlockRestaurantId(blockId), "HOST");
+     await deleteTableBlock(blockId);
+ 
+     return noContent();
+diff --git a/src/app/api/tables/[tableId]/blocks/route.ts b/src/app/api/tables/[tableId]/blocks/route.ts
+index 0a99dff..8b777fa 100644
+--- a/src/app/api/tables/[tableId]/blocks/route.ts
++++ b/src/app/api/tables/[tableId]/blocks/route.ts
+@@ -1,6 +1,9 @@
++import { prisma } from "@/lib/prisma";
+ import { createTableBlockSchema } from "@/lib/validators";
+-import { requireRole } from "@/server/auth/guards";
++import { requireSession } from "@/server/auth/guards";
++import { NotFoundError } from "@/server/errors";
+ import { apiError, created, ok, parseJson } from "@/server/http";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import {
+   createTableBlock,
+   listTableBlocks
+@@ -12,10 +15,28 @@ type Context = {
+   }>;
+ };
+ 
++async function getTableRestaurantId(tableId: string) {
++  const table = await prisma.table.findUnique({
++    where: {
++      id: tableId
++    },
++    select: {
++      restaurantId: true
++    }
++  });
++
++  if (!table) {
++    throw new NotFoundError("Table not found.");
++  }
++
++  return table.restaurantId;
++}
++
+ export async function GET(_: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN", "STAFF"]);
++    const session = await requireSession();
+     const { tableId } = await context.params;
++    await requireRestaurantAccess(session, await getTableRestaurantId(tableId), "READ_ONLY");
+     const blocks = await listTableBlocks(tableId);
+ 
+     return ok({ blocks });
+@@ -26,8 +47,9 @@ export async function GET(_: Request, context: Context) {
+ 
+ export async function POST(request: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN", "STAFF"]);
++    const session = await requireSession();
+     const { tableId } = await context.params;
++    await requireRestaurantAccess(session, await getTableRestaurantId(tableId), "HOST");
+     const data = await parseJson(request, createTableBlockSchema);
+     const block = await createTableBlock({
+       tableId,
+diff --git a/src/app/api/tables/[tableId]/route.ts b/src/app/api/tables/[tableId]/route.ts
+index 199d547..82ad5a7 100644
+--- a/src/app/api/tables/[tableId]/route.ts
++++ b/src/app/api/tables/[tableId]/route.ts
+@@ -1,6 +1,9 @@
++import { prisma } from "@/lib/prisma";
+ import { updateTableSchema } from "@/lib/validators";
+-import { requireRole } from "@/server/auth/guards";
++import { requireSession } from "@/server/auth/guards";
++import { NotFoundError } from "@/server/errors";
+ import { apiError, noContent, ok, parseJson } from "@/server/http";
++import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+ import { deleteTable, updateTable } from "@/server/services/table-service";
+ 
+ type Context = {
+@@ -9,10 +12,28 @@ type Context = {
+   }>;
+ };
+ 
++async function getTableRestaurantId(tableId: string) {
++  const table = await prisma.table.findUnique({
++    where: {
++      id: tableId
++    },
++    select: {
++      restaurantId: true
++    }
++  });
++
++  if (!table) {
++    throw new NotFoundError("Table not found.");
++  }
++
++  return table.restaurantId;
++}
++
+ export async function PATCH(request: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN"]);
++    const session = await requireSession();
+     const { tableId } = await context.params;
++    await requireRestaurantAccess(session, await getTableRestaurantId(tableId), "MANAGER");
+     const data = await parseJson(request, updateTableSchema);
+     const table = await updateTable(tableId, data);
+ 
+@@ -24,8 +45,9 @@ export async function PATCH(request: Request, context: Context) {
+ 
+ export async function DELETE(_: Request, context: Context) {
+   try {
+-    await requireRole(["ADMIN"]);
++    const session = await requireSession();
+     const { tableId } = await context.params;
++    await requireRestaurantAccess(session, await getTableRestaurantId(tableId), "MANAGER");
+     await deleteTable(tableId);
+ 
+     return noContent();
+diff --git a/src/app/favicon.ico/route.ts b/src/app/favicon.ico/route.ts
+index 70114bd..9f61b09 100644
+--- a/src/app/favicon.ico/route.ts
++++ b/src/app/favicon.ico/route.ts
+@@ -1,6 +1,8 @@
+ import { readFile } from "fs/promises";
+ import path from "path";
+-import { getPlatformBrand } from "@/server/platform-settings";
++import { defaultPlatformBrand, getPlatformBrand } from "@/server/platform-settings";
++
++export const dynamic = "force-dynamic";
+ 
+ const contentTypes: Record<string, string> = {
+   ".ico": "image/x-icon",
+@@ -55,7 +57,7 @@ async function publicFileResponse(fileUrl: string) {
+ }
+ 
+ export async function GET(request: Request) {
+-  const brand = await getPlatformBrand();
++  const brand = await getPlatformBrand().catch(() => defaultPlatformBrand);
+   const dataResponse = dataUrlResponse(brand.faviconUrl);
+ 
+   if (dataResponse) {
+diff --git a/src/app/globals.css b/src/app/globals.css
+index 93ea76c..ae6ce73 100644
+--- a/src/app/globals.css
++++ b/src/app/globals.css
+@@ -150,6 +150,24 @@ textarea {
+   animation: landingServiceToast 900ms ease both;
+ }
+ 
++.dashboard-loading-bar {
++  animation: dashboardLoadingBar 1.35s ease-in-out infinite;
++  transform-origin: left center;
++  will-change: transform;
++}
++
++@keyframes dashboardLoadingBar {
++  0% {
++    transform: translateX(-110%) scaleX(0.45);
++  }
++  45% {
++    transform: translateX(75%) scaleX(1);
++  }
++  100% {
++    transform: translateX(320%) scaleX(0.45);
++  }
++}
++
+ @keyframes landingHeroDrift {
+   from {
+     transform: scale(1.05) translate3d(-0.8rem, 0, 0);
+@@ -207,7 +225,13 @@ textarea {
+   .landing-hero-image,
+   .landing-fade-up,
+   .landing-fade-up-stagger,
+-  .landing-service-toast {
++  .landing-service-toast,
++  .dashboard-loading-bar {
+     animation: none;
+   }
++
++  .dashboard-loading-bar {
++    transform: none;
++    width: 100%;
++  }
+ }
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 4427435..4c8c4bc 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -1,4 +1,5 @@
+ import type { Metadata } from "next";
++import { headers } from "next/headers";
+ import { Providers } from "@/app/providers";
+ import { AppShell } from "@/components/layout/app-shell";
+ import { defaultPlatformBrand, getPlatformBrand } from "@/server/platform-settings";
+@@ -19,12 +20,16 @@ export async function generateMetadata(): Promise<Metadata> {
+ 
+ export default async function RootLayout({ children }: { children: React.ReactNode }) {
+   const brand = await getPlatformBrand().catch(() => defaultPlatformBrand);
++  const requestHeaders = await headers();
++  const initialHost = requestHeaders.get("host") ?? "";
+ 
+   return (
+     <html lang="fr">
+       <body>
+         <Providers>
+-          <AppShell brand={brand}>{children}</AppShell>
++          <AppShell brand={brand} initialHost={initialHost}>
++            {children}
++          </AppShell>
+         </Providers>
+       </body>
+     </html>
+diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
+index f26527b..0541dd4 100644
+--- a/src/app/login/page.tsx
++++ b/src/app/login/page.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useMutation, useQuery } from "@tanstack/react-query";
+ import { CalendarSearch, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
++import Link from "next/link";
+ import { signIn } from "next-auth/react";
+ import { useRouter, useSearchParams } from "next/navigation";
+ import { FormEvent, Suspense, useState } from "react";
+@@ -46,6 +47,7 @@ function LoginContent() {
+   });
+   const loginVisualUrl = brandQuery.data?.brand.loginVisualUrl ?? "/login-restaurant-visual.png";
+   const resetToken = searchParams.get("resetToken");
++  const isResetPasswordMode = Boolean(resetToken) && showForgotPassword;
+ 
+   const registerMutation = useMutation({
+     mutationFn: () =>
+@@ -81,8 +83,12 @@ function LoginContent() {
+       }),
+     onSuccess: (data) => {
+       setResetMessage(data.message);
++      setForgotMessage(data.message);
+       setPassword(resetPassword);
+       setEmail(forgotEmail);
++      setMode("login");
++      setShowForgotPassword(false);
++      router.replace("/login");
+     },
+     onError: (resetError) => {
+       setResetMessage(resetError.message);
+@@ -138,29 +144,48 @@ function LoginContent() {
+       return;
+     }
+ 
+-    router.push(searchParams.get("callbackUrl") ?? "/");
++    const callbackUrl = searchParams.get("callbackUrl");
++
++    if (callbackUrl) {
++      router.push(callbackUrl);
++      router.refresh();
++      return;
++    }
++
++    try {
++      const data = await apiFetch<{ restaurants: Array<{ id: string }> }>("/api/restaurants/current");
++      router.push(data.restaurants.length > 0 ? "/admin" : "/");
++    } catch {
++      router.push("/");
++    }
++
+     router.refresh();
+   }
+ 
+   return (
+-    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(460px,0.85fr)] lg:items-center lg:px-8">
+-      <section className="login-visual-panel relative w-full overflow-hidden rounded-lg bg-ink shadow-soft">
++    <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(460px,0.85fr)] lg:items-start lg:px-8">
++      <Link
++        aria-label="Retour à la page principale"
++        className="login-visual-panel relative block w-full overflow-hidden rounded-lg bg-ink shadow-soft lg:sticky lg:top-6 lg:self-start"
++        href="/"
++      >
+         <img
+           src={loginVisualUrl}
+           alt="Salle de restaurant C’est ma table"
+           className="absolute inset-0 h-full w-full object-cover object-center"
+         />
+-      </section>
++      </Link>
+ 
+       <section className="flex items-center justify-center py-2 lg:py-8">
+         <div className="w-full max-w-xl space-y-4">
++        {!isResetPasswordMode ? (
+         <form className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-7" onSubmit={handleSubmit}>
+           <div>
+             <h1 className="text-2xl font-black text-ink">
+               {mode === "login" ? t("login.signIn") : t("login.createAccount")}
+             </h1>
+             <p className="mt-2 text-sm font-medium leading-6 text-ink/65">
+-              La table idéale n’attend plus que vous.
++              {t("login.tagline")}
+             </p>
+           </div>
+ 
+@@ -290,10 +315,17 @@ function LoginContent() {
+             </p>
+           ) : null}
+ 
++          {forgotMessage && !showForgotPassword ? (
++            <p className="mt-4 rounded-md bg-moss/10 p-3 text-sm font-semibold text-moss">
++              {forgotMessage}
++            </p>
++          ) : null}
++
+           <button className="primary-button mt-5 w-full" disabled={registerMutation.isPending} type="submit">
+             {mode === "login" ? t("login.signIn") : t("login.createAccount")}
+           </button>
+         </form>
++        ) : null}
+ 
+         {showForgotPassword ? (
+           <form
+@@ -367,6 +399,7 @@ function LoginContent() {
+           </form>
+         ) : null}
+ 
++        {!isResetPasswordMode ? (
+         <form
+           className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft sm:p-6"
+           onSubmit={(event) => {
+@@ -415,6 +448,9 @@ function LoginContent() {
+                   required
+                 />
+               </div>
++              <span className="mt-1 block text-xs font-semibold text-ink/50">
++                {t("login.phoneExample")}
++              </span>
+             </label>
+           </div>
+           {guestError ? (
+@@ -426,6 +462,7 @@ function LoginContent() {
+             {t("login.openReservation")}
+           </button>
+         </form>
++        ) : null}
+         </div>
+       </section>
+     </main>
+diff --git a/src/app/my-reservations/page.tsx b/src/app/my-reservations/page.tsx
+index 219e147..87cd0a6 100644
+--- a/src/app/my-reservations/page.tsx
++++ b/src/app/my-reservations/page.tsx
+@@ -529,7 +529,7 @@ function ReservationList({
+                 <div>
+                   <p className="text-sm font-bold text-ink">{reservation.restaurant.name}</p>
+                   <p className="mt-1 text-xs font-black uppercase text-moss">
+-                    Réf. {reservation.referenceCode ?? reservation.id}
++                    Réf. {reservation.referenceCode ?? "En attente"}
+                   </p>
+                   <p className="text-sm text-ink/65">
+                     {dateOnly(reservation.date)} · {reservation.startTime}-{reservation.endTime} ·{" "}
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 888e7c4..d257969 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -109,7 +109,8 @@ export default async function HomePage() {
+   };
+   const sectionTitleStyle: CSSProperties = {
+     fontFamily: landing.appearance.headingFont,
+-    fontSize: landing.typography.sectionTitleSize
++    fontSize: landing.typography.sectionTitleSize,
++    maxWidth: landing.typography.sectionTitleMaxWidth
+   };
+   const sectionTextStyle: CSSProperties = {
+     fontSize: landing.typography.sectionTextSize
+diff --git a/src/components/admin/admin-dashboard.tsx b/src/components/admin/admin-dashboard.tsx
+index 6cf228b..0425cf4 100644
+--- a/src/components/admin/admin-dashboard.tsx
++++ b/src/components/admin/admin-dashboard.tsx
+@@ -2965,7 +2965,7 @@ function ReservationRow({
+           {reservation.table?.label ?? t("admin.noTable")} · {t(`status.${reservation.status}`)}
+         </p>
+         <p className="mt-1 text-xs font-black uppercase text-moss">
+-          Réf. {reservation.referenceCode ?? reservation.id}
++          Réf. {reservation.referenceCode ?? "En attente"}
+         </p>
+         <p className="mt-1 text-xs font-semibold text-ink/50">
+           {guestEmail}
+diff --git a/src/components/booking/booking-experience.tsx b/src/components/booking/booking-experience.tsx
+index df37e1e..7cb1ba3 100644
+--- a/src/components/booking/booking-experience.tsx
++++ b/src/components/booking/booking-experience.tsx
+@@ -344,7 +344,7 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
+         })
+     }),
+     onSuccess: (data) => {
+-      setMessage(t("booking.confirmed", { id: data.reservation.referenceCode ?? data.reservation.id }));
++      setMessage(t("booking.confirmed", { id: data.reservation.referenceCode ?? t("booking.referencePending") }));
+       queryClient.invalidateQueries({ queryKey: ["availability", restaurant?.id] });
+       queryClient.invalidateQueries({ queryKey: ["availability-slots", restaurant?.id] });
+       queryClient.invalidateQueries({ queryKey: ["me", "reservations"] });
+diff --git a/src/components/layout/app-shell.tsx b/src/components/layout/app-shell.tsx
+index 91ebea2..5011b2b 100644
+--- a/src/components/layout/app-shell.tsx
++++ b/src/components/layout/app-shell.tsx
+@@ -8,16 +8,40 @@ import { TopNav } from "@/components/layout/top-nav";
+ import type { PlatformBrand } from "@/server/platform-settings";
+ 
+ const chromeHiddenRoutes = new Set(["/", "/login", "/cmt-admin/login", "/passer-a-toquetop"]);
++const rootHosts = new Set(["toquetop.com", "www.toquetop.com", "localhost", "127.0.0.1"]);
++const ignoredSubdomains = new Set(["www", "app", "admin", "api"]);
++
++function isRestaurantSubdomainHost(host: string) {
++  const normalizedHost = host.split(":")[0]?.toLowerCase() ?? "";
++
++  if (rootHosts.has(normalizedHost) || !normalizedHost.endsWith(".toquetop.com")) {
++    return false;
++  }
++
++  const subdomain = normalizedHost.replace(/\.toquetop\.com$/, "");
++  return Boolean(subdomain) && !ignoredSubdomains.has(subdomain);
++}
+ 
+ export function AppShell({
+   brand,
+-  children
++  children,
++  initialHost
+ }: {
+   brand: PlatformBrand;
+   children: React.ReactNode;
++  initialHost: string;
+ }) {
+   const pathname = usePathname();
+-  const hideChrome = chromeHiddenRoutes.has(pathname) || pathname.startsWith("/cmt-admin") || pathname.startsWith("/legal");
++  const isRestaurantSubdomain = isRestaurantSubdomainHost(initialHost);
++  const isRestaurantReservationPage =
++    isRestaurantSubdomain && (pathname === "/" || pathname === "/reservation" || pathname.startsWith("/sites/"));
++  const routeHidesChrome =
++    chromeHiddenRoutes.has(pathname) ||
++    pathname.startsWith("/admin") ||
++    pathname.startsWith("/cmt-admin") ||
++    pathname.startsWith("/legal");
++  const hideChrome =
++    routeHidesChrome && !isRestaurantReservationPage;
+ 
+   return (
+     <div className="flex min-h-screen flex-col">
+diff --git a/src/components/layout/realtime-bridge.tsx b/src/components/layout/realtime-bridge.tsx
+index 631a21e..b14e2e7 100644
+--- a/src/components/layout/realtime-bridge.tsx
++++ b/src/components/layout/realtime-bridge.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { useQueryClient } from "@tanstack/react-query";
+ import { useEffect } from "react";
+-import { realtimeEvents, socket } from "@/hooks/use-socket-events";
++import { canUseSocketIo, realtimeEvents, socket } from "@/hooks/use-socket-events";
+ import { useRealtimeStore } from "@/stores/realtime-store";
+ 
+ type RealtimePayload = {
+@@ -19,7 +19,12 @@ const realtimeQueryRoots = new Set([
+   "analytics",
+   "availability",
+   "blocks",
+-  "me"
++  "me",
++  "clients",
++  "waitlist",
++  "events",
++  "templates",
++  "chef-toque"
+ ]);
+ 
+ export function RealtimeBridge() {
+@@ -29,6 +34,11 @@ export function RealtimeBridge() {
+     const setConnected = useRealtimeStore.getState().setConnected;
+     const recordEvent = useRealtimeStore.getState().recordEvent;
+ 
++    if (!canUseSocketIo()) {
++      setConnected(false);
++      return;
++    }
++
+     if (!socket.connected) {
+       socket.connect();
+     }
+diff --git a/src/components/layout/top-nav.tsx b/src/components/layout/top-nav.tsx
+index 4133662..73d4126 100644
+--- a/src/components/layout/top-nav.tsx
++++ b/src/components/layout/top-nav.tsx
+@@ -1,13 +1,23 @@
+ "use client";
+ 
++import { useQuery } from "@tanstack/react-query";
+ import { signOut, useSession } from "next-auth/react";
+ import Link from "next/link";
+ import { LogIn, LogOut, Settings, UserRound } from "lucide-react";
++import { apiFetch } from "@/hooks/use-api";
+ import { useI18n } from "@/lib/i18n";
+ 
+ export function TopNav() {
+   const { data: session, status } = useSession();
+-  const isAdmin = session?.user.role === "ADMIN" || session?.user.role === "STAFF";
++  const restaurantAccessQuery = useQuery({
++    queryKey: ["current-restaurants-nav", session?.user.id],
++    enabled: status === "authenticated",
++    queryFn: () => apiFetch<{ restaurants: Array<{ id: string }> }>("/api/restaurants/current"),
++    retry: false,
++    staleTime: 60_000
++  });
++  const hasRestaurantDashboard = (restaurantAccessQuery.data?.restaurants.length ?? 0) > 0;
++  const isAdmin = session?.user.role === "ADMIN" || session?.user.role === "STAFF" || hasRestaurantDashboard;
+   const { t } = useI18n();
+ 
+   return (
+diff --git a/src/components/platform-admin/platform-admin-dashboard.tsx b/src/components/platform-admin/platform-admin-dashboard.tsx
+index 1c2136a..3bd87cc 100644
+--- a/src/components/platform-admin/platform-admin-dashboard.tsx
++++ b/src/components/platform-admin/platform-admin-dashboard.tsx
+@@ -40,7 +40,12 @@ import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from
+ import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { apiFetch } from "@/hooks/use-api";
+-import { defaultPlatformEmailSettings, emailTemplateKeys } from "@/server/platform-settings";
++import {
++  defaultPlatformEmailSettings,
++  defaultPlatformSmsSettings,
++  emailTemplateKeys,
++  smsTemplateKeys
++} from "@/server/platform-settings";
+ import type {
+   PlatformBrand,
+   PlatformEmailSettings,
+@@ -50,7 +55,9 @@ import type {
+   PlatformLandingLink,
+   PlatformLandingPlan,
+   PlatformLandingSettings,
+-  PlatformLandingTextBlock
++  PlatformLandingTextBlock,
++  PlatformSmsSettings,
++  PlatformSmsTemplateKey
+ } from "@/server/platform-settings";
+ 
+ type ManagedRestaurant = {
+@@ -124,6 +131,10 @@ type EmailSettingsResponse = {
+   emailSettings: PlatformEmailSettings;
+ };
+ 
++type SmsSettingsResponse = {
++  smsSettings: PlatformSmsSettings;
++};
++
+ type SitesResponse = {
+   restaurants: ManagedRestaurant[];
+ };
+@@ -139,6 +150,7 @@ type AdminSection =
+   | "features"
+   | "seo"
+   | "mailing"
++  | "sms"
+   | "footer"
+   | "general"
+   | "restaurants";
+@@ -150,18 +162,19 @@ type LinkArrayKey = "legalLinks" | "solutionLinks" | "companyLinks";
+ type StringListKey = "workflow" | "demoSteps";
+ 
+ const initialBrandForm: PlatformBrand = {
+-  siteName: "C’est ma table",
+-  logoUrl: "/cest-ma-table-logo.png",
++  siteName: "ToqueTop",
++  logoUrl: "/toquetop-logo.svg",
+   logoHeight: 48,
+-  footerLogoUrl: "/cest-ma-table-logo.png",
++  footerLogoUrl: "/toquetop-logo.svg",
+   footerLogoHeight: 32,
+-  marketingLogoUrl: "/cest-ma-table-logo.png",
++  marketingLogoUrl: "/toquetop-logo.svg",
+   marketingLogoHeight: 48,
+-  marketingFooterLogoUrl: "/cest-ma-table-logo.png",
++  marketingFooterLogoUrl: "/toquetop-logo.svg",
+   marketingFooterLogoHeight: 32,
+   loginVisualUrl: "/login-restaurant-visual.png",
++  adminLoginVisualUrl: "/login-restaurant-visual.png",
+   faviconUrl: "/cest-ma-table-favicon.png",
+-  logoAlt: "C’est ma table",
++  logoAlt: "ToqueTop",
+   supportEmail: ""
+ };
+ 
+@@ -242,6 +255,7 @@ const initialLandingForm: PlatformLandingSettings = {
+     heroTitleSize: 72,
+     heroSubtitleSize: 18,
+     sectionTitleSize: 48,
++    sectionTitleMaxWidth: 900,
+     sectionTextSize: 16,
+     cardTitleSize: 20,
+     cardTextSize: 14
+@@ -363,6 +377,7 @@ const sections: Array<{ id: AdminSection; label: string; description: string; ic
+   { id: "features", label: "Fonctionnalités", description: "Cartes visibles", icon: ListChecks },
+   { id: "seo", label: "SEO", description: "Référencement", icon: Search },
+   { id: "mailing", label: "Mailing", description: "Emails envoyés", icon: Mail },
++  { id: "sms", label: "SMS", description: "Messages envoyés", icon: MonitorSmartphone },
+   { id: "footer", label: "Footer", description: "Bas de page", icon: PanelBottom },
+   { id: "general", label: "Paramètres", description: "Coordonnées", icon: Settings },
+   { id: "restaurants", label: "Restaurants", description: "Sites clients", icon: Building2 }
+@@ -503,12 +518,15 @@ export function PlatformAdminDashboard() {
+   const [landingForm, setLandingForm] = useState<PlatformLandingSettings>(initialLandingForm);
+   const [emailForm, setEmailForm] = useState<PlatformEmailSettings>(defaultPlatformEmailSettings);
+   const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<PlatformEmailTemplateKey>("reservationConfirmation");
++  const [smsForm, setSmsForm] = useState<PlatformSmsSettings>(defaultPlatformSmsSettings);
++  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState<PlatformSmsTemplateKey>("reservationConfirmation");
+   const [siteForm, setSiteForm] = useState({
+     name: "",
+     description: "",
+     address: "",
+     phone: "",
+-    ownerEmail: ""
++    ownerEmail: "",
++    ownerPassword: ""
+   });
+   const [selectedSiteId, setSelectedSiteId] = useState<string>();
+   const [siteEditForm, setSiteEditForm] = useState<SiteEditForm>(() => siteEditFormFromRestaurant());
+@@ -532,6 +550,11 @@ export function PlatformAdminDashboard() {
+     queryFn: () => apiFetch<EmailSettingsResponse>("/api/platform-admin/email-settings")
+   });
+ 
++  const smsSettingsQuery = useQuery({
++    queryKey: ["platform-admin", "sms-settings"],
++    queryFn: () => apiFetch<SmsSettingsResponse>("/api/platform-admin/sms-settings")
++  });
++
+   const sitesQuery = useQuery({
+     queryKey: ["platform-admin", "sites"],
+     queryFn: () => apiFetch<SitesResponse>("/api/platform-admin/sites")
+@@ -555,6 +578,12 @@ export function PlatformAdminDashboard() {
+     }
+   }, [emailSettingsQuery.data?.emailSettings]);
+ 
++  useEffect(() => {
++    if (smsSettingsQuery.data?.smsSettings) {
++      setSmsForm(smsSettingsQuery.data.smsSettings);
++    }
++  }, [smsSettingsQuery.data?.smsSettings]);
++
+   useEffect(() => {
+     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+       if (!dirty) {
+@@ -593,6 +622,14 @@ export function PlatformAdminDashboard() {
+       })
+   });
+ 
++  const saveSmsSettingsMutation = useMutation({
++    mutationFn: () =>
++      apiFetch<SmsSettingsResponse>("/api/platform-admin/sms-settings", {
++        method: "PATCH",
++        body: JSON.stringify(smsForm)
++      })
++  });
++
+   const createSiteMutation = useMutation({
+     mutationFn: () =>
+       apiFetch<{ restaurant: ManagedRestaurant }>("/api/platform-admin/sites", {
+@@ -602,12 +639,13 @@ export function PlatformAdminDashboard() {
+           description: siteForm.description || undefined,
+           address: siteForm.address || undefined,
+           phone: siteForm.phone || undefined,
+-          ownerEmail: siteForm.ownerEmail || undefined
++          ownerEmail: siteForm.ownerEmail || undefined,
++          ownerPassword: siteForm.ownerPassword || undefined
+         })
+       }),
+     onSuccess: (data) => {
+       setMessage(`Site créé : ${data.restaurant.name}`);
+-      setSiteForm({ name: "", description: "", address: "", phone: "", ownerEmail: "" });
++      setSiteForm({ name: "", description: "", address: "", phone: "", ownerEmail: "", ownerPassword: "" });
+       queryClient.invalidateQueries({ queryKey: ["platform-admin", "sites"] });
+       queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+       window.setTimeout(() => setMessage(undefined), 3500);
+@@ -782,6 +820,32 @@ export function PlatformAdminDashboard() {
+     markDirty();
+   }
+ 
++  function updateSmsField<K extends keyof Omit<PlatformSmsSettings, "templates">>(
++    key: K,
++    value: PlatformSmsSettings[K]
++  ) {
++    setSmsForm((current) => ({ ...current, [key]: value }));
++    markDirty();
++  }
++
++  function updateSmsTemplate<K extends keyof PlatformSmsSettings["templates"][PlatformSmsTemplateKey]>(
++    templateKey: PlatformSmsTemplateKey,
++    field: K,
++    value: PlatformSmsSettings["templates"][PlatformSmsTemplateKey][K]
++  ) {
++    setSmsForm((current) => ({
++      ...current,
++      templates: {
++        ...current.templates,
++        [templateKey]: {
++          ...current.templates[templateKey],
++          [field]: value
++        }
++      }
++    }));
++    markDirty();
++  }
++
+   function updateVisibleSection<K extends keyof PlatformLandingSettings["visibleSections"]>(key: K, value: boolean) {
+     setLandingForm((current) => ({ ...current, visibleSections: { ...current.visibleSections, [key]: value } }));
+     markDirty();
+@@ -1096,6 +1160,14 @@ export function PlatformAdminDashboard() {
+     }
+   }
+ 
++  async function updateAdminLoginVisual(event: ChangeEvent<HTMLInputElement>) {
++    const dataUrl = await imageInputToDataUrl(event);
++
++    if (dataUrl) {
++      updateBrand("adminLoginVisualUrl", dataUrl);
++    }
++  }
++
+   async function updateHeroVisual(event: ChangeEvent<HTMLInputElement>) {
+     const dataUrl = await imageInputToDataUrl(event);
+ 
+@@ -1114,20 +1186,23 @@ export function PlatformAdminDashboard() {
+ 
+   async function saveAll() {
+     try {
+-      const [brandData, landingData, emailData] = await Promise.all([
++      const [brandData, landingData, emailData, smsData] = await Promise.all([
+         saveBrandMutation.mutateAsync(),
+         saveLandingMutation.mutateAsync(),
+-        saveEmailSettingsMutation.mutateAsync()
++        saveEmailSettingsMutation.mutateAsync(),
++        saveSmsSettingsMutation.mutateAsync()
+       ]);
+       setBrandForm(brandData.brand);
+       setLandingForm(landingData.landing);
+       setEmailForm(emailData.emailSettings);
++      setSmsForm(smsData.smsSettings);
+       setDirty(false);
+       setLastSavedAt(new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date()));
+       setMessage("Modification effectuée");
+       queryClient.invalidateQueries({ queryKey: ["platform-admin", "brand"] });
+       queryClient.invalidateQueries({ queryKey: ["platform-admin", "landing"] });
+       queryClient.invalidateQueries({ queryKey: ["platform-admin", "email-settings"] });
++      queryClient.invalidateQueries({ queryKey: ["platform-admin", "sms-settings"] });
+       router.refresh();
+       window.setTimeout(() => setMessage(undefined), 3500);
+     } catch (error) {
+@@ -1245,7 +1320,7 @@ export function PlatformAdminDashboard() {
+                 <Eye className="h-4 w-4" />
+                 Voir le site
+               </Link>
+-              <button className="primary-button" type="button" onClick={saveAll} disabled={saveBrandMutation.isPending || saveLandingMutation.isPending}>
++              <button className="primary-button" type="button" onClick={saveAll} disabled={saveBrandMutation.isPending || saveLandingMutation.isPending || saveEmailSettingsMutation.isPending || saveSmsSettingsMutation.isPending}>
+                 <Save className="h-4 w-4" />
+                 Enregistrer
+               </button>
+@@ -1328,6 +1403,7 @@ export function PlatformAdminDashboard() {
+                   <RangeField label="Taille du titre principal" max={96} min={42} value={landingForm.typography.heroTitleSize} onChange={(value) => updateTypography("heroTitleSize", value)} />
+                   <RangeField label="Taille du sous-titre principal" max={28} min={14} value={landingForm.typography.heroSubtitleSize} onChange={(value) => updateTypography("heroSubtitleSize", value)} />
+                   <RangeField label="Taille des titres de section" max={72} min={28} value={landingForm.typography.sectionTitleSize} onChange={(value) => updateTypography("sectionTitleSize", value)} />
++                  <RangeField label="Largeur des titres de section" max={1200} min={420} value={landingForm.typography.sectionTitleMaxWidth} onChange={(value) => updateTypography("sectionTitleMaxWidth", value)} />
+                   <RangeField label="Taille des textes de section" max={24} min={13} value={landingForm.typography.sectionTextSize} onChange={(value) => updateTypography("sectionTextSize", value)} />
+                   <RangeField label="Taille des titres de cartes" max={34} min={14} value={landingForm.typography.cardTitleSize} onChange={(value) => updateTypography("cardTitleSize", value)} />
+                   <RangeField label="Taille des textes de cartes" max={22} min={12} value={landingForm.typography.cardTextSize} onChange={(value) => updateTypography("cardTextSize", value)} />
+@@ -1377,7 +1453,8 @@ export function PlatformAdminDashboard() {
+                   <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo réservation" height={brandForm.logoHeight} image={brandForm.logoUrl} title="Logo site de réservation" onUpload={updateLogo} />
+                   <AssetCard alt={brandForm.logoAlt} buttonLabel="Remplacer le logo footer réservation" height={brandForm.footerLogoHeight} image={brandForm.footerLogoUrl} title="Logo footer réservation" onUpload={updateFooterLogo} />
+                   <AssetCard alt="Favicon" buttonLabel="Remplacer le favicon" height={56} image={brandForm.faviconUrl} title="Favicon" onUpload={updateFavicon} />
+-                  <AssetCard alt="Visuel de connexion" buttonLabel="Remplacer le visuel" image={brandForm.loginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel page de connexion" onUpload={updateLoginVisual} />
++                  <AssetCard alt="Visuel de connexion client" buttonLabel="Remplacer le visuel client" image={brandForm.loginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel page connexion client" onUpload={updateLoginVisual} />
++                  <AssetCard alt="Visuel de connexion Dashboard Live" buttonLabel="Remplacer le visuel Dashboard" image={brandForm.adminLoginVisualUrl} imageClassName="aspect-[4/5] h-auto w-full object-cover" title="Visuel connexion Dashboard Live" onUpload={updateAdminLoginVisual} />
+                 </div>
+ 
+                 <div className="grid gap-4 lg:grid-cols-2">
+@@ -1675,6 +1752,127 @@ export function PlatformAdminDashboard() {
+                     <EmailTemplatePreview emailSettings={emailForm} templateKey={selectedEmailTemplate} brand={brandForm} />
+                   </div>
+                 </div>
++
++              </AdminSectionLayout>
++            ) : null}
++
++            {activeSection === "sms" ? (
++              <AdminSectionLayout description="Configure les SMS envoyés automatiquement : confirmations, modifications, annulations et rappels de réservation." icon={<MonitorSmartphone className="h-5 w-5" />} panelClass={panelClass} title="SMS">
++                <div className="grid gap-4 rounded-md border border-ink/10 bg-white p-4 text-ink lg:grid-cols-[0.9fr_1.1fr]">
++                  <div className="grid gap-4">
++                    <div>
++                      <p className="text-xs font-black uppercase text-moss">SMS transactionnels</p>
++                      <h3 className="mt-1 text-xl font-black">Service SMS</h3>
++                      <p className="mt-2 text-sm font-semibold leading-6 text-ink/60">
++                        Configure les SMS envoyés lors des confirmations, modifications, annulations et rappels de réservation.
++                      </p>
++                    </div>
++                    <Toggle
++                      label="Activer l’envoi de SMS"
++                      checked={smsForm.enabled}
++                      onChange={(value) => updateSmsField("enabled", value)}
++                    />
++                    <Field label="Nom d’expéditeur SMS" value={smsForm.senderName} onChange={(value) => updateSmsField("senderName", value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 11))} />
++                    <div className={`rounded-md border p-4 ${smsForm.creditsRemaining <= smsForm.lowCreditThreshold ? "border-amber-300 bg-amber-50" : "border-ink/10 bg-linen"}`}>
++                      <div className="grid gap-3 sm:grid-cols-2">
++                        <label className="text-sm font-semibold">
++                          SMS disponibles
++                          <input
++                            className="control mt-1 w-full"
++                            min={0}
++                            type="number"
++                            value={smsForm.creditsRemaining}
++                            onChange={(event) => updateSmsField("creditsRemaining", Number(event.target.value))}
++                          />
++                        </label>
++                        <label className="text-sm font-semibold">
++                          Alerte stock faible
++                          <input
++                            className="control mt-1 w-full"
++                            min={0}
++                            type="number"
++                            value={smsForm.lowCreditThreshold}
++                            onChange={(event) => updateSmsField("lowCreditThreshold", Number(event.target.value))}
++                          />
++                        </label>
++                      </div>
++                      {smsForm.creditsRemaining <= smsForm.lowCreditThreshold ? (
++                        <p className="mt-3 text-sm font-black text-amber-800">
++                          Attention : il reste peu de SMS disponibles.
++                        </p>
++                      ) : null}
++                    </div>
++                    <label className="text-sm font-semibold">
++                      Rappel avant réservation : {smsForm.reminderMinutesBefore} minutes
++                      <input
++                        className="control mt-1 w-full"
++                        min={15}
++                        max={2880}
++                        type="number"
++                        value={smsForm.reminderMinutesBefore}
++                        onChange={(event) => updateSmsField("reminderMinutesBefore", Number(event.target.value))}
++                      />
++                    </label>
++                    <div className="rounded-md border border-ink/10 bg-linen p-4">
++                      <p className="text-sm font-black">Activer chaque SMS</p>
++                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
++                        {smsTemplateKeys.map((templateKey) => (
++                          <Toggle
++                            key={templateKey}
++                            label={smsTemplateLabel(templateKey)}
++                            checked={smsForm.templates[templateKey].enabled}
++                            onChange={(value) => updateSmsTemplate(templateKey, "enabled", value)}
++                          />
++                        ))}
++                      </div>
++                    </div>
++                    <div className="rounded-md border border-ink/10 bg-linen p-4">
++                      <p className="text-sm font-black">Variables SMS</p>
++                      <p className="mt-2 text-sm font-semibold leading-6 text-ink/60">
++                        {"{{siteName}}, {{customerName}}, {{restaurantName}}, {{restaurantAddress}}, {{reservationReference}}, {{reservationDate}}, {{reservationTime}}, {{reservationEndTime}}, {{guests}}, {{tableLabel}}"}
++                      </p>
++                    </div>
++                  </div>
++
++                  <div className="grid gap-4">
++                    <div className="grid gap-2 rounded-md border border-ink/10 bg-linen p-3 text-ink sm:grid-cols-2">
++                      {smsTemplateKeys.map((templateKey) => (
++                        <button
++                          key={templateKey}
++                          className={`rounded-md px-3 py-2 text-left text-sm font-black transition ${
++                            selectedSmsTemplate === templateKey ? "bg-[#ead6bd] text-ink" : "bg-white text-ink/70 hover:text-ink"
++                          }`}
++                          type="button"
++                          onClick={() => setSelectedSmsTemplate(templateKey)}
++                        >
++                          {smsTemplateLabel(templateKey)}
++                        </button>
++                      ))}
++                    </div>
++                    <div className={`rounded-md border p-4 ${panelClass}`}>
++                      <div className="mb-4 flex items-center justify-between gap-3">
++                        <div>
++                          <p className="text-xs font-black uppercase text-moss">Modèle SMS</p>
++                          <h3 className="text-lg font-black">{smsTemplateLabel(selectedSmsTemplate)}</h3>
++                        </div>
++                        <Toggle
++                          label="Actif"
++                          checked={smsForm.templates[selectedSmsTemplate].enabled}
++                          onChange={(value) => updateSmsTemplate(selectedSmsTemplate, "enabled", value)}
++                        />
++                      </div>
++                      <Textarea
++                        label="Message SMS"
++                        value={smsForm.templates[selectedSmsTemplate].message}
++                        onChange={(value) => updateSmsTemplate(selectedSmsTemplate, "message", value.slice(0, 480))}
++                      />
++                      <p className={`mt-2 text-xs font-bold ${mutedText}`}>
++                        {smsForm.templates[selectedSmsTemplate].message.length}/480 caractères
++                      </p>
++                    </div>
++                    <SmsTemplatePreview smsSettings={smsForm} templateKey={selectedSmsTemplate} />
++                  </div>
++                </div>
+               </AdminSectionLayout>
+             ) : null}
+ 
+@@ -1716,7 +1914,8 @@ export function PlatformAdminDashboard() {
+                   <h3 className="text-lg font-black">Créer un nouveau site restaurant</h3>
+                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                     <Field label="Nom du restaurant" required value={siteForm.name} onChange={(value) => setSiteForm((current) => ({ ...current, name: value }))} />
+-                    <Field label="E-mail du restaurant" type="email" value={siteForm.ownerEmail} onChange={(value) => setSiteForm((current) => ({ ...current, ownerEmail: value }))} />
++                    <Field label="Identifiant administrateur" type="email" value={siteForm.ownerEmail} onChange={(value) => setSiteForm((current) => ({ ...current, ownerEmail: value }))} />
++                    <Field label="Mot de passe administrateur" type="password" value={siteForm.ownerPassword} onChange={(value) => setSiteForm((current) => ({ ...current, ownerPassword: value }))} />
+                     <Field label="Téléphone" value={siteForm.phone} onChange={(value) => setSiteForm((current) => ({ ...current, phone: value }))} />
+                     <Field label="Adresse" value={siteForm.address} onChange={(value) => setSiteForm((current) => ({ ...current, address: value }))} />
+                     <Textarea label="Description courte" value={siteForm.description} onChange={(value) => setSiteForm((current) => ({ ...current, description: value }))} />
+@@ -2537,7 +2736,7 @@ function replacePreviewVariables(value: string) {
+     customerEmail: "jean.dupont@email.fr",
+     restaurantName: "Al Gusto",
+     restaurantAddress: "902 rue de Bailleul, Nieppe",
+-    reservationReference: "123456ABC123456",
++    reservationReference: "TT8K4M7P",
+     reservationDate: "samedi 20 juin 2026",
+     reservationTime: "20:15",
+     reservationEndTime: "22:15",
+@@ -2609,6 +2808,29 @@ function EmailTemplatePreview({
+   );
+ }
+ 
++function SmsTemplatePreview({
++  smsSettings,
++  templateKey
++}: {
++  smsSettings: PlatformSmsSettings;
++  templateKey: PlatformSmsTemplateKey;
++}) {
++  const template = smsSettings.templates[templateKey];
++  const message = replacePreviewVariables(template.message);
++
++  return (
++    <div className="rounded-md border border-ink/10 bg-linen p-4 text-ink">
++      <p className="text-xs font-black uppercase text-ink/45">Aperçu SMS</p>
++      <div className="mt-3 max-w-md rounded-[20px] bg-[#14735d] px-4 py-3 text-sm font-semibold leading-6 text-white shadow-sm">
++        {message}
++      </div>
++      <p className="mt-3 text-xs font-bold text-ink/50">
++        Expéditeur : {smsSettings.senderName}
++      </p>
++    </div>
++  );
++}
++
+ function TimelineItem({ text, title }: { text: string; title: string }) {
+   return (
+     <div className="rounded-md border border-ink/10 bg-white/50 p-3">
+@@ -2631,6 +2853,17 @@ function emailTemplateLabel(key: PlatformEmailTemplateKey) {
+   return labels[key];
+ }
+ 
++function smsTemplateLabel(key: PlatformSmsTemplateKey) {
++  const labels: Record<PlatformSmsTemplateKey, string> = {
++    reservationConfirmation: "Confirmation réservation",
++    reservationUpdate: "Modification réservation",
++    reservationCancellation: "Annulation réservation",
++    reservationReminder: "Rappel réservation"
++  };
++
++  return labels[key];
++}
++
+ function sectionLabel(key: string) {
+   const labels: Record<string, string> = {
+     solution: "Solutions",
+diff --git a/src/hooks/use-socket-events.ts b/src/hooks/use-socket-events.ts
+index ed7b6a0..30feec2 100644
+--- a/src/hooks/use-socket-events.ts
++++ b/src/hooks/use-socket-events.ts
+@@ -4,6 +4,15 @@ import { useEffect } from "react";
+ import { io } from "socket.io-client";
+ 
+ export const realtimeEvents = [
++  "reservation_created",
++  "reservation_updated",
++  "reservation_cancelled",
++  "table_blocked",
++  "table_unblocked",
++  "plan_updated",
++  "client_updated",
++  "waitlist_updated",
++  "service_status_updated",
+   "restaurant:created",
+   "restaurant:updated",
+   "restaurant:deleted",
+@@ -18,14 +27,30 @@ export const realtimeEvents = [
+   "table:unblocked"
+ ] as const;
+ 
+-export const socket = io({
++const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || undefined;
++
++export const socket = io(socketUrl, {
+   path: "/api/socket",
+   autoConnect: false
+ });
+ 
++export function canUseSocketIo() {
++  if (typeof window === "undefined") {
++    return false;
++  }
++
++  const explicitSocketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
++
++  if (explicitSocketUrl) {
++    return true;
++  }
++
++  return ["localhost", "127.0.0.1"].includes(window.location.hostname);
++}
++
+ export function useRestaurantSocket(restaurantId?: string) {
+   useEffect(() => {
+-    if (!restaurantId) {
++    if (!restaurantId || !canUseSocketIo()) {
+       return;
+     }
+ 
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index ea58302..e5682ce 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -3,6 +3,7 @@ import { compare } from "bcryptjs";
+ import type { NextAuthOptions } from "next-auth";
+ import CredentialsProvider from "next-auth/providers/credentials";
+ import { prisma } from "@/lib/prisma";
++import { assertRateLimit } from "@/server/rate-limit";
+ 
+ export const authOptions: NextAuthOptions = {
+   adapter: PrismaAdapter(prisma),
+@@ -27,6 +28,11 @@ export const authOptions: NextAuthOptions = {
+           return null;
+         }
+ 
++        assertRateLimit(`auth:login:${email}`, {
++          limit: 8,
++          windowMs: 15 * 60_000
++        });
++
+         const user = await prisma.user.findUnique({ where: { email } });
+ 
+         if (!user?.passwordHash) {
+diff --git a/src/lib/domain.ts b/src/lib/domain.ts
+index d61749b..8e7fc85 100644
+--- a/src/lib/domain.ts
++++ b/src/lib/domain.ts
+@@ -18,9 +18,15 @@ export type OpeningHours = Record<
+     open: string;
+     close: string;
+     closed?: boolean;
++    morningOpen?: string;
++    morningClose?: string;
++    lunchServiceEnabled?: boolean;
+     secondServiceEnabled?: boolean;
+     secondOpen?: string;
+     secondClose?: string;
++    thirdServiceEnabled?: boolean;
++    thirdOpen?: string;
++    thirdClose?: string;
+   }
+ >;
+ 
+@@ -29,6 +35,7 @@ export type VacationClosure = {
+   startDate: string;
+   endDate: string;
+   label?: string;
++  active?: boolean;
+ };
+ 
+ export type FloorTable = {
+diff --git a/src/lib/i18n.ts b/src/lib/i18n.ts
+index a77f725..bc73aa6 100644
+--- a/src/lib/i18n.ts
++++ b/src/lib/i18n.ts
+@@ -45,6 +45,7 @@ const translations = {
+     "booking.tableAvailable": "table disponible",
+     "booking.tablesAvailable": "tables disponibles",
+     "booking.confirmed": "Réservation {id} confirmée.",
++    "booking.referencePending": "référence en cours",
+     "booking.confirmReservation": "Confirmer la réservation",
+     "booking.signInToReserve": "Se connecter pour réserver",
+     "booking.guestReservationHint": "Vous pouvez réserver sans créer de compte. Un accès par nom et téléphone sera disponible ensuite.",
+@@ -196,11 +197,13 @@ const translations = {
+     "login.invalidCredentials": "L’e-mail ou le mot de passe est incorrect.",
+     "login.rememberMe": "Se souvenir de moi",
+     "login.forgotPassword": "Mot de passe oublié",
++    "login.tagline": "À vos marques, prêts… réservez !",
+     "login.findReservation": "Retrouver ma réservation",
+-    "login.findReservationHint": "Entrez le nom+prénom de la réservation et le téléphone indiqué.",
++    "login.findReservationHint": "Entrez le nom+prénom et le numéro de téléphone.",
+     "login.referenceName": "Nom + prénom",
+     "login.referenceExample": "EX : Jean Dupont - \"dupontjean\"",
+     "login.reservationPhone": "Téléphone de la réservation",
++    "login.phoneExample": "EX : 0641323232",
+     "login.openReservation": "Accéder à ma réservation",
+     "login.guestNoReservation": "Aucune réservation active ne correspond à ces informations.",
+     "my.title": "Mes réservations",
+@@ -312,6 +315,7 @@ const translations = {
+     "booking.tableAvailable": "table available",
+     "booking.tablesAvailable": "tables available",
+     "booking.confirmed": "Reservation {id} confirmed.",
++    "booking.referencePending": "reference pending",
+     "booking.confirmReservation": "Confirm Reservation",
+     "booking.signInToReserve": "Sign in to Reserve",
+     "booking.guestReservationHint": "You can book without creating an account. Access by name and phone will be available afterward.",
+@@ -463,11 +467,13 @@ const translations = {
+     "login.invalidCredentials": "Email or password is incorrect.",
+     "login.rememberMe": "Remember me",
+     "login.forgotPassword": "Forgot password",
++    "login.tagline": "Ready, set… book!",
+     "login.findReservation": "Find my reservation",
+-    "login.findReservationHint": "Enter the reservation last+first name and the phone number used.",
++    "login.findReservationHint": "Enter the last+first name and phone number.",
+     "login.referenceName": "Last + first name",
+     "login.referenceExample": "EX: Jean Dupont - \"dupontjean\"",
+     "login.reservationPhone": "Reservation phone",
++    "login.phoneExample": "EX: 0641323232",
+     "login.openReservation": "Open my reservation",
+     "login.guestNoReservation": "No active reservation matches this information.",
+     "my.title": "My Reservations",
+diff --git a/src/lib/validators.ts b/src/lib/validators.ts
+index 21a8457..da945fb 100644
+--- a/src/lib/validators.ts
++++ b/src/lib/validators.ts
+@@ -19,9 +19,15 @@ export const openingHoursSchema = z.record(
+     open: timeStringSchema,
+     close: timeStringSchema,
+     closed: z.boolean().optional(),
++    morningOpen: timeStringSchema.optional(),
++    morningClose: timeStringSchema.optional(),
++    lunchServiceEnabled: z.boolean().optional(),
+     secondServiceEnabled: z.boolean().optional(),
+     secondOpen: timeStringSchema.optional(),
+-    secondClose: timeStringSchema.optional()
++    secondClose: timeStringSchema.optional(),
++    thirdServiceEnabled: z.boolean().optional(),
++    thirdOpen: timeStringSchema.optional(),
++    thirdClose: timeStringSchema.optional()
+   })
+ );
+ 
+@@ -93,7 +99,9 @@ export const createAdminReservationSchema = availabilitySchema.extend({
+ export const updateReservationSchema = z.object({
+   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED"]).optional(),
+   notes: z.string().max(1000).nullable().optional(),
+-  tableId: z.string().trim().min(1).nullable().optional()
++  tableId: z.string().trim().min(1).nullable().optional(),
++  arrivedAt: z.union([z.string().datetime(), z.literal("now"), z.null()]).optional(),
++  noShow: z.boolean().optional()
+ });
+ 
+ export const customerReservationUpdateSchema = z.object({
+@@ -130,7 +138,8 @@ export const registerSchema = z.object({
+ });
+ 
+ export const forgotPasswordSchema = z.object({
+-  email: z.string().email().transform((email) => email.toLowerCase().trim())
++  email: z.string().email().transform((email) => email.toLowerCase().trim()),
++  redirectPath: z.enum(["/login", "/admin/login"]).optional()
+ });
+ 
+ export const resetPasswordSchema = forgotPasswordSchema.extend({
+@@ -155,6 +164,53 @@ export const updateProfileSchema = z.object({
+   birthDate: z.union([dateStringSchema, z.literal("")]).optional()
+ });
+ 
++export const clientSchema = z.object({
++  firstName: z.string().trim().min(1).max(80),
++  lastName: z.string().trim().min(1).max(80),
++  email: z
++    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
++    .optional(),
++  phone: z.string().trim().max(32).optional(),
++  birthday: z.union([dateStringSchema, z.literal("")]).optional(),
++  allergies: z.string().trim().max(1000).optional(),
++  preferences: z.array(z.string().trim().min(1).max(80)).default([]).optional(),
++  internalNotes: z.string().trim().max(2000).optional(),
++  vip: z.boolean().default(false).optional(),
++  noShowRisk: z.coerce.number().int().min(0).max(100).optional()
++});
++
++export const updateClientSchema = clientSchema.partial();
++
++export const waitlistEntrySchema = z.object({
++  clientId: z.string().cuid().optional(),
++  date: dateStringSchema,
++  requestedTime: z.union([timeStringSchema, z.literal("")]).optional(),
++  numberOfGuests: z.coerce.number().int().min(1).max(40),
++  firstName: z.string().trim().min(1).max(80),
++  lastName: z.string().trim().min(1).max(80),
++  email: z
++    .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
++    .optional(),
++  phone: z.string().trim().max(32).optional(),
++  notes: z.string().trim().max(1000).optional(),
++  tablePreferences: z.array(z.enum(tableFeatures)).default([])
++});
++
++export const updateWaitlistEntrySchema = waitlistEntrySchema.partial().extend({
++  status: z.enum(["WAITING", "SEATED", "CANCELLED", "EXPIRED"]).optional()
++});
++
++export const notificationTemplateSchema = z.object({
++  key: z.string().trim().min(1).max(80),
++  channel: z.enum(["EMAIL", "SMS"]),
++  subject: z.string().trim().max(160).optional(),
++  body: z.string().trim().min(1).max(5000),
++  enabled: z.boolean().default(true),
++  variables: z.array(z.string().trim().min(1).max(80)).default([])
++});
++
++export const updateNotificationTemplateSchema = notificationTemplateSchema.partial();
++
+ const imageUrlSchema = z
+   .string()
+   .trim()
+@@ -182,6 +238,7 @@ export const platformBrandSchema = z.object({
+   marketingFooterLogoUrl: imageUrlSchema,
+   marketingFooterLogoHeight: z.coerce.number().int().min(18).max(96).default(32),
+   loginVisualUrl: imageUrlSchema,
++  adminLoginVisualUrl: imageUrlSchema,
+   faviconUrl: imageUrlSchema,
+   logoAlt: z.string().trim().min(2).max(120),
+   supportEmail: z
+@@ -256,6 +313,7 @@ const platformLandingTypographySchema = z.object({
+   heroTitleSize: z.coerce.number().int().min(42).max(96),
+   heroSubtitleSize: z.coerce.number().int().min(14).max(28),
+   sectionTitleSize: z.coerce.number().int().min(28).max(72),
++  sectionTitleMaxWidth: z.coerce.number().int().min(420).max(1200),
+   sectionTextSize: z.coerce.number().int().min(13).max(24),
+   cardTitleSize: z.coerce.number().int().min(14).max(34),
+   cardTextSize: z.coerce.number().int().min(12).max(22)
+@@ -400,6 +458,30 @@ export const platformEmailSettingsSchema = z.object({
+   })
+ });
+ 
++const platformSmsTemplateSchema = z.object({
++  enabled: z.boolean(),
++  message: z.string().trim().min(1).max(480)
++});
++
++export const platformSmsSettingsSchema = z.object({
++  enabled: z.boolean(),
++  senderName: z
++    .string()
++    .trim()
++    .min(1)
++    .max(11)
++    .regex(/^[a-zA-Z0-9]+$/, "Sender must use letters and numbers only."),
++  reminderMinutesBefore: z.coerce.number().int().min(15).max(2880),
++  creditsRemaining: z.coerce.number().int().min(0).max(999999),
++  lowCreditThreshold: z.coerce.number().int().min(0).max(999999),
++  templates: z.object({
++    reservationConfirmation: platformSmsTemplateSchema,
++    reservationUpdate: platformSmsTemplateSchema,
++    reservationCancellation: platformSmsTemplateSchema,
++    reservationReminder: platformSmsTemplateSchema
++  })
++});
++
+ export const createManagedRestaurantSchema = z.object({
+   name: z.string().trim().min(2).max(120),
+   description: z.string().trim().max(1000).optional(),
+@@ -408,6 +490,9 @@ export const createManagedRestaurantSchema = z.object({
+   ownerEmail: z
+     .union([z.string().email().transform((email) => email.toLowerCase().trim()), z.literal("")])
+     .optional(),
++  ownerPassword: z
++    .union([z.string().min(8, "Le mot de passe doit contenir au moins 8 caractères."), z.literal("")])
++    .optional(),
+   slug: z.string().trim().regex(/^[a-z0-9-]+$/).optional()
+ });
+ 
+diff --git a/src/middleware.ts b/src/middleware.ts
+index 939f8b6..db6ecaa 100644
+--- a/src/middleware.ts
++++ b/src/middleware.ts
+@@ -21,12 +21,13 @@ function restaurantSubdomain(host: string) {
+ export async function middleware(request: NextRequest) {
+   const pathname = request.nextUrl.pathname;
+ 
+-  if (pathname.startsWith("/admin")) {
++  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+     const token = await getToken({ req: request });
+-    const role = token?.role;
+ 
+-    if (role !== "ADMIN" && role !== "STAFF") {
+-      return NextResponse.redirect(new URL("/", request.url));
++    if (!token) {
++      const loginUrl = new URL("/admin/login", request.url);
++      loginUrl.searchParams.set("callbackUrl", pathname);
++      return NextResponse.redirect(loginUrl);
+     }
+   }
+ 
+diff --git a/src/server/email.ts b/src/server/email.ts
+index dcf3df6..8147fe3 100644
+--- a/src/server/email.ts
++++ b/src/server/email.ts
+@@ -1,4 +1,4 @@
+-import { Resend } from "resend";
++import { Resend, type Attachment } from "resend";
+ import {
+   defaultPlatformEmailSettings,
+   getPlatformBrand,
+@@ -84,6 +84,59 @@ function replaceTemplateVariables(value: string, variables: Record<string, strin
+   );
+ }
+ 
++function mimeExtension(mimeType: string) {
++  if (mimeType === "image/jpeg") {
++    return "jpg";
++  }
++
++  return mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
++}
++
++function dataImageAttachment(dataUrl: string): { src: string; attachments: Attachment[] } | null {
++  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
++
++  if (!match) {
++    return null;
++  }
++
++  const inlineContentId = "toquetop-email-logo";
++  const contentType = match[1];
++  const content = Buffer.from(match[2], "base64");
++
++  return {
++    src: `cid:${inlineContentId}`,
++    attachments: [
++      {
++        content,
++        contentType,
++        filename: `logo-email.${mimeExtension(contentType)}`,
++        inlineContentId
++      }
++    ]
++  };
++}
++
++function toEmailLogo(urls: string[]): { attachments: Attachment[]; src: string } {
++  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "https://toquetop.com";
++  const usableUrl = urls.find(Boolean) ?? defaultPlatformEmailSettings.logoUrl;
++
++  if (usableUrl.startsWith("data:image/")) {
++    return dataImageAttachment(usableUrl) ?? toEmailLogo([defaultPlatformEmailSettings.logoUrl]);
++  }
++
++  if (/^https?:\/\//.test(usableUrl)) {
++    return {
++      src: usableUrl,
++      attachments: []
++    };
++  }
++
++  return {
++    src: `${appUrl.replace(/\/$/, "")}${usableUrl.startsWith("/") ? usableUrl : `/${usableUrl}`}`,
++    attachments: []
++  };
++}
++
+ async function renderEmailTemplate(
+   templateKey: PlatformEmailTemplateKey,
+   variables: Record<string, string | number | null | undefined>,
+@@ -101,22 +154,19 @@ async function renderEmailTemplate(
+   const footerText = replaceTemplateVariables(template.footerText, mergedVariables);
+   const preheader = replaceTemplateVariables(template.preheader, mergedVariables);
+   const buttonLabel = replaceTemplateVariables(template.buttonLabel, mergedVariables);
+-  const logoUrl = settings.logoUrl || brand.logoUrl;
+-  const appUrl = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+-  const absoluteLogoUrl = logoUrl.startsWith("http")
+-    ? logoUrl
+-    : `${appUrl.replace(/\/$/, "")}${logoUrl.startsWith("/") ? logoUrl : `/${logoUrl}`}`;
++  const logo = toEmailLogo([settings.logoUrl, brand.logoUrl, defaultPlatformEmailSettings.logoUrl]);
+ 
+   return {
+     enabled: template.enabled,
+     subject,
+     fromName: settings.senderName,
+     replyTo: settings.replyTo,
++    attachments: logo.attachments,
+     html: `
+     <div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}</div>
+     <div style="margin:0;background:${settings.backgroundColor};padding:32px 16px;font-family:Arial,sans-serif;color:${settings.textColor}">
+       <div style="margin:0 auto;max-width:560px;border:1px solid rgba(22,32,29,.12);border-radius:${settings.borderRadius}px;background:${settings.cardColor};padding:28px">
+-        <img src="${escapeHtml(absoluteLogoUrl)}" alt="${escapeHtml(brand.logoAlt)}" style="display:block;height:${settings.logoHeight}px;max-width:220px;object-fit:contain;margin:0 0 18px" />
++        <img src="${escapeHtml(logo.src)}" alt="${escapeHtml(brand.logoAlt)}" style="display:block;height:${settings.logoHeight}px;max-width:220px;object-fit:contain;margin:0 0 18px" />
+         <h1 style="margin:0 0 14px;font-size:24px;line-height:1.2;color:${settings.textColor}">${escapeHtml(title)}</h1>
+         <p style="margin:0 0 18px;font-size:15px;line-height:1.7">${nl2br(body)}</p>
+         ${buttonHref && buttonLabel ? `<div style="margin:22px 0 0">
+@@ -148,7 +198,7 @@ function reservationTemplateVariables(reservation: ReservationEmailData) {
+     reservationEndTime: reservation.endTime,
+     guests: reservation.numberOfGuests,
+     tableLabel: reservation.table?.label ?? "À attribuer",
+-    reservationReference: reservation.referenceCode ?? reservation.id,
++    reservationReference: reservation.referenceCode ?? "En attente",
+     reservationUrl
+   };
+ }
+@@ -164,7 +214,12 @@ function formatFromAddress(name?: string) {
+   return `${name.replace(/[<>]/g, "").trim()} <${match[1]}>`;
+ }
+ 
+-async function sendEmail(to: string, subject: string, html: string, options?: { fromName?: string; replyTo?: string }) {
++async function sendEmail(
++  to: string,
++  subject: string,
++  html: string,
++  options?: { attachments?: Attachment[]; fromName?: string; replyTo?: string }
++) {
+   const from = formatFromAddress(options?.fromName);
+   const emailClient = getResend();
+ 
+@@ -179,7 +234,8 @@ async function sendEmail(to: string, subject: string, html: string, options?: {
+       replyTo: options?.replyTo || undefined,
+       to,
+       subject,
+-      html
++      html,
++      attachments: options?.attachments?.length ? options.attachments : undefined
+     });
+ 
+     if (error) {
+diff --git a/src/server/errors.ts b/src/server/errors.ts
+index 344fd7c..db9b3b2 100644
+--- a/src/server/errors.ts
++++ b/src/server/errors.ts
+@@ -9,3 +9,7 @@ export class NotFoundError extends Error {
+ export class ConflictError extends Error {
+   status = 409;
+ }
++
++export class TooManyRequestsError extends Error {
++  status = 429;
++}
+diff --git a/src/server/http.ts b/src/server/http.ts
+index ccaefc7..8579432 100644
+--- a/src/server/http.ts
++++ b/src/server/http.ts
+@@ -37,6 +37,16 @@ export function apiError(error: unknown) {
+     return NextResponse.json({ message: error.message }, { status });
+   }
+ 
++  if (error instanceof Error && error.message.includes("exceeded the data transfer quota")) {
++    return NextResponse.json(
++      {
++        message:
++          "Base de données momentanément indisponible : le quota Neon de transfert de données est dépassé."
++      },
++      { status: 503 }
++    );
++  }
++
+   if (
+     error &&
+     typeof error === "object" &&
+diff --git a/src/server/platform-settings.ts b/src/server/platform-settings.ts
+index 0319adf..bcf6d5a 100644
+--- a/src/server/platform-settings.ts
++++ b/src/server/platform-settings.ts
+@@ -12,6 +12,7 @@ export type PlatformBrand = {
+   marketingFooterLogoUrl: string;
+   marketingFooterLogoHeight: number;
+   loginVisualUrl: string;
++  adminLoginVisualUrl: string;
+   faviconUrl: string;
+   logoAlt: string;
+   supportEmail?: string;
+@@ -20,20 +21,22 @@ export type PlatformBrand = {
+ const BRAND_KEY = "brand";
+ const LANDING_KEY = "landing";
+ const EMAIL_SETTINGS_KEY = "email-settings";
++const SMS_SETTINGS_KEY = "sms-settings";
+ 
+ export const defaultPlatformBrand: PlatformBrand = {
+-  siteName: "C’est ma table",
+-  logoUrl: "/cest-ma-table-logo.png",
++  siteName: "ToqueTop",
++  logoUrl: "/toquetop-logo.svg",
+   logoHeight: 48,
+-  footerLogoUrl: "/cest-ma-table-logo.png",
++  footerLogoUrl: "/toquetop-logo.svg",
+   footerLogoHeight: 32,
+-  marketingLogoUrl: "/cest-ma-table-logo.png",
++  marketingLogoUrl: "/toquetop-logo.svg",
+   marketingLogoHeight: 48,
+-  marketingFooterLogoUrl: "/cest-ma-table-logo.png",
++  marketingFooterLogoUrl: "/toquetop-logo.svg",
+   marketingFooterLogoHeight: 32,
+   loginVisualUrl: "/login-restaurant-visual.png",
++  adminLoginVisualUrl: "/login-restaurant-visual.png",
+   faviconUrl: "/cest-ma-table-favicon.png",
+-  logoAlt: "C’est ma table",
++  logoAlt: "ToqueTop",
+   supportEmail: ""
+ };
+ 
+@@ -81,7 +84,7 @@ export const emailTemplateKeys: PlatformEmailTemplateKey[] = [
+ export const defaultPlatformEmailSettings: PlatformEmailSettings = {
+   senderName: "ToqueTop",
+   replyTo: "contact@toquetop.com",
+-  logoUrl: "/cest-ma-table-logo.png",
++  logoUrl: "/toquetop-logo.svg",
+   logoHeight: 44,
+   backgroundColor: "#f7f1e8",
+   cardColor: "#ffffff",
+@@ -153,6 +156,63 @@ export const defaultPlatformEmailSettings: PlatformEmailSettings = {
+   }
+ };
+ 
++export type PlatformSmsTemplateKey =
++  | "reservationConfirmation"
++  | "reservationUpdate"
++  | "reservationCancellation"
++  | "reservationReminder";
++
++export type PlatformSmsTemplate = {
++  enabled: boolean;
++  message: string;
++};
++
++export type PlatformSmsSettings = {
++  enabled: boolean;
++  senderName: string;
++  reminderMinutesBefore: number;
++  creditsRemaining: number;
++  lowCreditThreshold: number;
++  templates: Record<PlatformSmsTemplateKey, PlatformSmsTemplate>;
++};
++
++export const smsTemplateKeys: PlatformSmsTemplateKey[] = [
++  "reservationConfirmation",
++  "reservationUpdate",
++  "reservationCancellation",
++  "reservationReminder"
++];
++
++export const defaultPlatformSmsSettings: PlatformSmsSettings = {
++  enabled: true,
++  senderName: "ToqueTop",
++  reminderMinutesBefore: 120,
++  creditsRemaining: 49,
++  lowCreditThreshold: 10,
++  templates: {
++    reservationConfirmation: {
++      enabled: true,
++      message:
++        "{{siteName}} : reservation confirmee chez {{restaurantName}} le {{reservationDate}} a {{reservationTime}} pour {{guests}} pers. Ref {{reservationReference}}."
++    },
++    reservationUpdate: {
++      enabled: true,
++      message:
++        "{{siteName}} : votre reservation chez {{restaurantName}} est modifiee au {{reservationDate}} a {{reservationTime}}. Ref {{reservationReference}}."
++    },
++    reservationCancellation: {
++      enabled: true,
++      message:
++        "{{siteName}} : votre reservation chez {{restaurantName}} a ete annulee. Ref {{reservationReference}}."
++    },
++    reservationReminder: {
++      enabled: true,
++      message:
++        "{{siteName}} : rappel, votre reservation chez {{restaurantName}} est prevue le {{reservationDate}} a {{reservationTime}}. Adresse : {{restaurantAddress}}. Ref {{reservationReference}}."
++    }
++  }
++};
++
+ export type PlatformLandingLink = {
+   label: string;
+   href: string;
+@@ -187,6 +247,7 @@ export type PlatformLandingTypography = {
+   heroTitleSize: number;
+   heroSubtitleSize: number;
+   sectionTitleSize: number;
++  sectionTitleMaxWidth: number;
+   sectionTextSize: number;
+   cardTitleSize: number;
+   cardTextSize: number;
+@@ -390,6 +451,7 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
+     heroTitleSize: 72,
+     heroSubtitleSize: 18,
+     sectionTitleSize: 48,
++    sectionTitleMaxWidth: 900,
+     sectionTextSize: 16,
+     cardTitleSize: 20,
+     cardTextSize: 14
+@@ -750,6 +812,7 @@ function normalizeTypography(value: unknown, fallback = defaultPlatformLandingSe
+     heroTitleSize: normalizeNumber(record.heroTitleSize, fallback.heroTitleSize, 42, 96),
+     heroSubtitleSize: normalizeNumber(record.heroSubtitleSize, fallback.heroSubtitleSize, 14, 28),
+     sectionTitleSize: normalizeNumber(record.sectionTitleSize, fallback.sectionTitleSize, 28, 72),
++    sectionTitleMaxWidth: normalizeNumber(record.sectionTitleMaxWidth, fallback.sectionTitleMaxWidth, 420, 1200),
+     sectionTextSize: normalizeNumber(record.sectionTextSize, fallback.sectionTextSize, 13, 24),
+     cardTitleSize: normalizeNumber(record.cardTitleSize, fallback.cardTitleSize, 14, 34),
+     cardTextSize: normalizeNumber(record.cardTextSize, fallback.cardTextSize, 12, 22)
+@@ -923,6 +986,12 @@ function normalizePlatformBrand(value: unknown): PlatformBrand {
+       typeof record.loginVisualUrl === "string" && record.loginVisualUrl.trim()
+         ? record.loginVisualUrl
+         : defaultPlatformBrand.loginVisualUrl,
++    adminLoginVisualUrl:
++      typeof record.adminLoginVisualUrl === "string" && record.adminLoginVisualUrl.trim()
++        ? record.adminLoginVisualUrl
++        : typeof record.loginVisualUrl === "string" && record.loginVisualUrl.trim()
++          ? record.loginVisualUrl
++          : defaultPlatformBrand.adminLoginVisualUrl,
+     faviconUrl:
+       typeof record.faviconUrl === "string" && record.faviconUrl.trim()
+         ? record.faviconUrl
+@@ -1047,6 +1116,63 @@ function normalizePlatformEmailSettings(value: unknown): PlatformEmailSettings {
+   };
+ }
+ 
++function normalizeSmsTemplate(
++  value: unknown,
++  fallback: PlatformSmsTemplate
++): PlatformSmsTemplate {
++  if (!value || typeof value !== "object" || Array.isArray(value)) {
++    return fallback;
++  }
++
++  const record = value as Record<string, unknown>;
++
++  return {
++    enabled: typeof record.enabled === "boolean" ? record.enabled : fallback.enabled,
++    message: normalizeString(record.message, fallback.message)
++  };
++}
++
++function normalizeSmsSenderName(value: unknown, fallback: string) {
++  if (typeof value !== "string") {
++    return fallback;
++  }
++
++  const senderName = value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 11);
++  return senderName || fallback;
++}
++
++function normalizePlatformSmsSettings(value: unknown): PlatformSmsSettings {
++  if (!value || typeof value !== "object" || Array.isArray(value)) {
++    return defaultPlatformSmsSettings;
++  }
++
++  const record = value as Record<string, unknown>;
++  const templatesRecord =
++    record.templates && typeof record.templates === "object" && !Array.isArray(record.templates)
++      ? (record.templates as Record<string, unknown>)
++      : {};
++
++  return {
++    enabled: typeof record.enabled === "boolean" ? record.enabled : defaultPlatformSmsSettings.enabled,
++    senderName: normalizeSmsSenderName(record.senderName, defaultPlatformSmsSettings.senderName),
++    reminderMinutesBefore: normalizeNumber(
++      record.reminderMinutesBefore,
++      defaultPlatformSmsSettings.reminderMinutesBefore,
++      15,
++      2880
++    ),
++    creditsRemaining: normalizeNumber(record.creditsRemaining, defaultPlatformSmsSettings.creditsRemaining, 0, 999999),
++    lowCreditThreshold: normalizeNumber(record.lowCreditThreshold, defaultPlatformSmsSettings.lowCreditThreshold, 0, 999999),
++    templates: smsTemplateKeys.reduce(
++      (templates, key) => ({
++        ...templates,
++        [key]: normalizeSmsTemplate(templatesRecord[key], defaultPlatformSmsSettings.templates[key])
++      }),
++      {} as Record<PlatformSmsTemplateKey, PlatformSmsTemplate>
++    )
++  };
++}
++
+ export async function getPlatformBrand() {
+   const setting = await prisma.platformSetting.findUnique({
+     where: {
+@@ -1127,3 +1253,59 @@ export async function updatePlatformEmailSettings(settings: PlatformEmailSetting
+ 
+   return normalizePlatformEmailSettings(setting.value);
+ }
++
++export async function getPlatformSmsSettings() {
++  const setting = await prisma.platformSetting.findUnique({
++    where: {
++      key: SMS_SETTINGS_KEY
++    }
++  });
++
++  return normalizePlatformSmsSettings(setting?.value);
++}
++
++export async function updatePlatformSmsSettings(settings: PlatformSmsSettings) {
++  const setting = await prisma.platformSetting.upsert({
++    where: {
++      key: SMS_SETTINGS_KEY
++    },
++    update: {
++      value: settings as unknown as Prisma.InputJsonValue
++    },
++    create: {
++      key: SMS_SETTINGS_KEY,
++      value: settings as unknown as Prisma.InputJsonValue
++    }
++  });
++
++  return normalizePlatformSmsSettings(setting.value);
++}
++
++export async function decrementPlatformSmsCredits() {
++  return prisma.$transaction(async (tx) => {
++    const setting = await tx.platformSetting.findUnique({
++      where: {
++        key: SMS_SETTINGS_KEY
++      }
++    });
++    const current = normalizePlatformSmsSettings(setting?.value);
++    const next: PlatformSmsSettings = {
++      ...current,
++      creditsRemaining: Math.max(0, current.creditsRemaining - 1)
++    };
++    const saved = await tx.platformSetting.upsert({
++      where: {
++        key: SMS_SETTINGS_KEY
++      },
++      update: {
++        value: next as unknown as Prisma.InputJsonValue
++      },
++      create: {
++        key: SMS_SETTINGS_KEY,
++        value: next as unknown as Prisma.InputJsonValue
++      }
++    });
++
++    return normalizePlatformSmsSettings(saved.value);
++  });
++}
+diff --git a/src/server/realtime.ts b/src/server/realtime.ts
+index c0af185..2b46069 100644
+--- a/src/server/realtime.ts
++++ b/src/server/realtime.ts
+@@ -1,6 +1,15 @@
+ import type { Server } from "socket.io";
+ 
+ type RestaurantEvent =
++  | "reservation_created"
++  | "reservation_updated"
++  | "reservation_cancelled"
++  | "table_blocked"
++  | "table_unblocked"
++  | "plan_updated"
++  | "client_updated"
++  | "waitlist_updated"
++  | "service_status_updated"
+   | "restaurant:created"
+   | "restaurant:updated"
+   | "restaurant:deleted"
+@@ -16,6 +25,18 @@ type RestaurantEvent =
+ 
+ let io: Server | null = null;
+ 
++const mirroredEventNames: Partial<Record<RestaurantEvent, RestaurantEvent>> = {
++  "reservation:created": "reservation_created",
++  "reservation:updated": "reservation_updated",
++  "reservation:cancelled": "reservation_cancelled",
++  "table:blocked": "table_blocked",
++  "table:unblocked": "table_unblocked",
++  "layout:updated": "plan_updated",
++  "table:created": "plan_updated",
++  "table:updated": "plan_updated",
++  "table:deleted": "plan_updated"
++};
++
+ export function setRealtimeServer(server: Server) {
+   io = server;
+ }
+@@ -29,10 +50,21 @@ export function emitRestaurantEvent<TPayload>(
+   event: RestaurantEvent,
+   payload: TPayload
+ ) {
+-  io?.to(`restaurant:${restaurantId}`).to("smartable:global").emit(event, {
++  const message = {
+     restaurantId,
+     event,
+     payload,
+     emittedAt: new Date().toISOString()
+-  });
++  };
++
++  io?.to(`restaurant:${restaurantId}`).to("smartable:global").emit(event, message);
++
++  const mirroredEvent = mirroredEventNames[event];
++
++  if (mirroredEvent) {
++    io?.to(`restaurant:${restaurantId}`).to("smartable:global").emit(mirroredEvent, {
++      ...message,
++      event: mirroredEvent
++    });
++  }
+ }
+diff --git a/src/server/services/reservation-service.ts b/src/server/services/reservation-service.ts
+index 3b16221..e2d2f33 100644
+--- a/src/server/services/reservation-service.ts
++++ b/src/server/services/reservation-service.ts
+@@ -27,7 +27,7 @@ import { emitRestaurantEvent } from "@/server/realtime";
+ type DbClient = Prisma.TransactionClient | typeof prisma;
+ const DEFAULT_RESERVATION_DURATION_MINUTES = 120;
+ const MIN_LEAD_TIME_MINUTES = 120;
+-const REFERENCE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
++const REFERENCE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+ 
+ export type AvailabilityInput = {
+   restaurantId: string;
+@@ -80,6 +80,7 @@ type ReservationWindow = {
+ type RestaurantPolicy = {
+   timezone: string;
+   openingHours: OpeningHours;
++  specialOpeningPeriods: SpecialOpeningPeriod[];
+   vacationClosures: VacationClosure[];
+   reservationDurationMinutes: number;
+   minimumLeadTimeMinutes: number;
+@@ -89,6 +90,87 @@ type RestaurantPolicy = {
+   tableFeatures: Record<string, TableFeature[]>;
+ };
+ 
++type SpecialOpeningPeriod = {
++  id: string;
++  name: string;
++  startDate: string;
++  endDate: string;
++  active: boolean;
++  openingHours: OpeningHours;
++};
++
++function cleanOptional(value?: string | null) {
++  const trimmed = value?.trim();
++  return trimmed ? trimmed : null;
++}
++
++async function upsertReservationClient(
++  tx: Prisma.TransactionClient,
++  input: {
++    restaurantId: string;
++    userId: string;
++    firstName?: string;
++    lastName?: string;
++    email?: string;
++    phone?: string;
++  }
++) {
++  const firstName = cleanOptional(input.firstName);
++  const lastName = cleanOptional(input.lastName);
++
++  if (!firstName || !lastName) {
++    return null;
++  }
++
++  const email = cleanOptional(input.email);
++  const phone = cleanOptional(input.phone);
++  const existing = email
++    ? await tx.client.findUnique({
++        where: {
++          restaurantId_email: {
++            restaurantId: input.restaurantId,
++            email
++          }
++        }
++      })
++    : phone
++      ? await tx.client.findFirst({
++          where: {
++            restaurantId: input.restaurantId,
++            phone
++          }
++        })
++      : null;
++
++  if (existing) {
++    return tx.client.update({
++      where: {
++        id: existing.id
++      },
++      data: {
++        firstName,
++        lastName,
++        email,
++        phone,
++        userId: input.userId,
++        lastVisitAt: new Date()
++      }
++    });
++  }
++
++  return tx.client.create({
++    data: {
++      restaurantId: input.restaurantId,
++      userId: input.userId,
++      firstName,
++      lastName,
++      email,
++      phone,
++      lastVisitAt: new Date()
++    }
++  });
++}
++
+ type ServiceWindow = {
+   open: string;
+   close: string;
+@@ -166,12 +248,48 @@ function vacationClosuresFromSettings(settings: unknown): VacationClosure[] {
+         id: typeof closure.id === "string" ? closure.id : `${startDate}-${endDate}`,
+         startDate,
+         endDate,
+-        label: typeof closure.label === "string" ? closure.label : undefined
++        label: typeof closure.label === "string" ? closure.label : undefined,
++        active: closure.active !== false
+       };
+     })
+     .filter((closure): closure is VacationClosure => Boolean(closure));
+ }
+ 
++function specialOpeningPeriodsFromSettings(settings: unknown): SpecialOpeningPeriod[] {
++  if (!isRecord(settings) || !Array.isArray(settings.specialOpeningPeriods)) {
++    return [];
++  }
++
++  return settings.specialOpeningPeriods
++    .map((period): SpecialOpeningPeriod | null => {
++      if (!isRecord(period)) {
++        return null;
++      }
++
++      const startDate = period.startDate;
++      const endDate = period.endDate;
++      const openingHours = period.openingHours;
++
++      if (typeof startDate !== "string" || typeof endDate !== "string" || !isRecord(openingHours)) {
++        return null;
++      }
++
++      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
++        return null;
++      }
++
++      return {
++        id: typeof period.id === "string" ? period.id : `${startDate}-${endDate}`,
++        name: typeof period.name === "string" ? period.name : "Période spéciale",
++        startDate,
++        endDate,
++        active: period.active !== false,
++        openingHours: openingHours as OpeningHours
++      };
++    })
++    .filter((period): period is SpecialOpeningPeriod => Boolean(period));
++}
++
+ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<RestaurantPolicy> {
+   const restaurant = await db.restaurant.findUnique({
+     where: {
+@@ -191,6 +309,7 @@ async function getRestaurantPolicy(db: DbClient, restaurantId: string): Promise<
+   return {
+     timezone: restaurant.timezone,
+     openingHours: restaurant.openingHours as OpeningHours,
++    specialOpeningPeriods: specialOpeningPeriodsFromSettings(restaurant.settings),
+     vacationClosures: vacationClosuresFromSettings(restaurant.settings),
+     reservationDurationMinutes: reservationDurationFromSettings(restaurant.settings),
+     minimumLeadTimeMinutes: minimumLeadTimeFromSettings(restaurant.settings),
+@@ -261,19 +380,15 @@ function pickAutoAssignedTable<TTable extends { id: string }>(
+   return eligibleTables[Math.floor(Math.random() * eligibleTables.length)];
+ }
+ 
+-function randomDigits(length: number) {
+-  return Array.from({ length }, () => Math.floor(Math.random() * 10)).join("");
+-}
+-
+-function randomLetters(length: number) {
++function randomReferenceCharacters(length: number) {
+   return Array.from(
+     { length },
+-    () => REFERENCE_LETTERS[Math.floor(Math.random() * REFERENCE_LETTERS.length)]
++    () => REFERENCE_CHARACTERS[Math.floor(Math.random() * REFERENCE_CHARACTERS.length)]
+   ).join("");
+ }
+ 
+ function generateReservationReferenceCode() {
+-  return `${randomDigits(6)}${randomLetters(3)}${randomDigits(6)}`;
++  return `TT${randomReferenceCharacters(6)}`;
+ }
+ 
+ async function generateUniqueReservationReferenceCode(db: DbClient) {
+@@ -312,12 +427,30 @@ function reservationWindow(input: AvailabilityInput, policy: RestaurantPolicy):
+ 
+ function isClosedForVacation(date: string, policy: RestaurantPolicy) {
+   return policy.vacationClosures.some((closure) => {
++    if (closure.active === false) {
++      return false;
++    }
++
+     const startDate = closure.startDate <= closure.endDate ? closure.startDate : closure.endDate;
+     const endDate = closure.startDate <= closure.endDate ? closure.endDate : closure.startDate;
+     return date >= startDate && date <= endDate;
+   });
+ }
+ 
++function getOpeningHoursForDate(policy: RestaurantPolicy, date: string) {
++  const matchingPeriod = policy.specialOpeningPeriods.find((period) => {
++    if (!period.active) {
++      return false;
++    }
++
++    const startDate = period.startDate <= period.endDate ? period.startDate : period.endDate;
++    const endDate = period.startDate <= period.endDate ? period.endDate : period.startDate;
++    return date >= startDate && date <= endDate;
++  });
++
++  return (matchingPeriod?.openingHours ?? policy.openingHours)[getDayKey(date)];
++}
++
+ function getServiceWindows(dayHours: OpeningHours[string] | undefined): ServiceWindow[] {
+   if (!dayHours || dayHours.closed) {
+     return [];
+@@ -344,12 +477,20 @@ function getServiceWindows(dayHours: OpeningHours[string] | undefined): ServiceW
+     });
+   };
+ 
+-  addWindow(dayHours.open, dayHours.close);
++  addWindow(dayHours.morningOpen, dayHours.morningClose);
++
++  if (dayHours.lunchServiceEnabled !== false) {
++    addWindow(dayHours.open, dayHours.close);
++  }
+ 
+   if (dayHours.secondServiceEnabled) {
+     addWindow(dayHours.secondOpen, dayHours.secondClose);
+   }
+ 
++  if (dayHours.thirdServiceEnabled) {
++    addWindow(dayHours.thirdOpen, dayHours.thirdClose);
++  }
++
+   return windows.sort((first, second) => first.openMinutes - second.openMinutes);
+ }
+ 
+@@ -363,7 +504,7 @@ function assertRestaurantOpen(
+     throw new BadRequestError("Restaurant is closed during this vacation period.");
+   }
+ 
+-  const serviceWindows = getServiceWindows(policy.openingHours[getDayKey(date)]);
++  const serviceWindows = getServiceWindows(getOpeningHoursForDate(policy, date));
+ 
+   if (serviceWindows.length === 0) {
+     throw new BadRequestError("Restaurant is closed for this time.");
+@@ -538,7 +679,7 @@ export async function getAvailableTables(db: DbClient, input: AvailabilityInput)
+ 
+ export async function getAvailabilitySlots(db: DbClient, input: Omit<AvailabilityInput, "startTime" | "endTime">) {
+   const policy = await getRestaurantPolicy(db, input.restaurantId);
+-  const serviceWindows = getServiceWindows(policy.openingHours[getDayKey(input.date)]);
++  const serviceWindows = getServiceWindows(getOpeningHoursForDate(policy, input.date));
+ 
+   if (isClosedForVacation(input.date, policy) || serviceWindows.length === 0) {
+     return [] satisfies AvailabilitySlot[];
+@@ -813,11 +954,21 @@ export async function createReservation(input: CreateReservationInput) {
+         });
+       }
+ 
++      const client = await upsertReservationClient(tx, {
++        restaurantId: input.restaurantId,
++        userId: input.userId,
++        firstName: input.firstName,
++        lastName: input.lastName,
++        email: input.email,
++        phone: input.phone
++      });
++
+       return tx.reservation.create({
+         data: {
+           referenceCode: await generateUniqueReservationReferenceCode(tx),
+           restaurantId: input.restaurantId,
+           userId: input.userId,
++          clientId: client?.id,
+           tableId,
+           guestFirstName: input.firstName,
+           guestLastName: input.lastName,
+@@ -846,7 +997,19 @@ export async function createReservation(input: CreateReservationInput) {
+               id: true,
+               email: true,
+               name: true,
+-              contactEmail: true
++              contactEmail: true,
++              phone: true
++            }
++          },
++          client: {
++            select: {
++              id: true,
++              firstName: true,
++              lastName: true,
++              email: true,
++              phone: true,
++              vip: true,
++              noShowRisk: true
+             }
+           }
+         }
+@@ -928,7 +1091,8 @@ export async function listGuestReservations(input: GuestReservationLookupInput)
+           id: true,
+           email: true,
+           name: true,
+-          contactEmail: true
++          contactEmail: true,
++          phone: true
+         }
+       }
+     }
+@@ -1095,7 +1259,8 @@ export async function updateCustomerReservation(
+               id: true,
+               email: true,
+               name: true,
+-              contactEmail: true
++              contactEmail: true,
++              phone: true
+             }
+           }
+         }
+@@ -1132,6 +1297,17 @@ export async function listRestaurantReservations(restaurantId: string, date?: st
+           contactEmail: true,
+           phone: true
+         }
++      },
++      client: {
++        select: {
++          id: true,
++          firstName: true,
++          lastName: true,
++          email: true,
++          phone: true,
++          vip: true,
++          noShowRisk: true
++        }
+       }
+     },
+     orderBy: [{ date: "asc" }, { startTime: "asc" }]
+@@ -1189,7 +1365,19 @@ export async function cancelReservation(reservationId: string, requesterId?: str
+           id: true,
+           email: true,
+           name: true,
+-          contactEmail: true
++          contactEmail: true,
++          phone: true
++        }
++      },
++      client: {
++        select: {
++          id: true,
++          firstName: true,
++          lastName: true,
++          email: true,
++          phone: true,
++          vip: true,
++          noShowRisk: true
+         }
+       }
+     }
+@@ -1223,7 +1411,8 @@ export async function cancelReservation(reservationId: string, requesterId?: str
+           id: true,
+           email: true,
+           name: true,
+-          contactEmail: true
++          contactEmail: true,
++          phone: true
+         }
+       }
+     }
+@@ -1239,6 +1428,8 @@ export async function updateReservation(
+     status?: ReservationStatus;
+     notes?: string | null;
+     tableId?: string | null;
++    arrivedAt?: string | null;
++    noShow?: boolean;
+   }
+ ) {
+   const existing = await prisma.reservation.findUnique({
+@@ -1263,11 +1454,19 @@ export async function updateReservation(
+     });
+   }
+ 
++  const { arrivedAt, ...reservationData } = data;
+   const reservation = await prisma.reservation.update({
+     where: {
+       id: reservationId
+     },
+-    data,
++    data: {
++      ...reservationData,
++      ...(arrivedAt !== undefined
++        ? {
++            arrivedAt: arrivedAt === "now" ? new Date() : arrivedAt ? new Date(arrivedAt) : null
++          }
++        : {})
++    },
+     include: {
+       restaurant: true,
+       table: {
+@@ -1281,7 +1480,19 @@ export async function updateReservation(
+           id: true,
+           email: true,
+           name: true,
+-          contactEmail: true
++          contactEmail: true,
++          phone: true
++        }
++      },
++      client: {
++        select: {
++          id: true,
++          firstName: true,
++          lastName: true,
++          email: true,
++          phone: true,
++          vip: true,
++          noShowRisk: true
+         }
+       }
+     }
+diff --git a/src/server/services/restaurant-service.ts b/src/server/services/restaurant-service.ts
+index e02514b..2d5a00a 100644
+--- a/src/server/services/restaurant-service.ts
++++ b/src/server/services/restaurant-service.ts
+@@ -49,13 +49,36 @@ export async function getRestaurant(restaurantId: string) {
+ }
+ 
+ export async function createRestaurant(data: RestaurantInput) {
+-  const restaurant = await prisma.restaurant.create({
+-    data: {
+-      ...data,
+-      openingHours: data.openingHours as Prisma.InputJsonValue,
+-      settings: data.settings as Prisma.InputJsonValue,
+-      menu: data.menu as Prisma.InputJsonValue
++  const restaurant = await prisma.$transaction(async (tx) => {
++    const restaurant = await tx.restaurant.create({
++      data: {
++        ...data,
++        openingHours: data.openingHours as Prisma.InputJsonValue,
++        settings: data.settings as Prisma.InputJsonValue,
++        menu: data.menu as Prisma.InputJsonValue
++      }
++    });
++
++    if (data.ownerId) {
++      await tx.restaurantUser.upsert({
++        where: {
++          restaurantId_userId: {
++            restaurantId: restaurant.id,
++            userId: data.ownerId
++          }
++        },
++        update: {
++          role: "OWNER"
++        },
++        create: {
++          restaurantId: restaurant.id,
++          userId: data.ownerId,
++          role: "OWNER"
++        }
++      });
+     }
++
++    return restaurant;
+   });
+ 
+   emitRestaurantEvent(restaurant.id, "restaurant:created", restaurant);

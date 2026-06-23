@@ -1,0 +1,79 @@
+ M README.md
+ M package.json
+ M prisma/schema.prisma
+ M prisma/seed.ts
+ M server.ts
+ M src/app/admin/page.tsx
+ M src/app/api/admin/analytics/[restaurantId]/route.ts
+ M src/app/api/auth/forgot-password/route.ts
+ M src/app/api/guest-reservations/[reservationId]/reminder/route.ts
+ M src/app/api/guest-reservations/[reservationId]/route.ts
+ M src/app/api/guest-reservations/route.ts
+ M src/app/api/platform-admin/sites/[restaurantId]/route.ts
+ M src/app/api/platform-admin/sites/route.ts
+ M src/app/api/platform-brand/route.ts
+ M src/app/api/reservations/[reservationId]/reminder/route.ts
+ M src/app/api/reservations/[reservationId]/route.ts
+ M src/app/api/restaurants/[restaurantId]/availability/route.ts
+ M src/app/api/restaurants/[restaurantId]/reservations/route.ts
+ M src/app/api/restaurants/[restaurantId]/route.ts
+ M src/app/api/restaurants/[restaurantId]/tables/route.ts
+ M src/app/api/table-blocks/[blockId]/route.ts
+ M src/app/api/tables/[tableId]/blocks/route.ts
+ M src/app/api/tables/[tableId]/route.ts
+ M src/app/favicon.ico/route.ts
+ M src/app/globals.css
+ M src/app/layout.tsx
+ M src/app/login/page.tsx
+ M src/app/my-reservations/page.tsx
+ M src/app/page.tsx
+ M src/components/admin/admin-dashboard.tsx
+ M src/components/booking/booking-experience.tsx
+ M src/components/floor-plan/floor-plan-3d.tsx
+ M src/components/floor-plan/floor-plan.tsx
+ M src/components/layout/app-shell.tsx
+ M src/components/layout/brand-logo.tsx
+ M src/components/layout/realtime-bridge.tsx
+ M src/components/layout/top-nav.tsx
+ M src/components/platform-admin/platform-admin-dashboard.tsx
+ M src/components/platform-admin/restaurant-plan-manager.tsx
+ M src/hooks/use-socket-events.ts
+ M src/lib/auth.ts
+ M src/lib/domain.ts
+ M src/lib/floor-plan-settings.ts
+ M src/lib/i18n.ts
+ M src/lib/validators.ts
+ M src/middleware.ts
+ M src/server/email.ts
+ M src/server/errors.ts
+ M src/server/http.ts
+ M src/server/platform-settings.ts
+ M src/server/realtime.ts
+ M src/server/services/reservation-service.ts
+ M src/server/services/restaurant-service.ts
+ M src/server/services/table-block-service.ts
+?? .codex-backups/
+?? __tests__/
+?? e2e/
+?? prisma/migrations/
+?? public/toquetop-logo.svg
+?? src/app/admin/login/
+?? src/app/api/platform-admin/sms-settings/
+?? src/app/api/platform-assets/
+?? src/app/api/restaurants/[restaurantId]/chef-toque/
+?? src/app/api/restaurants/[restaurantId]/clients/
+?? src/app/api/restaurants/[restaurantId]/events/
+?? src/app/api/restaurants/[restaurantId]/table-blocks/
+?? src/app/api/restaurants/[restaurantId]/templates/
+?? src/app/api/restaurants/[restaurantId]/waitlist/
+?? src/app/api/restaurants/current/
+?? src/components/dashboard/
+?? src/lib/platform-asset-url.ts
+?? src/server/rate-limit.ts
+?? src/server/services/audit-service.ts
+?? src/server/services/chef-toque-service.ts
+?? src/server/services/client-service.ts
+?? src/server/services/restaurant-access-service.ts
+?? src/server/services/template-service.ts
+?? src/server/services/waitlist-service.ts
+?? src/server/sms.ts
