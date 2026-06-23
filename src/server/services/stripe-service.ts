@@ -706,11 +706,29 @@ export async function createBillingPortalSession(input: {
   const customerId = await ensureStripeCustomer(input.restaurantId);
   const appUrl = publicAppUrl(input.requestUrl);
   const configuration = readString(process.env.STRIPE_PORTAL_CONFIGURATION_ID);
-  const session = await stripe.billingPortal.sessions.create({
-    ...(configuration ? { configuration } : {}),
+  const returnUrl = `${appUrl}/admin?section=subscription&stripe=portal`;
+  const basePayload = {
     customer: customerId,
-    return_url: `${appUrl}/admin?section=subscription&stripe=portal`
-  });
+    return_url: returnUrl
+  };
+  let session;
+
+  try {
+    session = await stripe.billingPortal.sessions.create({
+      ...(configuration ? { configuration } : {}),
+      ...basePayload
+    });
+  } catch (error) {
+    const stripeError = error as { code?: string; message?: string };
+    const invalidConfiguration = configuration &&
+      (stripeError.code === "resource_missing" || stripeError.message?.includes("No such configuration"));
+
+    if (!invalidConfiguration) {
+      throw error;
+    }
+
+    session = await stripe.billingPortal.sessions.create(basePayload);
+  }
 
   return {
     url: session.url

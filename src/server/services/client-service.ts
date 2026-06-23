@@ -117,7 +117,14 @@ export async function listClients(restaurantId: string, search?: string) {
           startTime: true,
           numberOfGuests: true,
           status: true,
-          noShow: true
+          noShow: true,
+          updatedAt: true,
+          table: {
+            select: {
+              id: true,
+              label: true
+            }
+          }
         }
       }
     }

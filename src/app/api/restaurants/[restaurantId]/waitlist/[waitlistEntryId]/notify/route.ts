@@ -48,9 +48,12 @@ export async function POST(_: Request, context: Context) {
       !Array.isArray(entry.restaurant.settings)
       ? entry.restaurant.settings as Record<string, unknown>
       : {};
-    const waitlistSmsEnabled = restaurantSettings.waitlistSmsEnabled !== false;
+    const waitlistSmsEnabled = typeof restaurantSettings.waitlistAutoSmsEnabled === "boolean"
+      ? restaurantSettings.waitlistAutoSmsEnabled
+      : restaurantSettings.waitlistSmsEnabled !== false;
+    const waitlistEmailEnabled = restaurantSettings.waitlistEmailEnabled !== false;
     const [emailSent, smsSent] = await Promise.all([
-      sendWaitlistTableAvailableEmail(entry),
+      waitlistEmailEnabled ? sendWaitlistTableAvailableEmail(entry) : Promise.resolve(false),
       waitlistSmsEnabled ? sendWaitlistTableAvailableSms(entry) : Promise.resolve(false)
     ]);
     const notes = entry.notes?.includes(WAITLIST_NOTIFIED_MARKER)

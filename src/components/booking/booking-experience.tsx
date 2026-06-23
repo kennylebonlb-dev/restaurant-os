@@ -161,6 +161,7 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
   const [viewPreviewTableId, setViewPreviewTableId] = useState<string>();
   const [selectedCombinationId, setSelectedCombinationId] = useState<string>();
   const [selectedRoomId, setSelectedRoomId] = useState<string>();
+  const [waitlistFlexibility, setWaitlistFlexibility] = useState("15");
   const booking = useBookingStore();
   const { locale, t } = useI18n();
 
@@ -363,6 +364,15 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
 	      booking.email.trim() &&
 	      booking.phone.trim()
 	  );
+  const waitlistEnabled = restaurant?.settings.waitlistEnabled === true;
+  const waitlistFlexOptions = Array.isArray(restaurant?.settings.waitlistFlexibleOffsets)
+    ? restaurant.settings.waitlistFlexibleOffsets.filter((value): value is string => typeof value === "string")
+    : ["15", "30"];
+  const shouldShowWaitlist = Boolean(
+    waitlistEnabled &&
+      restaurant &&
+      (!hasSelectableSlots || (selectedSlot?.selectable && !availabilityQuery.isFetching && availabilityOptionCount === 0))
+  );
 
   useEffect(() => {
     if (!currentRoom || selectedRoomId === currentRoom.id) {
@@ -406,6 +416,33 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
       booking.setBookingField("highChair", false);
       booking.setBookingField("birthday", false);
       booking.setBookingField("romanticDinner", false);
+    }
+  });
+  const waitlistMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ waitlistEntry: { id: string } }>(`/api/restaurants/${restaurant?.id}/waitlist`, {
+        method: "POST",
+        body: JSON.stringify({
+          date: booking.date,
+          requestedTime: booking.startTime || "",
+          numberOfGuests: booking.numberOfGuests,
+          firstName: booking.firstName,
+          lastName: booking.lastName,
+          email: booking.email,
+          phone: booking.phone,
+          tablePreferences: booking.tablePreferences,
+          notes: [
+            booking.notes,
+            waitlistFlexibility === "0" ? "Flexibilité : aucune" : `Flexibilité : +/- ${waitlistFlexibility === "60" ? "1h" : `${waitlistFlexibility} minutes`}`,
+            booking.selectedTableId ? `Table souhaitée : ${selectedTable?.label ?? booking.selectedTableId}` : ""
+          ].filter(Boolean).join("\n")
+        })
+      }),
+    onError: (error) => {
+      setMessage(error instanceof Error ? error.message : "Impossible d’ajouter la demande en liste d’attente.");
+    },
+    onSuccess: () => {
+      setMessage("Votre demande a été ajoutée à la liste d’attente. Le restaurant pourra vous avertir si une table se libère.");
     }
   });
 
@@ -802,6 +839,50 @@ export function BookingExperience({ initialRestaurantSlug }: { initialRestaurant
                       ? t("booking.tableAvailable")
                       : t("booking.tablesAvailable")
                   }`}
+            </div>
+          ) : null}
+
+          {shouldShowWaitlist ? (
+            <div className="mt-4 rounded-md border border-gold/40 bg-gold/10 p-3">
+              <div className="flex items-start gap-2">
+                <Sparkles className="mt-0.5 h-4 w-4 text-moss" />
+                <div>
+                  <p className="text-sm font-black text-ink">Se mettre sur liste d’attente</p>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-ink/60">
+                    Aucun créneau ou aucune table adaptée n’est disponible pour votre demande. Le restaurant pourra vous prévenir si une table compatible se libère.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <label className="text-sm font-semibold text-ink">
+                  Flexibilité du créneau
+                  <select
+                    className="control mt-1 w-full"
+                    value={waitlistFlexibility}
+                    onChange={(event) => setWaitlistFlexibility(event.target.value)}
+                  >
+                    <option value="0">Créneau exact</option>
+                    {waitlistFlexOptions.map((offset) => (
+                      <option key={offset} value={offset}>
+                        +/- {offset === "60" ? "1h" : `${offset} minutes`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="secondary-button h-10 px-3 text-sm"
+                  disabled={!contactComplete || waitlistMutation.isPending}
+                  type="button"
+                  onClick={() => waitlistMutation.mutate()}
+                >
+                  {waitlistMutation.isPending ? "Ajout..." : "Ajouter à la liste d’attente"}
+                </button>
+              </div>
+              {!contactComplete ? (
+                <p className="mt-2 text-xs font-semibold text-orange-800">
+                  Renseignez vos coordonnées pour être averti.
+                </p>
+              ) : null}
             </div>
           ) : null}
 

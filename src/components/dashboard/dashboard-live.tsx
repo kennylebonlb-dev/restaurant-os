@@ -190,6 +190,8 @@ type Client = {
     numberOfGuests: number;
     status: string;
     noShow: boolean;
+    table?: { id: string; label: string } | null;
+    updatedAt?: string;
   }>;
 };
 
@@ -1053,6 +1055,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const firstAccountMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const waitlistPanelRef = useRef<HTMLElement | null>(null);
+  const sidebarHoverTimerRef = useRef<number | null>(null);
 
   const restaurantsQuery = useQuery({
     queryKey: ["current-restaurants"],
@@ -2246,7 +2249,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
               </span>
             ) : null}
             {dashboardSubscriptionState.serviceSuspended ? (
-              <span className="hidden rounded-full bg-ink px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-white sm:inline-flex">
+              <span className="hidden rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-white sm:inline-flex">
                 Suspendu
               </span>
             ) : null}
@@ -2328,11 +2331,25 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
 
       <aside
         className={clsx(
-          "fixed bottom-0 left-0 top-16 z-30 overflow-hidden border-r border-ink/10 bg-white transition-all",
+          "fixed bottom-0 left-0 top-16 z-30 overflow-hidden border-r border-ink/10 bg-white transition-[width,box-shadow] duration-150 ease-out will-change-[width]",
           sidebarCollapsed ? "w-16" : "w-72 shadow-soft"
         )}
-        onMouseEnter={() => setSidebarCollapsed(false)}
+        onMouseEnter={() => {
+          if (sidebarHoverTimerRef.current) {
+            window.clearTimeout(sidebarHoverTimerRef.current);
+          }
+
+          sidebarHoverTimerRef.current = window.setTimeout(() => {
+            setSidebarCollapsed(false);
+            sidebarHoverTimerRef.current = null;
+          }, 70);
+        }}
         onMouseLeave={() => {
+          if (sidebarHoverTimerRef.current) {
+            window.clearTimeout(sidebarHoverTimerRef.current);
+            sidebarHoverTimerRef.current = null;
+          }
+
           setSidebarCollapsed(true);
           setHoveredMenuItem(null);
         }}
@@ -2367,7 +2384,9 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                 }}
               >
                 {item.icon}
-                {sidebarCollapsed ? null : <span>{item.label}</span>}
+                <span className={clsx("whitespace-nowrap transition-opacity duration-100", sidebarCollapsed ? "pointer-events-none opacity-0" : "opacity-100")}>
+                  {item.label}
+                </span>
               </button>
               {item.id === "general" && !sidebarCollapsed && (section === "general" || hoveredMenuItem === "general") ? (
                 <div className="mt-1 space-y-1 pl-7">
@@ -3726,6 +3745,8 @@ function ReservationSettingsPanel({ restaurant }: { restaurant: Restaurant }) {
   const minimumLeadTimeMinutes = minimumLeadTimeEnabled
     ? String(settingNumber(restaurant.settings, ["minimumLeadTimeMinutes"], 120))
     : "0";
+  const smsUnitPriceCents = settingNumber(restaurant.settings, ["smsUnitPriceCents", "smsPriceCents"], 12);
+  const smsUnitPriceLabel = formatCurrencyCents(smsUnitPriceCents);
   const updateSettingsMutation = useMutation({
     mutationFn: (settings: Record<string, unknown>) =>
       apiFetch<{ restaurant: Restaurant }>(`/api/restaurants/${restaurant.id}`, {
@@ -3763,6 +3784,11 @@ function ReservationSettingsPanel({ restaurant }: { restaurant: Restaurant }) {
       lateArrivalGraceMinutes: Number(formData.get("lateArrivalGraceMinutes") || 15),
       lateCancellationHours: Number(formData.get("lateCancellationHours") || 3),
       strictCapacityMatching: formData.get("strictCapacityMatching") === "on",
+      waitlistEnabled: formData.get("waitlistEnabled") === "on",
+      waitlistAutoSmsEnabled: formData.get("waitlistAutoSmsEnabled") === "on",
+      waitlistEmailEnabled: formData.get("waitlistEmailEnabled") === "on",
+      waitlistAutoNotifyMatching: formData.get("waitlistAutoNotifyMatching") === "on",
+      waitlistFlexibleOffsets: ["15", "30", "60"].filter((offset) => formData.get(`waitlistFlex${offset}`) === "on"),
       autoCancelLateReservationsEnabled: autoCancelEnabled,
       autoCancelLateMinutes: Number(formData.get("autoCancelLateMinutes") || 15)
     });
@@ -3837,8 +3863,78 @@ function ReservationSettingsPanel({ restaurant }: { restaurant: Restaurant }) {
             <label className="flex items-center gap-3 rounded-md border border-ink/10 bg-white p-3 text-sm font-bold md:col-span-2">
               <input className="h-4 w-4 accent-moss" defaultChecked={restaurant.settings.strictCapacityMatching !== false} name="strictCapacityMatching" type="checkbox" />
               Prioriser les tables adaptées au nombre de couverts
-              <span className="text-xs font-semibold text-ink/50">Une table plus grande reste proposée uniquement si aucune table adaptée ou combinaison n’est disponible.</span>
+              <span className="text-xs font-semibold text-ink/50">Une table plus grande reste proposée uniquement si aucune table adaptée n’est disponible.</span>
             </label>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-ink/10 bg-linen p-4">
+          <h3 className="text-sm font-black uppercase tracking-[0.14em] text-moss">Waitlist</h3>
+          <p className="mt-1 text-sm font-semibold leading-5 text-ink/55">
+            La liste d’attente permet aux clients de laisser une demande quand aucun créneau ou aucune table adaptée n’est disponible.
+          </p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <label className="flex items-start gap-3 rounded-md border border-ink/10 bg-white p-3 text-sm font-bold">
+              <input className="mt-1 h-4 w-4 accent-moss" defaultChecked={restaurant.settings.waitlistEnabled === true} name="waitlistEnabled" type="checkbox" />
+              <span>
+                Activer la Waitlist côté client
+                <span className="mt-1 block text-xs font-semibold leading-5 text-ink/55">
+                  Si aucun créneau n’est disponible, le client pourra demander à être averti dès qu’une table compatible se libère.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 rounded-md border border-ink/10 bg-white p-3 text-sm font-bold">
+              <input className="mt-1 h-4 w-4 accent-moss" defaultChecked={restaurant.settings.waitlistAutoNotifyMatching === true} name="waitlistAutoNotifyMatching" type="checkbox" />
+              <span>
+                Avertir automatiquement quand une table correspond
+                <span className="mt-1 block text-xs font-semibold leading-5 text-ink/55">
+                  Le moteur vérifie la date, le créneau souhaité, la table demandée si elle existe, et le nombre de couverts.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 rounded-md border border-ink/10 bg-white p-3 text-sm font-bold">
+              <input className="mt-1 h-4 w-4 accent-moss" defaultChecked={restaurant.settings.waitlistAutoSmsEnabled === true} name="waitlistAutoSmsEnabled" type="checkbox" />
+              <span>
+                Envoyer un SMS quand une table se libère
+                <span className="mt-1 block text-xs font-semibold leading-5 text-ink/55">
+                  L’envoi automatique consomme les SMS du restaurant au tarif renseigné dans ToqueTop : {smsUnitPriceLabel} par SMS.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 rounded-md border border-ink/10 bg-white p-3 text-sm font-bold">
+              <input className="mt-1 h-4 w-4 accent-moss" defaultChecked={restaurant.settings.waitlistEmailEnabled !== false} name="waitlistEmailEnabled" type="checkbox" />
+              <span>
+                Envoyer un email quand une table se libère
+                <span className="mt-1 block text-xs font-semibold leading-5 text-ink/55">
+                  L’email précise le créneau disponible, le nombre de couverts et le lien pour finaliser la réservation.
+                </span>
+              </span>
+            </label>
+            <div className="rounded-md border border-ink/10 bg-white p-3 text-sm font-bold md:col-span-2">
+              <p>Flexibilité proposée au client</p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-ink/55">
+                Le client pourra accepter d’être averti si une table se libère sur un créneau proche de sa demande.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  ["15", "+/- 15 minutes"],
+                  ["30", "+/- 30 minutes"],
+                  ["60", "+/- 1h"]
+                ].map(([value, label]) => (
+                  <label key={value} className="inline-flex items-center gap-2 rounded-md bg-linen px-3 py-2 text-xs font-black">
+                    <input
+                      className="h-4 w-4 accent-moss"
+                      defaultChecked={Array.isArray(restaurant.settings.waitlistFlexibleOffsets)
+                        ? restaurant.settings.waitlistFlexibleOffsets.includes(value)
+                        : value !== "60"}
+                      name={`waitlistFlex${value}`}
+                      type="checkbox"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
@@ -6435,8 +6531,9 @@ function openingHoursForServiceCount(openingHours: OpeningHours, serviceCount: O
       {
         ...hours,
         ...(serviceCount < 3 ? { morningOpen: undefined, morningClose: undefined } : {}),
-        secondServiceEnabled: serviceCount >= 2,
-        ...(serviceCount < 2 ? { secondOpen: undefined, secondClose: undefined } : {}),
+        ...(serviceCount >= 2
+          ? { secondServiceEnabled: hours.secondServiceEnabled === false ? false : true }
+          : { secondServiceEnabled: false, secondOpen: undefined, secondClose: undefined }),
         thirdServiceEnabled: false,
         thirdOpen: undefined,
         thirdClose: undefined
@@ -6804,9 +6901,16 @@ function OpeningHoursPanel({ restaurant }: { restaurant: Restaurant }) {
                     <ServiceTimeRow
                       close={hours.morningClose ?? "11:00"}
                       disabled={false}
+                      enabled={Boolean(hours.morningOpen && hours.morningClose)}
                       label="Matin"
                       open={hours.morningOpen ?? "08:00"}
                       onChange={(updates) => updateOpeningHour(day, updates)}
+                      onEnabledChange={(enabled) =>
+                        updateOpeningHour(day, {
+                          morningOpen: enabled ? (hours.morningOpen ?? "08:00") : undefined,
+                          morningClose: enabled ? (hours.morningClose ?? "11:00") : undefined
+                        })
+                      }
                       openKey="morningOpen"
                       closeKey="morningClose"
                     />
@@ -6814,9 +6918,11 @@ function OpeningHoursPanel({ restaurant }: { restaurant: Restaurant }) {
                   <ServiceTimeRow
                     close={hours.close}
                     disabled={false}
+                    enabled={hours.lunchServiceEnabled !== false}
                     label="Midi"
                     open={hours.open}
                     onChange={(updates) => updateOpeningHour(day, updates)}
+                    onEnabledChange={(enabled) => updateOpeningHour(day, { lunchServiceEnabled: enabled })}
                     openKey="open"
                     closeKey="close"
                   />
@@ -6824,12 +6930,20 @@ function OpeningHoursPanel({ restaurant }: { restaurant: Restaurant }) {
                     <ServiceTimeRow
                       close={hours.secondClose ?? "22:00"}
                       disabled={false}
+                      enabled={hours.secondServiceEnabled !== false}
                       label="Soir"
                       open={hours.secondOpen ?? "19:00"}
                       onChange={(updates) =>
                         updateOpeningHour(day, {
                           secondServiceEnabled: true,
                           ...updates
+                        })
+                      }
+                      onEnabledChange={(enabled) =>
+                        updateOpeningHour(day, {
+                          secondServiceEnabled: enabled,
+                          secondOpen: enabled ? (hours.secondOpen ?? "19:00") : hours.secondOpen,
+                          secondClose: enabled ? (hours.secondClose ?? "22:00") : hours.secondClose
                         })
                       }
                       openKey="secondOpen"
@@ -7377,6 +7491,10 @@ function CrmPanel({
               const lastReservations = [...client.reservations]
                 .sort((first, second) => `${second.date} ${second.startTime}`.localeCompare(`${first.date} ${first.startTime}`))
                 .slice(0, 4);
+              const honoredCount = clientHonoredReservationCount(client);
+              const lateCancellationCount = clientLastMinuteCancellationCount(client);
+              const clientNoShows = clientNoShowCount(client);
+              const favoriteTable = clientFavoriteTableLabel(client);
 
               return (
                 <article key={client.id} className="bg-white">
@@ -7389,6 +7507,7 @@ function CrmPanel({
                       <span className="flex min-w-0 items-center gap-1.5 text-sm font-black">
                         {client.vip ? <Crown className="h-4 w-4 shrink-0 text-amber-600" aria-label="Client VIP" /> : null}
                         <span className="truncate">{client.lastName} {client.firstName}</span>
+                        {client.vip ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-700">VIP</span> : null}
                       </span>
                       <span className="mt-1 block truncate text-xs font-semibold text-ink/55">
                         {client.birthday ? `Anniversaire : ${formatPeriodDate(client.birthday)}` : "Anniversaire non renseigné"}
@@ -7408,8 +7527,8 @@ function CrmPanel({
                       </span>
                     </span>
                     <span className="flex flex-wrap items-center gap-1 self-center">
-                      {client.vip ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-black text-amber-700">VIP</span> : null}
                       <span className="rounded-full bg-sage px-2 py-0.5 text-[11px] font-black text-moss">{clientFrequencyLabel(client)}</span>
+                      {favoriteTable ? <span className="rounded-full bg-linen px-2 py-0.5 text-[11px] font-black text-ink/60">Table {favoriteTable}</span> : null}
                     </span>
                   </button>
 
@@ -7455,6 +7574,12 @@ function CrmPanel({
                         <div className="grid gap-3 lg:grid-cols-2">
                           <div className="rounded-md bg-white p-3">
                             <h4 className="font-black">Détails client</h4>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              <span className="rounded-md bg-linen p-2 text-xs font-black text-ink/65">Réservations honorées : {honoredCount}</span>
+                              <span className="rounded-md bg-linen p-2 text-xs font-black text-ink/65">Annulations dernière minute : {lateCancellationCount}</span>
+                              <span className="rounded-md bg-linen p-2 text-xs font-black text-ink/65">No-show : {clientNoShows}</span>
+                              <span className="rounded-md bg-linen p-2 text-xs font-black text-ink/65">Table favorite : {favoriteTable || "Non détectée"}</span>
+                            </div>
                             <p className="mt-2 text-sm font-semibold text-ink/65">Allergies : {client.allergies || "Aucune"}</p>
                             <p className="text-sm font-semibold text-ink/65">Préférences : {client.preferences.length ? client.preferences.join(", ") : "Aucune"}</p>
                             <p className="mt-2 text-sm font-semibold text-ink/65">Notes : {client.internalNotes || "Aucune note interne"}</p>
@@ -7529,6 +7654,7 @@ function MenusPanel() {
   ]);
   const [selectedMenu, setSelectedMenu] = useState("Carte principale");
   const [showMenuForm, setShowMenuForm] = useState(false);
+  const [showMenuEditForm, setShowMenuEditForm] = useState(false);
   const [showDishForm, setShowDishForm] = useState(false);
   const [editingDishName, setEditingDishName] = useState<string | null>(null);
   const [dishes, setDishes] = useState([
@@ -7556,6 +7682,29 @@ function MenusPanel() {
     ]);
     setSelectedMenu(name);
     setShowMenuForm(false);
+  }
+
+  function updateMenu(formData: FormData) {
+    const name = String(formData.get("menuName") || selectedMenu).trim();
+
+    if (!name) {
+      return;
+    }
+
+    setMenus((current) =>
+      current.map((menu) =>
+        menu.name === selectedMenu
+          ? {
+              ...menu,
+              name,
+              status: String(formData.get("menuStatus") || menu.status),
+              schedule: String(formData.get("menuSchedule") || menu.schedule)
+            }
+          : menu
+      )
+    );
+    setSelectedMenu(name);
+    setShowMenuEditForm(false);
   }
 
   function upsertDish(formData: FormData) {
@@ -7615,7 +7764,7 @@ function MenusPanel() {
             >
               <InputField label="Nom de la carte" name="menuName" />
               <SelectField label="Statut" name="menuStatus" options={["Brouillon", "Publié", "Programmé"]} />
-              <InputField label="Programmation" name="menuSchedule" required={false} defaultValue="Midi uniquement" />
+              <SelectField label="Programmation" name="menuSchedule" options={["Tous les services", "Service du matin", "Service du midi", "Service du soir"]} />
               <button className="primary-button h-9 text-xs" type="submit">Créer la carte</button>
             </form>
           ) : null}
@@ -7648,10 +7797,30 @@ function MenusPanel() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="secondary-button h-9 px-3 text-xs" type="button"><Copy className="h-4 w-4" />Dupliquer</button>
+              <button className="secondary-button h-9 px-3 text-xs" type="button" onClick={() => setShowMenuEditForm((value) => !value)}><Wrench className="h-4 w-4" />Modifier la carte</button>
               <button className="secondary-button h-9 px-3 text-xs" type="button" onClick={() => setShowDishForm((value) => !value)}><Plus className="h-4 w-4" />Plat</button>
               <button className="primary-button h-9 px-3 text-xs" type="button">Publier</button>
             </div>
           </div>
+          {showMenuEditForm ? (
+            <form
+              className="mt-4 grid gap-3 rounded-md bg-linen p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                updateMenu(new FormData(event.currentTarget));
+              }}
+            >
+              <div className="grid gap-3 md:grid-cols-3">
+                <InputField defaultValue={currentMenu.name} label="Nom de la carte" name="menuName" />
+                <SelectField defaultValue={currentMenu.status} label="Statut" name="menuStatus" options={["Brouillon", "Publié", "Programmé"]} />
+                <SelectField defaultValue={currentMenu.schedule} label="Programmation" name="menuSchedule" options={["Tous les services", "Service du matin", "Service du midi", "Service du soir"]} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="primary-button h-9 text-xs" type="submit">Valider</button>
+                <button className="secondary-button h-9 text-xs" type="button" onClick={() => setShowMenuEditForm(false)}>Annuler</button>
+              </div>
+            </form>
+          ) : null}
           {showDishForm ? (
             <form
               className="mt-4 grid gap-3 rounded-md bg-linen p-3"
@@ -7663,7 +7832,7 @@ function MenusPanel() {
               <div className="grid gap-3 md:grid-cols-2">
                 <InputField defaultValue={editingDish?.name ?? ""} label="Nom du plat / boisson" name="dishName" />
                 <InputField defaultValue={editingDish?.price ?? ""} label="Prix" name="dishPrice" />
-                <InputField defaultValue={editingDish?.category ?? ""} label="Catégorie" name="dishCategory" />
+                <SelectField defaultValue={editingDish?.category ?? "Plats"} label="Catégorie" name="dishCategory" options={["Entrées", "Plats", "Desserts", "Boissons", "Vins"]} />
                 <SelectField defaultValue={editingDish?.status ?? "Disponible"} label="Statut" name="dishStatus" options={["Disponible", "Masqué", "Rupture"]} />
               </div>
               <InputField defaultValue={editingDish?.tags.join(", ") ?? ""} label="Infos / tags" name="dishTags" required={false} />
@@ -7820,6 +7989,22 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
       .filter(Boolean)
       .some((value) => value.toLocaleLowerCase("fr-FR").includes(query));
   });
+  const crmGiftResults = useMemo(() => {
+    const query = crmGiftSearch.trim().toLocaleLowerCase("fr-FR");
+
+    if (!query) {
+      return [];
+    }
+
+    return clients
+      .filter((client) =>
+        [client.firstName, client.lastName, client.email ?? "", client.phone ?? ""]
+          .join(" ")
+          .toLocaleLowerCase("fr-FR")
+          .includes(query)
+      )
+      .slice(0, 6);
+  }, [clients, crmGiftSearch]);
 
   function toggleCard(name: string) {
     setCards((current) => current.map((card) => card.name === name ? { ...card, active: !card.active } : card));
@@ -7910,7 +8095,7 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
     <section className="space-y-4">
       <PanelHeader
         title="Cartes cadeaux"
-        description="Préparez les montants, codes uniques, QR codes et validation des coupons. Le paiement en ligne pourra être branché plus tard avec Stripe."
+        description="Préparez les montants, codes uniques, QR codes et validation des coupons."
       />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
@@ -7953,7 +8138,7 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
           ) : null}
           <div className="mt-4 grid gap-3">
             {cards.map((card) => (
-              <article key={card.name} className="grid gap-3 rounded-md border border-ink/10 bg-linen p-3 md:grid-cols-[minmax(0,1fr)_72px_72px_84px_108px] md:items-center">
+              <article key={card.name} className="grid gap-2 rounded-md border border-ink/10 bg-linen p-3 md:grid-cols-[minmax(0,1fr)_68px_62px_76px_94px] md:items-center">
                 <div className="min-w-0">
                   <p className="truncate font-black">{card.name}</p>
                   <p className="text-xs font-semibold text-ink/55">Code unique + QR code généré à l’achat</p>
@@ -7967,7 +8152,7 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
                   <span className="block text-[10px] font-black uppercase tracking-[0.08em] text-ink/40">Validité</span>
                   <span className="text-xs font-black text-ink/60">{card.validity} mois</span>
                 </span>
-                <div className="flex items-center justify-end gap-1.5">
+                <div className="flex items-center justify-end gap-1">
                   <button
                     aria-label={card.active ? "Désactiver la carte cadeau" : "Activer la carte cadeau"}
                     className={clsx(
@@ -7980,8 +8165,7 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
                   >
                     <Power className="h-4 w-4" />
                   </button>
-                  <button className="secondary-button h-8 px-2 text-xs" type="button" onClick={() => setEditingCardName(card.name)}>
-                    <Wrench className="h-3.5 w-3.5" />
+                  <button className="secondary-button h-8 px-1.5 text-[11px]" type="button" onClick={() => setEditingCardName(card.name)}>
                     Modifier
                   </button>
                 </div>
@@ -8034,19 +8218,37 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-sm font-bold">
                 Client CRM
-                <input
-                  className="control mt-1 w-full"
-                  list="gift-crm-clients"
-                  name="crmClient"
-                  placeholder="Commencez à écrire un nom..."
-                  value={crmGiftSearch}
-                  onChange={(event) => setCrmGiftSearch(event.target.value)}
-                />
-                <datalist id="gift-crm-clients">
-                  {clients.map((client) => (
-                    <option key={client.id} label={client.email || client.phone || "Client CRM"} value={`${client.firstName} ${client.lastName}`} />
-                  ))}
-                </datalist>
+                <span className="relative mt-1 block">
+                  <input
+                    autoComplete="off"
+                    className="control w-full"
+                    name="crmClient"
+                    placeholder="Commencez à écrire un nom..."
+                    value={crmGiftSearch}
+                    onChange={(event) => setCrmGiftSearch(event.target.value)}
+                  />
+                  {crmGiftSearch.trim() ? (
+                    <span className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-40 overflow-hidden rounded-md border border-ink/10 bg-white text-sm shadow-soft">
+                      {crmGiftResults.length ? crmGiftResults.map((client) => {
+                        const fullName = `${client.firstName} ${client.lastName}`;
+
+                        return (
+                          <button
+                            key={client.id}
+                            className="block w-full px-3 py-2 text-left font-semibold hover:bg-sage/70"
+                            type="button"
+                            onClick={() => setCrmGiftSearch(fullName)}
+                          >
+                            <span className="block font-black">{fullName}</span>
+                            <span className="block text-xs text-ink/55">{client.email ?? client.phone ?? "Client CRM"}</span>
+                          </button>
+                        );
+                      }) : (
+                        <span className="block px-3 py-2 text-sm font-semibold text-ink/55">Aucun résultat</span>
+                      )}
+                    </span>
+                  ) : null}
+                </span>
               </label>
               <InputField label="Montant" name="giftAmount" defaultValue="50 €" />
               <InputField label="Prénom du bénéficiaire" name="recipientFirstName" required={false} />
@@ -8371,6 +8573,36 @@ function clientCancellationRisk(client: Client) {
   return Math.min(100, Math.round((cancelled / total) * 75) + weightedNoShow);
 }
 
+function clientHonoredReservationCount(client: Client) {
+  return client.reservations.filter((reservation) => reservation.status === "CONFIRMED" && !reservation.noShow).length;
+}
+
+function clientLastMinuteCancellationCount(client: Client) {
+  return client.reservations.filter((reservation) => reservation.status === "CANCELLED").length;
+}
+
+function clientNoShowCount(client: Client) {
+  return client.reservations.filter((reservation) => reservation.noShow).length;
+}
+
+function clientFavoriteTableLabel(client: Client) {
+  const counts = client.reservations
+    .filter((reservation) => reservation.status === "CONFIRMED" && !reservation.noShow && reservation.table?.label)
+    .reduce<Record<string, number>>((values, reservation) => {
+      const label = reservation.table?.label;
+
+      if (!label) {
+        return values;
+      }
+
+      values[label] = (values[label] ?? 0) + 1;
+      return values;
+    }, {});
+  const favorite = Object.entries(counts).sort((first, second) => second[1] - first[1])[0];
+
+  return favorite && favorite[1] >= 2 ? favorite[0] : "";
+}
+
 type SubscriptionPlanName = "Essentiel" | "Pro" | "Signature";
 type SubscriptionBillingCycle = "MONTHLY" | "QUARTERLY" | "ANNUAL";
 type SubscriptionCommitment = "NONE" | "TWELVE_MONTHS";
@@ -8565,7 +8797,7 @@ function subscriptionStatusClass(value: unknown, billingStatus?: unknown) {
   }
 
   if (isSuspendedSubscriptionStatus(value) || isCancelledSubscriptionStatus(value)) {
-    return "bg-ink/70 text-white";
+    return "bg-red-600 text-white";
   }
 
   if (isTrialSubscriptionStatus(value)) {
@@ -8937,8 +9169,8 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
               </p>
             ) : null}
             {suspendedSubscription ? (
-              <p className="mt-2 rounded-md bg-ink/10 px-3 py-2 text-sm font-black text-ink/70">
-                Abonnement suspendu : contactez ToqueTop ou régularisez la situation depuis votre espace de paiement.
+              <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-black text-red-700">
+                Abonnement suspendu : contactez ToqueTop ou régularisez la situation
               </p>
             ) : null}
           </div>

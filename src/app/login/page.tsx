@@ -5,7 +5,7 @@ import { CalendarSearch, LockKeyhole, Mail, Phone, UserRound } from "lucide-reac
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { apiFetch } from "@/hooks/use-api";
 import { useI18n } from "@/lib/i18n";
 
@@ -34,9 +34,35 @@ function LoginContent() {
   const [forgotMessage, setForgotMessage] = useState<string>();
   const [resetMessage, setResetMessage] = useState<string>();
   const [error, setError] = useState<string>();
+  const [visualReady, setVisualReady] = useState(false);
   const { t } = useI18n();
   const resetToken = searchParams.get("resetToken");
   const isResetPasswordMode = Boolean(resetToken) && showForgotPassword;
+  const visualUrl = "/client-login-visual";
+
+  useEffect(() => {
+    let mounted = true;
+    const image = new window.Image();
+    image.onload = () => {
+      if (mounted) {
+        setVisualReady(true);
+      }
+    };
+    image.onerror = () => {
+      if (mounted) {
+        setVisualReady(true);
+      }
+    };
+    image.src = visualUrl;
+
+    if (image.complete) {
+      setVisualReady(true);
+    }
+
+    return () => {
+      mounted = false;
+    };
+  }, [visualUrl]);
 
   const registerMutation = useMutation({
     mutationFn: () =>
@@ -151,6 +177,14 @@ function LoginContent() {
     router.refresh();
   }
 
+  if (!visualReady) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-linen">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-moss/20 border-t-moss" />
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(420px,620px)_minmax(460px,0.85fr)] lg:items-start lg:px-8">
       <Link
@@ -161,7 +195,7 @@ function LoginContent() {
         <img
           alt="Visuel page connexion client"
           className="h-full min-h-[520px] w-full object-cover"
-          src="/client-login-visual"
+          src={visualUrl}
         />
       </Link>
 

@@ -104,10 +104,39 @@ function AdminLoginContent({
   const badgeText = renderAdminLoginText(adminLogin.badge, restaurantName);
   const titleText = renderAdminLoginText(adminLogin.title, restaurantName);
   const descriptionText = renderAdminLoginText(adminLogin.description, restaurantName);
+  const [assetsReady, setAssetsReady] = useState(false);
 
   useEffect(() => {
     setRestaurantSlug(restaurantSlugFromHost(currentHost()));
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const sources = [visualUrl, logoUrl];
+
+    Promise.all(
+      sources.map((source) =>
+        new Promise<void>((resolve) => {
+          const image = new window.Image();
+          image.onload = () => resolve();
+          image.onerror = () => resolve();
+          image.src = source;
+
+          if (image.complete) {
+            resolve();
+          }
+        })
+      )
+    ).then(() => {
+      if (mounted) {
+        setAssetsReady(true);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [logoUrl, visualUrl]);
 
   const forgotPasswordMutation = useMutation({
     mutationFn: () =>
@@ -182,6 +211,17 @@ function AdminLoginContent({
   function handleResetPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     resetPasswordMutation.mutate();
+  }
+
+  if (!assetsReady) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-linen text-ink">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-moss/20 border-t-moss" />
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-moss">Chargement</p>
+        </div>
+      </main>
+    );
   }
 
   return (
