@@ -1,8 +1,15 @@
 import { getToken } from "next-auth/jwt";
 import { NextResponse, type NextRequest } from "next/server";
 
-const ROOT_HOSTS = new Set(["toquetop.com", "www.toquetop.com", "localhost", "127.0.0.1"]);
-const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api"]);
+const ROOT_HOSTS = new Set([
+  "toquetop.com",
+  "www.toquetop.com",
+  "dashboard.toquetop.com",
+  "localhost",
+  "127.0.0.1"
+]);
+const DASHBOARD_HOSTS = new Set(["dashboard.toquetop.com"]);
+const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api", "dashboard"]);
 const CACHEABLE_LOGIN_PATHS = new Set(["/login", "/admin/login"]);
 const LOGIN_CACHE_CONTROL = "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 const LOGIN_CDN_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=600";
@@ -19,6 +26,10 @@ function restaurantSubdomain(host: string) {
   const subdomain = host.replace(/\.toquetop\.com$/, "");
 
   return subdomain && !IGNORED_SUBDOMAINS.has(subdomain) ? subdomain : undefined;
+}
+
+function isDashboardHost(host: string) {
+  return DASHBOARD_HOSTS.has(host);
 }
 
 function requestHeadersWithPathname(request: NextRequest) {
@@ -43,7 +54,15 @@ function withLoginCacheHeaders(response: NextResponse, request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  const host = hostWithoutPort(request);
   const requestHeaders = requestHeadersWithPathname(request);
+
+  if (isDashboardHost(host) && (pathname === "/" || pathname === "/login")) {
+    const dashboardUrl = request.nextUrl.clone();
+    dashboardUrl.pathname = pathname === "/login" ? "/admin/login" : "/admin";
+    dashboardUrl.search = "";
+    return NextResponse.redirect(dashboardUrl);
+  }
 
   if ((pathname === "/admin" || pathname.startsWith("/admin/")) && pathname !== "/admin/login") {
     const token = await getToken({ req: request });
@@ -55,7 +74,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  const subdomain = restaurantSubdomain(hostWithoutPort(request));
+  const subdomain = restaurantSubdomain(host);
 
   if (subdomain && (pathname === "/" || pathname === "/reservation")) {
     const url = request.nextUrl.clone();
