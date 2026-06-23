@@ -409,6 +409,12 @@ function addMonths(date: Date, months: number) {
   return nextDate;
 }
 
+function addMonthsToDateString(value: unknown, months: number) {
+  const date = parseDashboardDate(value) ?? parseDashboardDate(today()) ?? new Date();
+
+  return addMonths(date, months).toISOString().slice(0, 10);
+}
+
 function daysBetweenDateStrings(startDate: string, endDate: string) {
   const start = parseDashboardDate(startDate)?.getTime();
   const end = parseDashboardDate(endDate)?.getTime();
@@ -8590,6 +8596,26 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
       setSubscriptionMessage("Stripe n’a pas retourné de module de paiement.");
     }
   });
+  const billingPortalMutation = useMutation({
+    mutationFn: async () =>
+      apiFetch<{ url: string }>("/api/stripe/portal", {
+        method: "POST",
+        body: JSON.stringify({
+          restaurantId: restaurant.id
+        })
+      }),
+    onError: (error) => {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Impossible d’ouvrir la gestion du moyen de paiement.");
+    },
+    onSuccess: (payload) => {
+      if (payload.url) {
+        window.location.assign(payload.url);
+        return;
+      }
+
+      setSubscriptionMessage("Impossible d’ouvrir la gestion du moyen de paiement.");
+    }
+  });
   const invoicesQuery = useQuery({
     enabled: Boolean(subscriptionSettings.stripeCustomerId),
     queryKey: ["stripe-invoices", restaurant.id, subscriptionSettings.stripeCustomerId],
@@ -8629,9 +8655,16 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
   const currentPlanPriceCents = currentPlanConfig?.prices[currentCommitmentKey]?.[currentBillingCycle] ?? 0;
   const commitmentEndDate = typeof subscriptionSettings.commitmentEndDate === "string" ? subscriptionSettings.commitmentEndDate : "";
   const subscriptionUnderCommitment = Boolean(stripeSubscriptionId && currentCommitment === "TWELVE_MONTHS" && (!commitmentEndDate || commitmentEndDate >= today()));
-  const nextInvoice = typeof subscriptionSettings.nextBillingDate === "string" && subscriptionSettings.nextBillingDate
+  const storedNextBillingDate = typeof subscriptionSettings.nextBillingDate === "string" && subscriptionSettings.nextBillingDate
     ? subscriptionSettings.nextBillingDate
-    : typeof restaurant.settings.nextInvoiceDate === "string" ? restaurant.settings.nextInvoiceDate : "À connecter avec Stripe";
+    : typeof restaurant.settings.nextInvoiceDate === "string" ? restaurant.settings.nextInvoiceDate : "";
+  const subscriptionStartDate =
+    subscriptionSettings.startedAt ??
+    subscriptionSettings.startDate ??
+    subscriptionSettings.createdAt ??
+    subscriptionSettings.subscribedAt ??
+    billingSettings.lastPaymentDate ??
+    today();
   const subscriptionStatus = typeof subscriptionSettings.status === "string"
     ? subscriptionSettings.status
     : typeof billingSettings.status === "string" ? billingSettings.status : "Actif";
@@ -8645,9 +8678,10 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
     { id: "INV-2026-04", date: "01/04/2026", amount: "79 €", status: "Payée" }
   ];
   const stripeInvoices = invoicesQuery.data?.invoices ?? [];
-  const nextPaymentLabel = nextInvoice === "À connecter avec Stripe"
-    ? stripeSubscriptionId ? "Calculé sur la prochaine facture" : "Créé après le premier paiement"
-    : nextInvoice;
+  const nextBillingDate = storedNextBillingDate || (activeSubscription ? addMonthsToDateString(subscriptionStartDate, 1) : "");
+  const nextPaymentLabel = activeSubscription && nextBillingDate
+    ? formatLongDate(nextBillingDate)
+    : "Créé après le premier paiement";
 
   return (
     <section className="space-y-4">
@@ -8673,7 +8707,7 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                 <p className="font-black">{paymentResult === "success" ? "Paiement validé" : "Paiement annulé"}</p>
                 <p className="mt-1 text-sm font-semibold leading-5 text-ink/65">
                   {paymentResult === "success"
-                    ? "Votre abonnement est en cours de synchronisation avec Stripe. Les informations ci-dessous se mettent à jour automatiquement."
+                    ? "Votre abonnement est en cours de mise à jour. Les informations ci-dessous se mettent à jour automatiquement."
                     : "Aucun paiement n’a été prélevé et votre abonnement reste inchangé."}
                 </p>
               </div>
@@ -8687,9 +8721,23 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
           <div>
             <p className="text-xs font-black uppercase tracking-[0.12em] text-ink/45">Forfait actuel</p>
             <h3 className="mt-1 text-2xl font-black">{currentPlanLabel}</h3>
-            <p className="mt-1 text-sm font-semibold text-ink/55">{billingCycle} · prochain prélèvement : {nextPaymentLabel}</p>
+            <p className="mt-1 text-sm font-semibold text-ink/55">{billingCycle}</p>
+            <p className="mt-1 text-sm font-black text-moss">Prochain prélèvement : {nextPaymentLabel}</p>
           </div>
-          <span className="rounded-full bg-moss px-3 py-1 text-xs font-black text-white">{subscriptionStatusLabel(subscriptionStatus)}</span>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="rounded-full bg-moss px-3 py-1 text-xs font-black text-white">{subscriptionStatusLabel(subscriptionStatus)}</span>
+            {activeSubscription ? (
+              <button
+                className="secondary-button h-9 px-3 text-xs"
+                disabled={billingPortalMutation.isPending}
+                type="button"
+                onClick={() => billingPortalMutation.mutate()}
+              >
+                {billingPortalMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                Modifier le mode de paiement
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <SettingCard label="Prix actuel" value={currentPlanPriceCents > 0 ? formatCurrencyCents(currentPlanPriceCents) : "Sur mesure"} />
@@ -8709,7 +8757,7 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
           <div>
             <h3 className="font-black">Choisir un forfait</h3>
             <p className="mt-1 text-sm font-semibold text-ink/55">
-              Les noms et prix sont synchronisés avec Stripe.
+              Choisissez une formule adaptée à votre restaurant.
               {stripePlansQuery.isFetching ? " Actualisation en cours..." : null}
             </p>
           </div>
@@ -8751,10 +8799,8 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
               <p className="mt-4 text-2xl font-black">
                 {planPrice > 0 ? formatCurrencyCents(planPrice) : "Sur mesure"}
               </p>
-              {planIsCurrent ? (
-                <p className="mt-1 text-[11px] font-black uppercase tracking-[0.12em] text-moss">Forfait en cours</p>
-              ) : planBlocked ? (
-                <p className="mt-1 text-[11px] font-black uppercase tracking-[0.12em] text-ink/45">Forfait inférieur</p>
+              {planIsCurrent || planBlocked ? (
+                <p className="mt-1 text-[11px] font-black uppercase tracking-[0.12em] text-ink/55">Un abonnement est déjà en cours</p>
               ) : activeSubscription ? (
                 <p className="mt-1 text-[11px] font-black uppercase tracking-[0.12em] text-moss">Passer au forfait supérieur</p>
               ) : null}
@@ -8781,10 +8827,15 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                     key={option.id}
                     className={clsx(
                       "rounded-md border p-3 text-left text-sm transition focus-ring",
-                      selectedBillingCycle === option.id ? "border-moss bg-sage text-moss" : "border-ink/10 bg-linen"
+                      selectedBillingCycle === option.id ? "border-moss bg-sage text-moss" : "border-ink/10 bg-linen",
+                      activeSubscription ? "cursor-not-allowed opacity-60" : null
                     )}
+                    disabled={activeSubscription}
                     type="button"
                     onClick={() => {
+                      if (activeSubscription) {
+                        return;
+                      }
                       setEmbeddedClientSecret(null);
                       setSelectedBillingCycle(option.id);
                     }}
@@ -8804,10 +8855,15 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                     key={option.id}
                     className={clsx(
                       "rounded-md border p-3 text-left text-sm transition focus-ring",
-                      selectedCommitment === option.id ? "border-moss bg-sage text-moss" : "border-ink/10 bg-linen"
+                      selectedCommitment === option.id ? "border-moss bg-sage text-moss" : "border-ink/10 bg-linen",
+                      activeSubscription ? "cursor-not-allowed opacity-60" : null
                     )}
+                    disabled={activeSubscription}
                     type="button"
                     onClick={() => {
+                      if (activeSubscription) {
+                        return;
+                      }
                       setEmbeddedClientSecret(null);
                       setSelectedCommitment(option.id);
                     }}
@@ -8857,7 +8913,7 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
             ) : null}
             {!canPurchaseSelectedPlan ? (
               <p className="mt-3 rounded-md bg-white p-3 text-xs font-semibold leading-5 text-ink/60">
-                Votre abonnement est déjà en cours. Vous pouvez uniquement passer à un forfait supérieur depuis cet espace.
+                Votre abonnement est déjà en cours. Vous pouvez uniquement passer à un forfait supérieur.
               </p>
             ) : null}
           </aside>
