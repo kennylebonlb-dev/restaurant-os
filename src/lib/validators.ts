@@ -525,7 +525,7 @@ export const updateManagedRestaurantSchema = createManagedRestaurantSchema.parti
   ownerPhone: z.string().trim().max(32).optional(),
   ownerAddress: z.string().trim().max(240).optional(),
   subscriptionPlan: z.string().trim().max(80).optional(),
-  subscriptionStatus: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELLED"]).optional(),
+  subscriptionStatus: z.enum(["TRIAL", "ACTIVE", "PAUSED", "PAST_DUE", "SUSPENDED", "CANCELLED"]).optional(),
   subscriptionBilling: z.enum(["MONTHLY", "ANNUAL"]).optional(),
   subscriptionAmount: z.string().trim().max(40).optional(),
   subscriptionNextBillingDate: z.string().trim().max(40).optional(),

@@ -101,7 +101,7 @@ type SiteEditForm = {
   ownerPhone: string;
   ownerAddress: string;
   subscriptionPlan: string;
-  subscriptionStatus: "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELLED";
+  subscriptionStatus: "TRIAL" | "ACTIVE" | "PAUSED" | "PAST_DUE" | "SUSPENDED" | "CANCELLED";
   subscriptionBilling: "MONTHLY" | "ANNUAL";
   subscriptionAmount: string;
   subscriptionNextBillingDate: string;
@@ -328,7 +328,7 @@ const initialLandingForm: PlatformLandingSettings = {
   plans: [
     { name: "Essentiel", price: "49€", annualPrice: "39€", highlight: "Pour lancer la réservation en ligne", featured: false, active: true, buttonLabel: "Commencer gratuitement", features: ["Site vitrine ToqueTop", "Réservations en ligne 24/7", "Intégration Google et réseaux sociaux"] },
     { name: "Pro", price: "89€", annualPrice: "69€", highlight: "Le meilleur choix pour un restaurant actif", featured: true, active: true, buttonLabel: "Essayer Pro gratuitement", features: ["Tout Essentiel", "Plan 3D immersif", "Rappels SMS et e-mail", "Réduction des no-shows jusqu’à 35%"] },
-    { name: "Signature", price: "Sur mesure", annualPrice: "Sur mesure", highlight: "Pour groupes, lieux premium et multi-sites", featured: false, active: true, buttonLabel: "Nous contacter", features: ["Multi-restaurants", "Comptabilité et reporting avancé", "Automatisations avancées", "Assistance 24h/24 7j/7"] }
+    { name: "Signature", price: "149€", annualPrice: "119,20€", highlight: "Pour groupes, lieux premium et multi-sites", featured: false, active: true, buttonLabel: "Essayer Signature", features: ["Multi-restaurants", "Comptabilité et reporting avancé", "Automatisations avancées", "Assistance 24h/24 7j/7"] }
   ],
   demoEyebrow: "Migration accompagnée",
   demoTitle: "Changez pour ToqueTop, on s’occupe de tout !",
@@ -487,6 +487,8 @@ function siteEditFormFromRestaurant(site?: ManagedRestaurant): SiteEditForm {
     subscriptionStatus:
       subscription.status === "ACTIVE" ||
       subscription.status === "PAUSED" ||
+      subscription.status === "PAST_DUE" ||
+      subscription.status === "SUSPENDED" ||
       subscription.status === "CANCELLED"
         ? subscription.status
         : "TRIAL",
@@ -2216,6 +2218,8 @@ export function PlatformAdminDashboard() {
                                 <option value="TRIAL">Essai</option>
                                 <option value="ACTIVE">Actif</option>
                                 <option value="PAUSED">En pause</option>
+                                <option value="PAST_DUE">Impayé</option>
+                                <option value="SUSPENDED">Suspendu</option>
                                 <option value="CANCELLED">Annulé</option>
                               </select>
                             </label>

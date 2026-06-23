@@ -1070,6 +1070,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
 
   const restaurants = restaurantsQuery.data?.restaurants ?? [];
   const restaurant = restaurants[0];
+  const dashboardSubscriptionState = subscriptionStateFromSettings(restaurant?.settings);
   const dashboardLogoUrl = brandQuery.data?.brand.logoUrl ?? "/toquetop-logo.svg";
   const dashboardLogoAlt = brandQuery.data?.brand.logoAlt ?? "ToqueTop";
   const dashboardLogoHeight = brandQuery.data?.brand.logoHeight ?? 48;
@@ -2231,6 +2232,24 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
             </div>
           </div>
           <div className="relative flex items-center gap-2 text-sm font-bold" ref={accountMenuRef}>
+            {dashboardSubscriptionState.trial ? (
+              <span className={clsx(
+                "hidden rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] sm:inline-flex",
+                dashboardSubscriptionState.trialExpired ? "bg-red-50 text-red-700" : "bg-gold/25 text-ink"
+              )}>
+                {dashboardSubscriptionState.trialExpired ? "Essai terminé" : "Période d’essai"}
+              </span>
+            ) : null}
+            {dashboardSubscriptionState.pastDue && !dashboardSubscriptionState.serviceSuspended ? (
+              <span className="hidden rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-white sm:inline-flex">
+                Impayé
+              </span>
+            ) : null}
+            {dashboardSubscriptionState.serviceSuspended ? (
+              <span className="hidden rounded-full bg-ink px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-white sm:inline-flex">
+                Suspendu
+              </span>
+            ) : null}
             <span className="hidden max-w-[180px] truncate sm:inline">{restaurant.name}</span>
             <button
               aria-controls="dashboard-account-menu"
@@ -2383,6 +2402,43 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
           )}
         >
           <section className={clsx("space-y-4", section !== "dashboard" ? "w-full max-w-5xl" : "")}>
+            {dashboardSubscriptionState.trialExpired ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-900 shadow-soft">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black">Votre période d’essai est terminée.</p>
+                    <p className="mt-1 text-sm font-semibold leading-6">
+                      Pour continuer à bénéficier des services ToqueTop, choisissez un abonnement adapté à votre restaurant.
+                    </p>
+                  </div>
+                  <button className="primary-button h-10 px-4 text-sm" type="button" onClick={() => setSection("subscription")}>
+                    Voir les abonnements
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {dashboardSubscriptionState.pastDue ? (
+              <div className={clsx(
+                "rounded-lg border p-4 shadow-soft",
+                dashboardSubscriptionState.serviceSuspended ? "border-red-300 bg-red-100 text-red-950" : "border-red-200 bg-red-50 text-red-900"
+              )}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black">
+                      {dashboardSubscriptionState.serviceSuspended ? "Services suspendus pour facture impayée." : "Facture impayée détectée."}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold leading-6">
+                      {dashboardSubscriptionState.serviceSuspended
+                        ? "Le délai de 15 jours est dépassé. Régularisez votre paiement depuis Abonnement pour réactiver le service."
+                        : `Régularisez votre facture pour éviter la suspension du service${dashboardSubscriptionState.overdueDays ? ` dans ${Math.max(0, 15 - dashboardSubscriptionState.overdueDays)} jour(s)` : ""}.`}
+                    </p>
+                  </div>
+                  <button className="primary-button h-10 px-4 text-sm" type="button" onClick={() => setSection("subscription")}>
+                    Régler maintenant
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {section === "dashboard" ? (
               <>
                 <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
@@ -8330,9 +8386,9 @@ type SubscriptionPlanConfig = {
 };
 
 const subscriptionBillingOptions: Array<{ id: SubscriptionBillingCycle; label: string; detail: string }> = [
-  { id: "MONTHLY", label: "Mensuel", detail: "prélevé chaque mois" },
-  { id: "QUARTERLY", label: "Trimestriel", detail: "prélevé tous les 3 mois" },
-  { id: "ANNUAL", label: "Annuel", detail: "prélevé une fois par an" }
+  { id: "MONTHLY", label: "Mensuel", detail: "Prélevé chaque mois" },
+  { id: "QUARTERLY", label: "Trimestriel", detail: "Prélevé tous les 3 mois" },
+  { id: "ANNUAL", label: "Annuel", detail: "Prélevé une fois par an" }
 ];
 
 const subscriptionCommitmentOptions: Array<{ id: SubscriptionCommitment; label: string; detail: string }> = [
@@ -8368,8 +8424,8 @@ const subscriptionPlans: SubscriptionPlanConfig[] = [
     modelingFeeCents: 0,
     name: "Signature",
     prices: {
-      NONE: { MONTHLY: 0, QUARTERLY: 0, ANNUAL: 0 },
-      TWELVE_MONTHS: { MONTHLY: 0, QUARTERLY: 0, ANNUAL: 0 }
+      NONE: { MONTHLY: 14900, QUARTERLY: 40230, ANNUAL: 143040 },
+      TWELVE_MONTHS: { MONTHLY: 14900, QUARTERLY: 40230, ANNUAL: 143040 }
     }
   }
 ];
@@ -8448,12 +8504,20 @@ function subscriptionBillingCycleLabel(value: unknown) {
 function subscriptionStatusLabel(value: unknown) {
   const status = typeof value === "string" ? value.toUpperCase() : "";
 
-  if (["ACTIVE", "TRIAL", "TRIALING", "PAID", "COMPLETE"].includes(status)) {
+  if (["ACTIVE", "PAID", "COMPLETE"].includes(status)) {
     return "En cours";
+  }
+
+  if (["TRIAL", "TRIALING"].includes(status)) {
+    return "Période d’essai";
   }
 
   if (["PAST_DUE", "UNPAID"].includes(status)) {
     return "Paiement à régulariser";
+  }
+
+  if (["PAUSED", "SUSPENDED"].includes(status)) {
+    return "Suspendu";
   }
 
   if (["CANCELED", "CANCELLED"].includes(status)) {
@@ -8464,12 +8528,136 @@ function subscriptionStatusLabel(value: unknown) {
     return "En attente";
   }
 
-  return "En cours";
+  return "Aucun forfait";
 }
 
 function isActiveSubscriptionStatus(value: unknown) {
   const status = typeof value === "string" ? value.toUpperCase() : "";
-  return ["ACTIVE", "TRIAL", "TRIALING", "PAID", "COMPLETE"].includes(status);
+  return ["ACTIVE", "PAID", "COMPLETE"].includes(status);
+}
+
+function isTrialSubscriptionStatus(value: unknown) {
+  const status = typeof value === "string" ? value.toUpperCase() : "";
+  return ["TRIAL", "TRIALING"].includes(status);
+}
+
+function isPastDueSubscriptionStatus(value: unknown, billingStatus?: unknown) {
+  const status = typeof value === "string" ? value.toUpperCase() : "";
+  const billing = typeof billingStatus === "string" ? billingStatus.toUpperCase() : "";
+  return ["PAST_DUE", "UNPAID"].includes(status) || billing === "LATE";
+}
+
+function isSuspendedSubscriptionStatus(value: unknown) {
+  const status = typeof value === "string" ? value.toUpperCase() : "";
+  return ["PAUSED", "SUSPENDED"].includes(status);
+}
+
+function isCancelledSubscriptionStatus(value: unknown) {
+  const status = typeof value === "string" ? value.toUpperCase() : "";
+  return ["CANCELED", "CANCELLED"].includes(status);
+}
+
+function subscriptionStatusClass(value: unknown, billingStatus?: unknown) {
+  const status = typeof value === "string" ? value.toUpperCase() : "";
+
+  if (isPastDueSubscriptionStatus(value, billingStatus)) {
+    return "bg-red-600 text-white";
+  }
+
+  if (isSuspendedSubscriptionStatus(value) || isCancelledSubscriptionStatus(value)) {
+    return "bg-ink/70 text-white";
+  }
+
+  if (isTrialSubscriptionStatus(value)) {
+    return "bg-gold/25 text-ink";
+  }
+
+  if (["ACTIVE", "PAID", "COMPLETE"].includes(status)) {
+    return "bg-moss text-white";
+  }
+
+  if (!status || status === "FREE") {
+    return "bg-ink/10 text-ink/60";
+  }
+
+  return "bg-ink/10 text-ink/60";
+}
+
+function subscriptionCycleMonths(cycle: SubscriptionBillingCycle) {
+  if (cycle === "ANNUAL") {
+    return 12;
+  }
+
+  if (cycle === "QUARTERLY") {
+    return 3;
+  }
+
+  return 1;
+}
+
+function subscriptionDiscountPercent(plan: SubscriptionPlanConfig, commitment: SubscriptionCommitment, cycle: SubscriptionBillingCycle) {
+  if (cycle === "MONTHLY") {
+    return 0;
+  }
+
+  const monthlyPrice = plan.prices[commitment].MONTHLY;
+  const cyclePrice = plan.prices[commitment][cycle];
+  const fullPrice = monthlyPrice * subscriptionCycleMonths(cycle);
+
+  if (!monthlyPrice || !cyclePrice || !fullPrice || cyclePrice >= fullPrice) {
+    return 0;
+  }
+
+  return Math.round((1 - cyclePrice / fullPrice) * 100);
+}
+
+function subscriptionSettingsFromRestaurant(settings?: Record<string, unknown>) {
+  const subscription = settings?.subscription && typeof settings.subscription === "object" && !Array.isArray(settings.subscription)
+    ? settings.subscription as Record<string, unknown>
+    : {};
+  const billing = settings?.billing && typeof settings.billing === "object" && !Array.isArray(settings.billing)
+    ? settings.billing as Record<string, unknown>
+    : {};
+
+  return { billing, subscription };
+}
+
+function subscriptionStateFromSettings(settings?: Record<string, unknown>) {
+  const { billing, subscription } = subscriptionSettingsFromRestaurant(settings);
+  const status = typeof subscription.status === "string"
+    ? subscription.status
+    : typeof billing.status === "string" ? billing.status : "";
+  const billingStatus = typeof billing.status === "string" ? billing.status : "";
+  const stripeSubscriptionId = typeof subscription.stripeSubscriptionId === "string" ? subscription.stripeSubscriptionId : "";
+  const trialEndsAt = typeof subscription.trialEndsAt === "string" ? subscription.trialEndsAt : "";
+  const nextBillingDate = typeof subscription.nextBillingDate === "string"
+    ? subscription.nextBillingDate
+    : typeof settings?.nextInvoiceDate === "string" ? settings.nextInvoiceDate : "";
+  const billingDueDate = typeof billing.dueDate === "string"
+    ? billing.dueDate
+    : typeof billing.paidUntil === "string" ? billing.paidUntil : nextBillingDate;
+  const todayDate = today();
+  const active = Boolean(stripeSubscriptionId) && isActiveSubscriptionStatus(status);
+  const trial = isTrialSubscriptionStatus(status);
+  const pastDue = Boolean(stripeSubscriptionId) && isPastDueSubscriptionStatus(status, billingStatus);
+  const suspended = Boolean(stripeSubscriptionId) && isSuspendedSubscriptionStatus(status);
+  const trialExpired = trial && Boolean(trialEndsAt) && trialEndsAt < todayDate;
+  const overdueDays = pastDue && billingDueDate && billingDueDate < todayDate ? daysBetweenDateStrings(billingDueDate, todayDate) : 0;
+  const serviceSuspended = suspended || overdueDays >= 15;
+
+  return {
+    active,
+    billingDueDate,
+    overdueDays,
+    pastDue,
+    serviceSuspended,
+    status,
+    stripeSubscriptionId,
+    suspended,
+    trial,
+    trialEndsAt,
+    trialExpired
+  };
 }
 
 function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
@@ -8491,6 +8679,7 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
   const [selectedCommitment, setSelectedCommitment] = useState<SubscriptionCommitment>("TWELVE_MONTHS");
   const [embeddedClientSecret, setEmbeddedClientSecret] = useState<string | null>(null);
   const [showCancellationForm, setShowCancellationForm] = useState(false);
+  const [acceptedSubscriptionTerms, setAcceptedSubscriptionTerms] = useState(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const stripeResult = params.get("stripe");
@@ -8667,11 +8856,17 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
     today();
   const subscriptionStatus = typeof subscriptionSettings.status === "string"
     ? subscriptionSettings.status
-    : typeof billingSettings.status === "string" ? billingSettings.status : "Actif";
+    : typeof billingSettings.status === "string" ? billingSettings.status : "";
+  const billingStatus = typeof billingSettings.status === "string" ? billingSettings.status : "";
   const activeSubscription = Boolean(stripeSubscriptionId) && isActiveSubscriptionStatus(subscriptionStatus);
+  const hasStripeSubscription = Boolean(stripeSubscriptionId) && !isCancelledSubscriptionStatus(subscriptionStatus);
+  const trialEndsAt = typeof subscriptionSettings.trialEndsAt === "string" ? subscriptionSettings.trialEndsAt : "";
+  const trialExpired = isTrialSubscriptionStatus(subscriptionStatus) && Boolean(trialEndsAt) && trialEndsAt < today();
+  const paymentPastDue = hasStripeSubscription && isPastDueSubscriptionStatus(subscriptionStatus, billingStatus);
+  const suspendedSubscription = hasStripeSubscription && isSuspendedSubscriptionStatus(subscriptionStatus);
   const currentPlanRank = subscriptionPlanRank(currentPlanName);
   const selectedPlanRank = subscriptionPlanRank(selectedPlan);
-  const canPurchaseSelectedPlan = !activeSubscription || selectedPlanRank > currentPlanRank;
+  const canPurchaseSelectedPlan = !hasStripeSubscription || (activeSubscription && selectedPlanRank > currentPlanRank);
   const invoices = [
     { id: "INV-2026-06", date: "01/06/2026", amount: "79 €", status: "Payée" },
     { id: "INV-2026-05", date: "01/05/2026", amount: "79 €", status: "Payée" },
@@ -8682,6 +8877,14 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
   const nextPaymentLabel = activeSubscription && nextBillingDate
     ? formatLongDate(nextBillingDate)
     : "Créé après le premier paiement";
+  const currentPlanTitle = hasStripeSubscription
+    ? currentPlanLabel
+    : isTrialSubscriptionStatus(subscriptionStatus) ? "Période d’essai ToqueTop" : "Aucun forfait actif";
+  const canStartEmbeddedPayment = selectedPlanHasStripePrice &&
+    !embeddedCheckoutMutation.isPending &&
+    Boolean(stripePublishableKey) &&
+    canPurchaseSelectedPlan &&
+    acceptedSubscriptionTerms;
 
   return (
     <section className="space-y-4">
@@ -8720,13 +8923,30 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.12em] text-ink/45">Forfait actuel</p>
-            <h3 className="mt-1 text-2xl font-black">{currentPlanLabel}</h3>
-            <p className="mt-1 text-sm font-semibold text-ink/55">{billingCycle}</p>
-            <p className="mt-1 text-sm font-black text-moss">Prochain prélèvement : {nextPaymentLabel}</p>
+            <h3 className="mt-1 text-2xl font-black">{currentPlanTitle}</h3>
+            {hasStripeSubscription ? <p className="mt-1 text-sm font-semibold text-ink/55">{billingCycle}</p> : null}
+            {activeSubscription ? <p className="mt-1 text-sm font-black text-moss">Prochain prélèvement : {nextPaymentLabel}</p> : null}
+            {isTrialSubscriptionStatus(subscriptionStatus) && trialEndsAt ? (
+              <p className={clsx("mt-1 text-sm font-black", trialExpired ? "text-red-700" : "text-ink/60")}>
+                {trialExpired ? "Période d’essai terminée" : `Essai offert jusqu’au ${formatLongDate(trialEndsAt)}`}
+              </p>
+            ) : null}
+            {paymentPastDue ? (
+              <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-black text-red-700">
+                Paiement en retard : régularisez votre facture pour éviter la suspension du service.
+              </p>
+            ) : null}
+            {suspendedSubscription ? (
+              <p className="mt-2 rounded-md bg-ink/10 px-3 py-2 text-sm font-black text-ink/70">
+                Abonnement suspendu : contactez ToqueTop ou régularisez la situation depuis votre espace de paiement.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="rounded-full bg-moss px-3 py-1 text-xs font-black text-white">{subscriptionStatusLabel(subscriptionStatus)}</span>
-            {activeSubscription ? (
+            <span className={clsx("rounded-full px-3 py-1 text-xs font-black", subscriptionStatusClass(subscriptionStatus, billingStatus))}>
+              {subscriptionStatusLabel(subscriptionStatus)}
+            </span>
+            {hasStripeSubscription ? (
               <button
                 className="secondary-button h-9 px-3 text-xs"
                 disabled={billingPortalMutation.isPending}
@@ -8734,7 +8954,7 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                 onClick={() => billingPortalMutation.mutate()}
               >
                 {billingPortalMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
-                Modifier le mode de paiement
+                {paymentPastDue ? "Régulariser le paiement" : "Modifier le mode de paiement"}
               </button>
             ) : null}
           </div>
@@ -8768,14 +8988,15 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
           {availableSubscriptionPlans.map((plan) => {
             const planPrice = plan.prices[selectedCommitment][selectedBillingCycle];
             const planRank = subscriptionPlanRank(plan.name);
-            const planIsCurrent = activeSubscription && plan.name === currentPlanName;
-            const planBlocked = activeSubscription && planRank <= currentPlanRank;
+            const planIsCurrent = hasStripeSubscription && plan.name === currentPlanName;
+            const planBlocked = hasStripeSubscription && planRank <= currentPlanRank;
+            const discountPercent = subscriptionDiscountPercent(plan, selectedCommitment, selectedBillingCycle);
 
             return (
             <button
               key={plan.name}
               className={clsx(
-                "rounded-lg border p-4 text-left transition focus-ring",
+                "relative overflow-hidden rounded-lg border p-4 text-left transition focus-ring",
                 selectedPlan === plan.name ? "border-moss bg-sage shadow-soft" : "border-ink/10 bg-linen hover:bg-sage/50",
                 planBlocked ? "cursor-not-allowed opacity-60 hover:bg-linen" : null
               )}
@@ -8794,14 +9015,23 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                   <p className="text-lg font-black">{plan.displayName ?? plan.name}</p>
                   <p className="mt-1 text-xs font-semibold leading-5 text-ink/55">{plan.description}</p>
                 </div>
-                {plan.popular ? <span className="rounded bg-gold/20 px-2 py-1 text-[10px] font-black text-ink">Populaire</span> : null}
+                {plan.popular ? (
+                  <span className="rounded-full bg-moss px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-white shadow-soft ring-2 ring-gold/40">
+                    Populaire
+                  </span>
+                ) : null}
               </div>
               <p className="mt-4 text-2xl font-black">
                 {planPrice > 0 ? formatCurrencyCents(planPrice) : "Sur mesure"}
               </p>
+              {discountPercent > 0 ? (
+                <p className="mt-1 inline-flex rounded-full bg-gold/25 px-2.5 py-1 text-[11px] font-black text-ink">
+                  -{discountPercent}% par rapport au mensuel
+                </p>
+              ) : null}
               {planIsCurrent || planBlocked ? (
                 <p className="mt-1 text-[11px] font-black uppercase tracking-[0.12em] text-ink/55">Un abonnement est déjà en cours</p>
-              ) : activeSubscription ? (
+              ) : hasStripeSubscription ? (
                 <p className="mt-1 text-[11px] font-black uppercase tracking-[0.12em] text-moss">Passer au forfait supérieur</p>
               ) : null}
               <ul className="mt-3 grid gap-1 text-xs font-semibold text-ink/60">
@@ -8828,12 +9058,12 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                     className={clsx(
                       "rounded-md border p-3 text-left text-sm transition focus-ring",
                       selectedBillingCycle === option.id ? "border-moss bg-sage text-moss" : "border-ink/10 bg-linen",
-                      activeSubscription ? "cursor-not-allowed opacity-60" : null
+                      hasStripeSubscription ? "cursor-not-allowed opacity-60" : null
                     )}
-                    disabled={activeSubscription}
+                    disabled={hasStripeSubscription}
                     type="button"
                     onClick={() => {
-                      if (activeSubscription) {
+                      if (hasStripeSubscription) {
                         return;
                       }
                       setEmbeddedClientSecret(null);
@@ -8856,19 +9086,29 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
                     className={clsx(
                       "rounded-md border p-3 text-left text-sm transition focus-ring",
                       selectedCommitment === option.id ? "border-moss bg-sage text-moss" : "border-ink/10 bg-linen",
-                      activeSubscription ? "cursor-not-allowed opacity-60" : null
+                      hasStripeSubscription ? "cursor-not-allowed opacity-60" : null
                     )}
-                    disabled={activeSubscription}
+                    disabled={hasStripeSubscription}
                     type="button"
                     onClick={() => {
-                      if (activeSubscription) {
+                      if (hasStripeSubscription) {
                         return;
                       }
                       setEmbeddedClientSecret(null);
                       setSelectedCommitment(option.id);
                     }}
                   >
-                    <span className="block font-black">{option.label}</span>
+                    <span className="flex items-center gap-2 font-black">
+                      {option.label}
+                      <span className="group relative inline-flex" aria-label={`Information ${option.label}`}>
+                        <Info className="h-3.5 w-3.5 text-moss" />
+                        <span className="pointer-events-none absolute bottom-6 left-1/2 z-20 w-80 -translate-x-1/2 rounded-md border border-ink/10 bg-white p-3 text-left text-[11px] font-semibold leading-5 text-ink/70 opacity-0 shadow-soft transition group-hover:opacity-100">
+                          {option.id === "TWELVE_MONTHS"
+                            ? "La modélisation 2D/3D de votre restaurant est incluse dans votre abonnement avec engagement. Plutôt que de régler des frais de création au démarrage, ceux-ci sont répartis dans vos mensualités. Un membre de l’équipe ToqueTop modélise votre établissement à votre image afin d’offrir à vos clients une expérience de réservation immersive, claire et moderne."
+                            : "Avec l’abonnement sans engagement, vous restez libre à tout moment. La modélisation 2D/3D de votre restaurant est facturée une seule fois lors de la mise en place. Cette étape importante mobilise un membre de l’équipe ToqueTop pour créer un espace fidèle à votre établissement et offrir à vos clients une expérience de réservation immersive."}
+                        </span>
+                      </span>
+                    </span>
                     <span className="mt-1 block text-xs font-semibold text-ink/55">{option.detail}</span>
                   </button>
                 ))}
@@ -8898,13 +9138,34 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
             </div>
             <button
               className="primary-button mt-4 h-10 w-full text-xs"
-              disabled={!selectedPlanHasStripePrice || embeddedCheckoutMutation.isPending || !stripePublishableKey || !canPurchaseSelectedPlan}
+              disabled={!canStartEmbeddedPayment}
               type="button"
               onClick={() => embeddedCheckoutMutation.mutate()}
             >
               {embeddedCheckoutMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
               Payer dans ToqueTop
             </button>
+            {selectedPlanHasStripePrice && canPurchaseSelectedPlan ? (
+              <label className="mt-3 flex items-start gap-2 rounded-md bg-white p-3 text-xs font-semibold leading-5 text-ink/65">
+                <input
+                  className="mt-1 h-4 w-4 accent-moss"
+                  checked={acceptedSubscriptionTerms}
+                  type="checkbox"
+                  onChange={(event) => setAcceptedSubscriptionTerms(event.target.checked)}
+                />
+                <span>
+                  J’accepte les{" "}
+                  <a className="font-black text-moss hover:underline" href="https://help.toquetop.com/legal/conditions-generales-vente" rel="noreferrer" target="_blank">CGV</a>
+                  , les{" "}
+                  <a className="font-black text-moss hover:underline" href="https://help.toquetop.com/legal/conditions-generales-utilisation" rel="noreferrer" target="_blank">CGU</a>
+                  {" "}et la{" "}
+                  <a className="font-black text-moss hover:underline" href="https://help.toquetop.com/legal/protection-donnees" rel="noreferrer" target="_blank">Politique de confidentialité</a>.
+                </span>
+              </label>
+            ) : null}
+            {selectedPlanHasStripePrice && canPurchaseSelectedPlan && !acceptedSubscriptionTerms ? (
+              <p className="mt-2 text-xs font-semibold text-ink/50">L’acceptation des conditions est nécessaire pour souscrire.</p>
+            ) : null}
             {!selectedPlanHasStripePrice ? (
               <p className="mt-3 rounded-md bg-white p-3 text-xs font-semibold leading-5 text-ink/60">Ce forfait n’a pas encore de prix Stripe actif pour cette périodicité.</p>
             ) : null}
@@ -8924,7 +9185,7 @@ function SubscriptionPanel({ restaurant }: { restaurant: Restaurant }) {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h4 className="font-black">Paiement sécurisé</h4>
-                <p className="text-xs font-semibold text-ink/55">Le formulaire Stripe est intégré dans ToqueTop.</p>
+                <p className="text-xs font-semibold text-ink/55">Avec ToqueTop, ne laissez plus vos réservations mijoter !</p>
               </div>
               <button className="icon-button h-8 w-8" type="button" onClick={() => setEmbeddedClientSecret(null)}>
                 <X className="h-4 w-4" />

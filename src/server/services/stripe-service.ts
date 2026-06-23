@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripeClient } from "@/lib/stripe";
-import { BadRequestError, NotFoundError } from "@/server/errors";
+import { NotFoundError } from "@/server/errors";
 
 type JsonRecord = Record<string, unknown>;
 type BillingCycle = "MONTHLY" | "QUARTERLY" | "ANNUAL";
@@ -59,14 +59,14 @@ const planCatalog: Record<StripePlanName, {
     features: ["Multi-restaurants", "Reporting avancé", "Automatisations", "Accompagnement dédié"],
     modelingFeeCents: 0,
     prices: {
-      MONTHLY: { amountCents: 0, interval: "month", intervalCount: 1 },
-      QUARTERLY: { amountCents: 0, interval: "month", intervalCount: 3 },
-      ANNUAL: { amountCents: 0, interval: "year", intervalCount: 1 }
+      MONTHLY: { amountCents: 14900, interval: "month", intervalCount: 1 },
+      QUARTERLY: { amountCents: 40230, interval: "month", intervalCount: 3 },
+      ANNUAL: { amountCents: 143040, interval: "year", intervalCount: 1 }
     },
     pricesWithCommitment: {
-      MONTHLY: { amountCents: 0, interval: "month", intervalCount: 1 },
-      QUARTERLY: { amountCents: 0, interval: "month", intervalCount: 3 },
-      ANNUAL: { amountCents: 0, interval: "year", intervalCount: 1 }
+      MONTHLY: { amountCents: 14900, interval: "month", intervalCount: 1 },
+      QUARTERLY: { amountCents: 40230, interval: "month", intervalCount: 3 },
+      ANNUAL: { amountCents: 143040, interval: "year", intervalCount: 1 }
     }
   }
 };
@@ -243,10 +243,6 @@ async function lineItemsForPlan(input: {
     ? await findConfiguredStripePrice(input.stripe, selectedPlan.lookupKey)
     : null;
 
-  if (!configuredPrice && selectedPlan.planName === "Signature") {
-    throw new BadRequestError("Le forfait Signature est sur mesure. Contactez ToqueTop pour générer un contrat adapté.");
-  }
-
   const recurringLineItem: Stripe.Checkout.SessionCreateParams.LineItem = configuredPrice
     ? {
         price: configuredPrice.id,
@@ -357,11 +353,14 @@ export async function getStripePlanCatalog() {
   const stripe = getStripeClient();
   const plans = await Promise.all((Object.keys(planCatalog) as StripePlanName[]).map(async (planName) => {
     const fallback = planCatalog[planName];
-    const productSearch = await stripe.products.search({
-      limit: 1,
-      query: `metadata["toquetop_plan"]:"${planName}"`
+    const productSearch = await stripe.products.list({
+      active: true,
+      limit: 100
     });
-    const product = productSearch.data[0] ?? null;
+    const product = productSearch.data.find((candidate) => {
+      const planMetadata = candidate.metadata?.toquetop_plan || candidate.metadata?.toquetopPlan || "";
+      return normalizeStripePlanName(planMetadata || candidate.name || "") === planName;
+    }) ?? null;
     const prices: Record<Commitment, Record<BillingCycle, StripeCatalogPrice>> = {
       NONE: {} as Record<BillingCycle, StripeCatalogPrice>,
       TWELVE_MONTHS: {} as Record<BillingCycle, StripeCatalogPrice>

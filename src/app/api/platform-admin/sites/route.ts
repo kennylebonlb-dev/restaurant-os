@@ -1,7 +1,7 @@
 import type { RestaurantStaffRole } from "@prisma/client";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { buildRestaurantSlug, defaultOpeningHours, defaultRestaurantSettings } from "@/lib/site-defaults";
+import { buildRestaurantSlug, defaultOpeningHours, defaultRestaurantSettings, defaultTrialSubscriptionSettings } from "@/lib/site-defaults";
 import { inferTimeZoneFromAddress } from "@/lib/time";
 import { createManagedRestaurantSchema } from "@/lib/validators";
 import { apiError, created, ok, parseJson } from "@/server/http";
@@ -262,6 +262,7 @@ export async function POST(request: Request) {
         openingHours: defaultOpeningHours(),
         settings: {
           ...defaultRestaurantSettings,
+          ...defaultTrialSubscriptionSettings(),
           ownerEmail: ownerEmail || ""
         },
         menu: []

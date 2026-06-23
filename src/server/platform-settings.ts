@@ -576,12 +576,12 @@ export const defaultPlatformLandingSettings: PlatformLandingSettings = {
     },
     {
       name: "Signature",
-      price: "Sur mesure",
-      annualPrice: "Sur mesure",
+      price: "149€",
+      annualPrice: "119,20€",
       highlight: "Pour groupes, lieux premium et multi-sites",
       featured: false,
       active: true,
-      buttonLabel: "Nous contacter",
+      buttonLabel: "Essayer Signature",
       features: ["Multi-restaurants", "Accompagnement prioritaire", "Comptabilité et reporting avancé", "Automatisations avancées", "Préparation IA et CRM", "Assistance 24h/24 7j/7"]
     }
   ],

@@ -1,4 +1,5 @@
 import { createRestaurantSchema } from "@/lib/validators";
+import { defaultRestaurantSettings, defaultTrialSubscriptionSettings } from "@/lib/site-defaults";
 import { inferTimeZoneFromAddress } from "@/lib/time";
 import { requireRole } from "@/server/auth/guards";
 import { apiError, created, ok, parseJson } from "@/server/http";
@@ -31,6 +32,11 @@ export async function POST(request: Request) {
     const data = await parseJson(request, createRestaurantSchema);
     const restaurant = await createRestaurant({
       ...data,
+      settings: {
+        ...defaultRestaurantSettings,
+        ...defaultTrialSubscriptionSettings(),
+        ...data.settings
+      },
       timezone: data.timezone || inferTimeZoneFromAddress(data.address),
       ownerId: session.user.id
     });

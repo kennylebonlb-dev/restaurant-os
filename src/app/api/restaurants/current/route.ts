@@ -6,10 +6,11 @@ const ROOT_HOSTS = new Set([
   "toquetop.com",
   "www.toquetop.com",
   "dashboard.toquetop.com",
+  "help.toquetop.com",
   "localhost",
   "127.0.0.1"
 ]);
-const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api", "dashboard"]);
+const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api", "dashboard", "help"]);
 
 function restaurantSubdomain(hostHeader: string | null) {
   const host = (hostHeader ?? "").split(":")[0].toLowerCase();

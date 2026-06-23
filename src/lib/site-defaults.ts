@@ -33,3 +33,25 @@ export const defaultRestaurantSettings = {
   strictCapacityMatching: true,
   layoutGridSize: 32
 };
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+export function defaultTrialSubscriptionSettings(referenceDate = new Date()) {
+  const trialEndDate = new Date(referenceDate);
+  trialEndDate.setUTCDate(trialEndDate.getUTCDate() + 7);
+
+  return {
+    subscription: {
+      plan: "Pro",
+      status: "TRIAL",
+      billing: "MONTHLY",
+      trialStartedAt: isoDate(referenceDate),
+      trialEndsAt: isoDate(trialEndDate)
+    },
+    billing: {
+      status: "FREE"
+    }
+  };
+}

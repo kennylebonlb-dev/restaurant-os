@@ -1,6 +1,24 @@
 import Link from "next/link";
 
 const legalPages: Record<string, { title: string; intro: string; sections: Array<{ title: string; text: string }> }> = {
+  "conditions-generales-vente": {
+    title: "Conditions Générales de Vente",
+    intro: "Ces conditions encadrent la souscription aux offres ToqueTop, la facturation et l’accès aux services payants.",
+    sections: [
+      {
+        title: "Offres et souscription",
+        text: "Les offres ToqueTop donnent accès aux fonctionnalités de réservation, de gestion et d’accompagnement selon le forfait choisi par le restaurant."
+      },
+      {
+        title: "Prix et paiement",
+        text: "Les prix sont indiqués en euros hors éventuelles taxes applicables. Le paiement peut être mensuel, trimestriel ou annuel selon les options proposées au moment de la souscription."
+      },
+      {
+        title: "Engagement et résiliation",
+        text: "Certaines offres peuvent inclure une période d’engagement. Les modalités de résiliation et d’échéance sont précisées dans l’espace Abonnement du restaurant."
+      }
+    ]
+  },
   "conditions-generales-utilisation": {
     title: "Conditions Générales d’Utilisation",
     intro: "Ces conditions encadrent l’utilisation du site ToqueTop et des services accessibles en ligne.",

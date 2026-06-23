@@ -5,11 +5,13 @@ const ROOT_HOSTS = new Set([
   "toquetop.com",
   "www.toquetop.com",
   "dashboard.toquetop.com",
+  "help.toquetop.com",
   "localhost",
   "127.0.0.1"
 ]);
 const DASHBOARD_HOSTS = new Set(["dashboard.toquetop.com"]);
-const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api", "dashboard"]);
+const HELP_HOSTS = new Set(["help.toquetop.com"]);
+const IGNORED_SUBDOMAINS = new Set(["www", "app", "admin", "api", "dashboard", "help"]);
 const CACHEABLE_LOGIN_PATHS = new Set(["/login", "/admin/login"]);
 const LOGIN_CACHE_CONTROL = "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 const LOGIN_CDN_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=600";
@@ -30,6 +32,10 @@ function restaurantSubdomain(host: string) {
 
 function isDashboardHost(host: string) {
   return DASHBOARD_HOSTS.has(host);
+}
+
+function isHelpHost(host: string) {
+  return HELP_HOSTS.has(host);
 }
 
 function requestHeadersWithPathname(request: NextRequest) {
@@ -62,6 +68,16 @@ export async function middleware(request: NextRequest) {
     dashboardUrl.pathname = pathname === "/login" ? "/admin/login" : "/admin";
     dashboardUrl.search = "";
     return NextResponse.redirect(dashboardUrl);
+  }
+
+  if (isHelpHost(host) && pathname === "/") {
+    const helpUrl = request.nextUrl.clone();
+    helpUrl.pathname = "/help";
+    return NextResponse.rewrite(helpUrl, {
+      request: {
+        headers: requestHeaders
+      }
+    });
   }
 
   if ((pathname === "/admin" || pathname.startsWith("/admin/")) && pathname !== "/admin/login") {
