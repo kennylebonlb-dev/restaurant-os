@@ -44,6 +44,7 @@ import {
   Plus,
   Power,
   Radio,
+  Repeat2,
   Settings,
   Shield,
   Sparkles,
@@ -102,6 +103,13 @@ import {
   withTableViewImageCrop,
   withTableShape
 } from "@/lib/floor-plan-settings";
+import {
+  canAccessDashboardSection,
+  firstAccessibleDashboardSection,
+  hasDashboardPermission,
+  type DashboardSection,
+  type RestaurantAccessRole
+} from "@/lib/restaurant-permissions";
 import { addDaysToDateString, addMinutes, getDayKey, getZonedDateTimeParts, minutesToTime, parseTimeToMinutes } from "@/lib/time";
 import { useFloorPlanStore } from "@/stores/floor-plan-store";
 
@@ -130,6 +138,7 @@ type Restaurant = {
   settings: Record<string, unknown>;
   layoutLocked: boolean;
   tables: FloorTable[];
+  accessRole: RestaurantAccessRole;
 };
 
 type BrandResponse = {
@@ -245,21 +254,13 @@ type TableBlock = {
   table: { id: string; label: string };
 };
 
-type AdminSection =
-  | "dashboard"
-  | "guide"
-  | "general"
-  | "reservations"
-  | "crm"
-  | "services"
-  | "menus"
-  | "gallery"
-  | "giftCards"
-  | "team"
-  | "notifications"
-  | "integrations"
-  | "subscription"
-  | "stats";
+type LiveVersion = {
+  reservations: string;
+  tableBlocks: string;
+  waitlist: string;
+};
+
+type AdminSection = DashboardSection;
 
 function isAdminSection(value: string | null): value is AdminSection {
   return Boolean(value) && menuItems.some((item) => item.id === value);
@@ -1056,6 +1057,8 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
   const firstAccountMenuItemRef = useRef<HTMLButtonElement | null>(null);
   const waitlistPanelRef = useRef<HTMLElement | null>(null);
   const sidebarHoverTimerRef = useRef<number | null>(null);
+  const liveVersionRef = useRef<LiveVersion | null>(null);
+  const initialSectionAppliedRef = useRef(false);
 
   const restaurantsQuery = useQuery({
     queryKey: ["current-restaurants"],
@@ -1073,6 +1076,16 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
 
   const restaurants = restaurantsQuery.data?.restaurants ?? [];
   const restaurant = restaurants[0];
+  const accessRole = restaurant?.accessRole ?? "READ_ONLY";
+  const visibleMenuItems = useMemo(
+    () => menuItems.filter((item) => canAccessDashboardSection(accessRole, item.id)),
+    [accessRole]
+  );
+  const canEditReservations = hasDashboardPermission(accessRole, "reservationsEdit");
+  const canEditCrm = hasDashboardPermission(accessRole, "crmEdit");
+  const canEditSettings = hasDashboardPermission(accessRole, "settingsEdit");
+  const canEditTeam = hasDashboardPermission(accessRole, "teamEdit");
+  const canViewSubscription = hasDashboardPermission(accessRole, "subscriptionView");
   const dashboardSubscriptionState = subscriptionStateFromSettings(restaurant?.settings);
   const dashboardLogoUrl = brandQuery.data?.brand.logoUrl ?? "/toquetop-logo.svg";
   const dashboardLogoAlt = brandQuery.data?.brand.logoAlt ?? "ToqueTop";
@@ -1087,13 +1100,26 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
   useRestaurantSocket(restaurant?.id);
 
   useEffect(() => {
+    if (!restaurant) {
+      return;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const requestedSection = params.get("section");
 
-    if (isAdminSection(requestedSection)) {
-      setSection(requestedSection);
+    if (!initialSectionAppliedRef.current) {
+      initialSectionAppliedRef.current = true;
+
+      if (isAdminSection(requestedSection) && canAccessDashboardSection(accessRole, requestedSection)) {
+        setSection(requestedSection);
+        return;
+      }
     }
-  }, []);
+
+    if (!canAccessDashboardSection(accessRole, section)) {
+      setSection(firstAccessibleDashboardSection(accessRole));
+    }
+  }, [accessRole, restaurant, section]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setClockNow(Date.now()), 1_000);
@@ -1196,6 +1222,28 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
     setAccountMenuOpen(false);
   }
 
+  const reservationsQueryKey = useMemo(
+    () => ["reservations", restaurant?.id, selectedDate] as const,
+    [restaurant?.id, selectedDate]
+  );
+  const waitlistQueryKey = useMemo(
+    () => ["waitlist", restaurant?.id, selectedDate] as const,
+    [restaurant?.id, selectedDate]
+  );
+  const tableBlocksQueryKey = useMemo(
+    () => ["table-blocks", restaurant?.id, selectedDate] as const,
+    [restaurant?.id, selectedDate]
+  );
+
+  const liveVersionQuery = useQuery({
+    queryKey: ["live-version", restaurant?.id, selectedDate],
+    enabled: Boolean(restaurant?.id) && section === "dashboard",
+    refetchInterval: section === "dashboard" ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    queryFn: () =>
+      apiFetch<{ version: LiveVersion }>(`/api/restaurants/${restaurant?.id}/live-version?date=${selectedDate}`)
+  });
+
   const tablesQuery = useQuery({
     queryKey: ["tables", restaurant?.id],
     enabled: Boolean(restaurant?.id),
@@ -1205,7 +1253,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
   const reservationsQuery = useQuery({
     queryKey: ["reservations", restaurant?.id, selectedDate],
     enabled: Boolean(restaurant?.id),
-    refetchInterval: section === "dashboard" ? 5_000 : false,
+    refetchInterval: section === "dashboard" && liveVersionQuery.isError ? 5_000 : false,
     queryFn: () =>
       apiFetch<{ reservations: Reservation[] }>(`/api/restaurants/${restaurant?.id}/reservations?date=${selectedDate}`)
   });
@@ -1255,13 +1303,61 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
   const tableBlocksQuery = useQuery({
     queryKey: ["table-blocks", restaurant?.id, selectedDate],
     enabled: Boolean(restaurant?.id),
-    refetchInterval: section === "dashboard" ? 5_000 : false,
+    refetchInterval: section === "dashboard" && liveVersionQuery.isError ? 5_000 : false,
     queryFn: () => apiFetch<{ blocks: TableBlock[] }>(`/api/restaurants/${restaurant?.id}/table-blocks?date=${selectedDate}`)
   });
   const tableBlocks = tableBlocksQuery.data?.blocks ?? [];
-  const reservationsQueryKey = ["reservations", restaurant?.id, selectedDate] as const;
-  const waitlistQueryKey = ["waitlist", restaurant?.id, selectedDate] as const;
-  const tableBlocksQueryKey = ["table-blocks", restaurant?.id, selectedDate] as const;
+
+  useEffect(() => {
+    liveVersionRef.current = null;
+  }, [restaurant?.id, selectedDate]);
+
+  useEffect(() => {
+    const liveVersion = liveVersionQuery.data?.version;
+    const restaurantId = restaurant?.id;
+
+    if (!liveVersion || !restaurantId || section !== "dashboard") {
+      return;
+    }
+
+    const previousVersion = liveVersionRef.current;
+    liveVersionRef.current = liveVersion;
+
+    if (!previousVersion) {
+      return;
+    }
+
+    let refreshContext = false;
+
+    if (previousVersion.reservations !== liveVersion.reservations) {
+      refreshContext = true;
+      void queryClient.invalidateQueries({ queryKey: reservationsQueryKey });
+    }
+
+    if (previousVersion.tableBlocks !== liveVersion.tableBlocks) {
+      refreshContext = true;
+      void queryClient.invalidateQueries({ queryKey: tableBlocksQueryKey });
+    }
+
+    if (previousVersion.waitlist !== liveVersion.waitlist) {
+      refreshContext = true;
+      void queryClient.invalidateQueries({ queryKey: waitlistQueryKey });
+    }
+
+    if (refreshContext) {
+      void queryClient.invalidateQueries({ queryKey: ["chef-toque", restaurantId] });
+      void queryClient.invalidateQueries({ queryKey: ["events", restaurantId] });
+    }
+  }, [
+    liveVersionQuery.data?.version,
+    queryClient,
+    restaurant?.id,
+    reservationsQueryKey,
+    section,
+    tableBlocksQueryKey,
+    waitlistQueryKey
+  ]);
+
   const tables = useMemo(() => applyFloorPlanSettings(rawTables, settings), [rawTables, settings]);
   const dashboardRooms = useMemo(
     () => floorRoomsFromSettings(settings).filter((room) => room.active !== false),
@@ -2286,24 +2382,28 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                   <UserRound className="h-4 w-4" />
                   Profil
                 </button>
-                <button
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-bold text-ink/75 transition hover:bg-linen focus:bg-linen focus:outline-none"
-                  role="menuitem"
-                  type="button"
-                  onClick={() => selectAccountMenuSection("general")}
-                >
-                  <Settings className="h-4 w-4" />
-                  Configurations
-                </button>
-                <button
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-bold text-ink/75 transition hover:bg-linen focus:bg-linen focus:outline-none"
-                  role="menuitem"
-                  type="button"
-                  onClick={() => selectAccountMenuSection("subscription")}
-                >
-                  <CreditCard className="h-4 w-4" />
-                  Abonnement
-                </button>
+                {canAccessDashboardSection(accessRole, "general") ? (
+                  <button
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-bold text-ink/75 transition hover:bg-linen focus:bg-linen focus:outline-none"
+                    role="menuitem"
+                    type="button"
+                    onClick={() => selectAccountMenuSection("general")}
+                  >
+                    <Settings className="h-4 w-4" />
+                    Configurations
+                  </button>
+                ) : null}
+                {canViewSubscription ? (
+                  <button
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-bold text-ink/75 transition hover:bg-linen focus:bg-linen focus:outline-none"
+                    role="menuitem"
+                    type="button"
+                    onClick={() => selectAccountMenuSection("subscription")}
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Abonnement
+                  </button>
+                ) : null}
                 <button
                   className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-bold text-ink/75 transition hover:bg-linen focus:bg-linen focus:outline-none"
                   role="menuitem"
@@ -2363,7 +2463,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
           <span className="sr-only">Rétracter le menu</span>
         </button>
         <nav className="max-h-[calc(100vh-7rem)] space-y-1 overflow-y-auto overscroll-contain p-2 pr-1">
-          {menuItems.map((item) => (
+          {visibleMenuItems.map((item) => (
             <div
               key={item.id}
               onMouseEnter={() => setHoveredMenuItem(item.id)}
@@ -2466,7 +2566,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                 </div>
               </div>
             ) : null}
-            {section === "dashboard" ? (
+            {section === "dashboard" && canAccessDashboardSection(accessRole, "dashboard") ? (
               <>
                 <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2681,6 +2781,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                     </div>
                   </div>
                   <ReservationsPanel
+                    canEdit={canEditReservations}
                     paidReservationIds={paidReservationIds}
                     departedReservationIds={departedReservationIds}
                     reservations={visibleFilteredReservations}
@@ -2714,15 +2815,16 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
               </>
             ) : null}
 
-            {section === "guide" ? <GuidePanel /> : null}
-            {section === "general" ? (
+            {section === "guide" && canAccessDashboardSection(accessRole, "guide") ? <GuidePanel /> : null}
+            {section === "general" && canAccessDashboardSection(accessRole, "general") ? (
               <GeneralPanel
                 activePage={generalPage}
+                canEdit={canEditSettings}
                 restaurant={restaurant}
                 tableCount={tables.length}
               />
             ) : null}
-            {section === "reservations" ? (
+            {section === "reservations" && canAccessDashboardSection(accessRole, "reservations") ? (
               <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -2749,6 +2851,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                   onChange={(value) => setReservationView(value as ReservationView)}
                 />
                 <ReservationsPanel
+                  canEdit={canEditReservations}
                   paidReservationIds={paidReservationIds}
                   departedReservationIds={departedReservationIds}
                   reservations={reservations}
@@ -2780,8 +2883,9 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                 />
               </div>
             ) : null}
-            {section === "crm" ? (
+            {section === "crm" && canAccessDashboardSection(accessRole, "crm") ? (
               <CrmPanel
+                canEdit={canEditCrm}
                 clients={clients}
                 clientSearch={clientSearch}
                 restaurantId={restaurant.id}
@@ -2789,10 +2893,23 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                 onCreate={() => setModal("client")}
               />
             ) : null}
-            {section === "menus" ? <MenusPanel /> : null}
-            {section === "gallery" ? <GalleryPanel /> : null}
-            {section === "giftCards" ? <GiftCardsPanel clients={clients} /> : null}
-            {section === "stats" ? (
+            {section === "menus" && canAccessDashboardSection(accessRole, "menus") ? <MenusPanel /> : null}
+            {section === "gallery" && canAccessDashboardSection(accessRole, "gallery") ? <GalleryPanel /> : null}
+            {section === "giftCards" && canAccessDashboardSection(accessRole, "giftCards") ? <GiftCardsPanel clients={clients} /> : null}
+            {section === "team" && canAccessDashboardSection(accessRole, "team") ? (
+              <TeamPanel
+                canEdit={canEditTeam}
+                clients={clients}
+                onDateChange={setSelectedDate}
+                restaurant={restaurant}
+                reservations={reservations}
+                selectedDate={selectedDate}
+                tableBlocks={tableBlocks}
+                tables={tables}
+                waitlist={waitlist}
+              />
+            ) : null}
+            {section === "stats" && canAccessDashboardSection(accessRole, "stats") ? (
               <StatsPanel
                 clients={clients}
                 restaurant={restaurant}
@@ -2801,10 +2918,10 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                 waitlist={waitlist}
               />
             ) : null}
-            {section === "subscription" ? <SubscriptionPanel restaurant={restaurant} /> : null}
-            {section === "notifications" ? <TemplatesPanel restaurant={restaurant} /> : null}
-            {!["dashboard", "guide", "general", "reservations", "crm", "menus", "gallery", "giftCards", "stats", "subscription", "notifications"].includes(section) ? (
-              <PlaceholderPanel section={menuItems.find((item) => item.id === section)?.label ?? "Section"} />
+            {section === "subscription" && canAccessDashboardSection(accessRole, "subscription") ? <SubscriptionPanel restaurant={restaurant} /> : null}
+            {section === "notifications" && canAccessDashboardSection(accessRole, "notifications") ? <TemplatesPanel restaurant={restaurant} /> : null}
+            {!["dashboard", "guide", "general", "reservations", "crm", "menus", "gallery", "giftCards", "team", "stats", "subscription", "notifications"].includes(section) && canAccessDashboardSection(accessRole, section) ? (
+              <PlaceholderPanel section={visibleMenuItems.find((item) => item.id === section)?.label ?? "Section"} />
             ) : null}
           </section>
 
@@ -2816,9 +2933,11 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                 <Sparkles className="h-4 w-4 text-moss" />
               </div>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <QuickAction icon={<Plus className="h-4 w-4" />} label="Ajouter réservation" onClick={() => setModal("createReservation")} />
+                {canEditReservations ? (
+                  <QuickAction icon={<Plus className="h-4 w-4" />} label="Ajouter réservation" onClick={() => setModal("createReservation")} />
+                ) : null}
                 <QuickAction
-                  disabled={!selectedTable || deleteBlockMutation.isPending}
+                  disabled={!canEditReservations || !selectedTable || deleteBlockMutation.isPending}
                   icon={selectedTableBlock ? <Unlock className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
                   label={selectedTableBlock ? "Débloquer table" : "Bloquer table"}
                   onClick={() =>
@@ -2833,11 +2952,14 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
                   label="Contacter client"
                   onClick={() => setModal("contactClient")}
                 />
-                <QuickAction icon={<Users className="h-4 w-4" />} label="Ajouter waitlist" onClick={() => setModal("waitlist")} />
+                {canEditReservations ? (
+                  <QuickAction icon={<Users className="h-4 w-4" />} label="Ajouter waitlist" onClick={() => setModal("waitlist")} />
+                ) : null}
               </div>
             </div>
 
             <WaitlistPanel
+              canEdit={canEditReservations}
               clients={clients}
               entries={visibleWaitlist}
               expandedEntryId={expandedWaitlistId}
@@ -2968,7 +3090,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
         </div>
       ) : null}
 
-      {modal === "createReservation" ? (
+      {modal === "createReservation" && canEditReservations ? (
         <DashboardModal title="Ajouter une réservation" onClose={() => setModal(null)}>
           <ReservationForm
             clients={clients}
@@ -2985,7 +3107,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
         </DashboardModal>
       ) : null}
 
-      {modal === "editReservation" && selectedReservation ? (
+      {modal === "editReservation" && selectedReservation && canEditReservations ? (
         <DashboardModal title="Modifier la réservation" onClose={() => setModal(null)}>
           <EditReservationForm
             openingHours={restaurant.openingHours}
@@ -3019,7 +3141,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
         </DashboardModal>
       ) : null}
 
-      {modal === "blockTable" ? (
+      {modal === "blockTable" && canEditReservations ? (
         <DashboardModal title="Bloquer une table" onClose={() => setModal(null)}>
           <form className="grid gap-3" onSubmit={submitForm(createBlockMutation)}>
             <p className="rounded-md bg-linen p-3 text-sm font-bold">Table : {selectedTable?.label ?? "Aucune table sélectionnée"}</p>
@@ -3036,7 +3158,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
         </DashboardModal>
       ) : null}
 
-      {modal === "waitlist" ? (
+      {modal === "waitlist" && canEditReservations ? (
         <DashboardModal title="Ajouter à la liste d’attente" onClose={() => setModal(null)}>
           <WaitlistForm
             clients={clients}
@@ -3049,7 +3171,7 @@ export function DashboardLive({ initialBrand }: { initialBrand: PlatformBrand })
         </DashboardModal>
       ) : null}
 
-      {modal === "client" ? (
+      {modal === "client" && canEditCrm ? (
         <DashboardModal title="Créer une fiche client" onClose={() => setModal(null)}>
           <ClientForm onSubmit={submitForm(createClientMutation)} />
         </DashboardModal>
@@ -3226,6 +3348,7 @@ function QuickAction({ disabled, icon, label, onClick }: { disabled?: boolean; i
 }
 
 function WaitlistPanel({
+  canEdit,
   clients,
   entries,
   expandedEntryId,
@@ -3235,6 +3358,7 @@ function WaitlistPanel({
   onRemove,
   onToggleEntry
 }: {
+  canEdit: boolean;
   clients: Client[];
   entries: WaitlistEntry[];
   expandedEntryId: string | null;
@@ -3288,7 +3412,7 @@ function WaitlistPanel({
                     <button
                       aria-label="Prévenir par SMS et email"
                       className="relative grid h-8 w-8 place-items-center rounded-md border border-ink/10 bg-white text-moss transition hover:border-moss disabled:cursor-not-allowed disabled:opacity-35"
-                      disabled={alreadyNotified || !canNotify}
+                      disabled={!canEdit || alreadyNotified || !canNotify}
                       title={alreadyNotified ? "Client déjà prévenu" : "Prévenir par SMS et email"}
                       type="button"
                       onClick={() => onNotify(entry)}
@@ -3296,15 +3420,17 @@ function WaitlistPanel({
                       <MessageSquare className="h-4 w-4" />
                       <Mail className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full bg-white" />
                     </button>
-                    <button
-                      aria-label="Supprimer de la waitlist"
-                      className="grid h-8 w-8 place-items-center rounded-md border border-red-100 bg-white text-red-700 transition hover:border-red-300"
-                      title="Supprimer de la waitlist"
-                      type="button"
-                      onClick={() => onRemove(entry.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    {canEdit ? (
+                      <button
+                        aria-label="Supprimer de la waitlist"
+                        className="grid h-8 w-8 place-items-center rounded-md border border-red-100 bg-white text-red-700 transition hover:border-red-300"
+                        title="Supprimer de la waitlist"
+                        type="button"
+                        onClick={() => onRemove(entry.id)}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -3331,6 +3457,7 @@ function WaitlistPanel({
 }
 
 function ReservationsPanel({
+  canEdit,
   getReservationTableLabel,
   paidReservationIds,
   departedReservationIds,
@@ -3350,6 +3477,7 @@ function ReservationsPanel({
   onSelect,
   onToggleDeparted
 }: {
+  canEdit: boolean;
   getReservationTableLabel: (reservation: Reservation) => string;
   paidReservationIds: string[];
   departedReservationIds: string[];
@@ -3481,19 +3609,19 @@ function ReservationsPanel({
                         {lateCountdown ? <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs font-black text-red-700">{lateCountdown}</p> : null}
                       </button>
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-ink/10 pt-2">
-                        {customerCancelled ? (
+                        {canEdit && customerCancelled ? (
                           <button className="secondary-button h-7 px-2 text-[11px] text-red-700" type="button" onClick={() => onAcknowledgeCancellation(reservation.id)}>Confirmer l’annulation</button>
                         ) : null}
-                        {!reservation.arrivedAt && !departed && !customerCancelled ? (
+                        {canEdit && !reservation.arrivedAt && !departed && !customerCancelled ? (
                           <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onArrive(reservation.id)}>Client arrivé</button>
                         ) : null}
-                        {reservation.arrivedAt && !paid && !departed && !customerCancelled ? (
+                        {canEdit && reservation.arrivedAt && !paid && !departed && !customerCancelled ? (
                           <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onPaid(reservation.id)}>Payée</button>
                         ) : null}
-                        {reservation.arrivedAt && !departed && !customerCancelled ? (
+                        {canEdit && reservation.arrivedAt && !departed && !customerCancelled ? (
                           <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onDepart(reservation.id)}>Client parti</button>
                         ) : null}
-                        {!departed && !customerCancelled ? (
+                        {canEdit && !departed && !customerCancelled ? (
                           <>
                             <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onEdit(reservation.id)}>Modifier</button>
                             <button className="secondary-button h-7 px-2 text-[11px] text-red-700" type="button" onClick={() => onCancel(reservation.id)}>Annuler</button>
@@ -3574,19 +3702,19 @@ function ReservationsPanel({
             {lateCountdown ? <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[11px] font-black text-red-700">{lateCountdown}</p> : null}
           </button>
           <div className="mt-2 flex flex-wrap gap-1.5 lg:mt-0 lg:justify-end">
-            {customerCancelled ? (
+            {canEdit && customerCancelled ? (
               <button className="secondary-button h-7 px-2 text-[11px] text-red-700" type="button" onClick={() => onAcknowledgeCancellation(reservation.id)}>Confirmer l’annulation</button>
             ) : null}
-            {!reservation.arrivedAt && !departed && !customerCancelled ? (
+            {canEdit && !reservation.arrivedAt && !departed && !customerCancelled ? (
               <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onArrive(reservation.id)}>Client arrivé</button>
             ) : null}
-            {reservation.arrivedAt && !paid && !departed && !customerCancelled ? (
+            {canEdit && reservation.arrivedAt && !paid && !departed && !customerCancelled ? (
               <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onPaid(reservation.id)}>Payée</button>
             ) : null}
-            {reservation.arrivedAt && !departed && !customerCancelled ? (
+            {canEdit && reservation.arrivedAt && !departed && !customerCancelled ? (
               <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onDepart(reservation.id)}>Client parti</button>
             ) : null}
-            {!departed && !customerCancelled ? (
+            {canEdit && !departed && !customerCancelled ? (
               <>
                 <button className="secondary-button h-7 px-2 text-[11px]" type="button" onClick={() => onEdit(reservation.id)}>Modifier</button>
                 <button className="secondary-button h-7 px-2 text-[11px] text-red-700" type="button" onClick={() => onCancel(reservation.id)}>Annuler</button>
@@ -3619,16 +3747,25 @@ function GuidePanel() {
 
 function GeneralPanel({
   activePage,
+  canEdit,
   restaurant,
   tableCount
 }: {
   activePage: GeneralPage;
+  canEdit: boolean;
   restaurant: Restaurant;
   tableCount: number;
 }) {
   return (
     <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft">
-      <GeneralPageContent page={activePage} restaurant={restaurant} tableCount={tableCount} />
+      {!canEdit ? (
+        <p className="mb-4 rounded-md bg-linen p-3 text-sm font-bold text-ink/60">
+          Accès lecture seule : les réglages sont visibles, mais les modifications sont réservées aux profils autorisés.
+        </p>
+      ) : null}
+      <fieldset disabled={!canEdit}>
+        <GeneralPageContent page={activePage} restaurant={restaurant} tableCount={tableCount} />
+      </fieldset>
     </section>
   );
 }
@@ -7392,13 +7529,652 @@ function SettingCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+type TeamTab = "today" | "planning" | "briefs" | "members" | "absences" | "replacements" | "permissions" | "settings";
+type TeamServiceKind = "morning" | "lunch" | "dinner";
+type TeamRole = "manager" | "host" | "server" | "chef_de_rang" | "kitchen" | "bar" | "extra";
+type TeamZone = "Accueil" | "Salle" | "Terrasse" | "Bar" | "Cuisine" | "Management";
+type TeamMemberStatus = "active" | "extra" | "unavailable" | "archived";
+type TeamAssignmentStatus = "planned" | "confirmed" | "unavailable" | "replacement";
+type TeamBriefStatus = "draft" | "published";
+type TeamPlanningView = "table" | "timeline";
+type TeamPlanningRange = "day" | "week";
+type TeamAbsenceCalendarView = "week" | "month" | "year";
+type TeamReplacementPeriod = "date" | "week" | "month";
+type TeamSkill = "Salle" | "Terrasse" | "Bar" | "Cuisine" | "Accueil" | "Encaissement" | "Langues" | "Gestion VIP" | "Management";
+type TeamExperience = "Junior" | "Confirmé" | "Référent";
+type TeamAbsenceType = "vacation" | "absence" | "unavailable" | "training";
+type TeamWeekDay = (typeof dayKeys)[number];
+
+type TeamWeeklyShift = {
+  active: boolean;
+  service: TeamServiceKind;
+  startTime: string;
+  endTime: string;
+  role: TeamRole;
+  zone: TeamZone;
+};
+
+type TeamWeeklySchedule = Record<TeamWeekDay, TeamWeeklyShift>;
+
+type TeamCoverageNeed = {
+  id: string;
+  day: TeamWeekDay;
+  service: TeamServiceKind;
+  role: TeamRole;
+  required: number;
+};
+
+type TeamServiceSlot = {
+  id: string;
+  kind: TeamServiceKind;
+  label: string;
+  time: string;
+  openMinutes: number;
+  closeMinutes: number;
+};
+
+type TeamMember = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  initials: string;
+  photoUrl: string;
+  phone: string;
+  email: string;
+  dashboardAccess: boolean;
+  accessRole: TeamPermissionRole;
+  temporaryPassword: string;
+  role: TeamRole;
+  status: TeamMemberStatus;
+  skills: TeamSkill[];
+  usualServices: TeamServiceKind[];
+  zones: TeamZone[];
+  experience: TeamExperience;
+  weeklyTargetHours: number;
+  weeklySchedule: TeamWeeklySchedule;
+  notes: string;
+};
+
+type TeamAssignment = {
+  id: string;
+  service: TeamServiceKind;
+  zone: TeamZone;
+  role: TeamRole;
+  memberId: string | null;
+  status: TeamAssignmentStatus;
+  startTime: string;
+  endTime: string;
+};
+
+type TeamReplacementRequest = {
+  id: string;
+  assignmentId: string;
+  date: string;
+  service: TeamServiceKind;
+  zone: TeamZone;
+  role: TeamRole;
+  absentMemberId: string | null;
+  urgency: "normal" | "high";
+  status: "open" | "confirmed" | "cancelled";
+};
+
+type TeamAbsence = {
+  id: string;
+  memberId: string;
+  type: TeamAbsenceType;
+  startDate: string;
+  endDate: string;
+  service: TeamServiceKind | "all";
+  startTime: string;
+  endTime: string;
+  notes: string;
+};
+
+type TeamPermissionRole = "owner" | "manager" | "host" | "readonly";
+type TeamPermissionKey =
+  | "dashboardView"
+  | "reservationsEdit"
+  | "crmView"
+  | "crmEdit"
+  | "menusView"
+  | "menusEdit"
+  | "giftCardsView"
+  | "giftCardsEdit"
+  | "settingsView"
+  | "settingsEdit"
+  | "teamView"
+  | "teamEdit";
+
+const teamTabs: Array<{ id: TeamTab; label: string; icon: ReactNode }> = [
+  { id: "today", label: "Aujourd'hui", icon: <CalendarDays className="h-4 w-4" /> },
+  { id: "planning", label: "Planning", icon: <List className="h-4 w-4" /> },
+  { id: "briefs", label: "Briefs", icon: <FileText className="h-4 w-4" /> },
+  { id: "members", label: "Collaborateurs", icon: <Users className="h-4 w-4" /> },
+  { id: "absences", label: "Absences", icon: <Clock3 className="h-4 w-4" /> },
+  { id: "replacements", label: "Remplacements", icon: <Repeat2 className="h-4 w-4" /> },
+  { id: "permissions", label: "Permissions", icon: <Lock className="h-4 w-4" /> },
+  { id: "settings", label: "Réglages équipe", icon: <Settings className="h-4 w-4" /> }
+];
+
+const teamRoleLabels: Record<TeamRole, string> = {
+  manager: "Manager",
+  host: "Hôte",
+  server: "Serveur",
+  chef_de_rang: "Chef de rang",
+  kitchen: "Cuisine",
+  bar: "Bar",
+  extra: "Extra"
+};
+
+const teamMemberStatusLabels: Record<TeamMemberStatus, string> = {
+  active: "Actif",
+  extra: "Extra",
+  unavailable: "Indisponible",
+  archived: "Archivé"
+};
+
+const teamAssignmentStatusLabels: Record<TeamAssignmentStatus, string> = {
+  planned: "Prévu",
+  confirmed: "Confirmé",
+  unavailable: "Indisponible",
+  replacement: "Remplacement demandé"
+};
+
+const teamServiceLabels: Record<TeamServiceKind, string> = {
+  morning: "Matin",
+  lunch: "Midi",
+  dinner: "Soir"
+};
+
+const teamAbsenceTypeLabels: Record<TeamAbsenceType, string> = {
+  vacation: "Congé",
+  absence: "Absence",
+  unavailable: "Indisponibilité",
+  training: "Formation"
+};
+
+const teamRoleSkills: Record<TeamRole, TeamSkill[]> = {
+  manager: ["Management", "Salle", "Gestion VIP"],
+  host: ["Accueil", "Langues"],
+  server: ["Salle", "Terrasse"],
+  chef_de_rang: ["Salle", "Gestion VIP", "Encaissement"],
+  kitchen: ["Cuisine"],
+  bar: ["Bar"],
+  extra: ["Salle", "Terrasse", "Accueil"]
+};
+
+const teamZones: TeamZone[] = ["Accueil", "Salle", "Terrasse", "Bar", "Cuisine", "Management"];
+const teamServices: TeamServiceKind[] = ["morning", "lunch", "dinner"];
+const teamWeekDayItems = dayKeys.map((day) => ({ id: day, label: dayLabels[day].slice(0, 3) }));
+
+function createWeeklySchedule(role: TeamRole, zone: TeamZone, service: TeamServiceKind = "dinner"): TeamWeeklySchedule {
+  return dayKeys.reduce((schedule, day) => {
+    schedule[day] = {
+      active: day !== "sunday",
+      service,
+      startTime: service === "morning" ? "08:30" : service === "lunch" ? "10:30" : "17:30",
+      endTime: service === "morning" ? "12:00" : service === "lunch" ? "15:30" : "23:00",
+      role,
+      zone
+    };
+    return schedule;
+  }, {} as TeamWeeklySchedule);
+}
+
+const initialTeamCoverageNeeds: TeamCoverageNeed[] = [
+  { id: "monday-lunch-server", day: "monday", service: "lunch", role: "server", required: 2 },
+  { id: "monday-dinner-server", day: "monday", service: "dinner", role: "server", required: 3 },
+  { id: "friday-dinner-server", day: "friday", service: "dinner", role: "server", required: 5 },
+  { id: "friday-dinner-kitchen", day: "friday", service: "dinner", role: "kitchen", required: 3 },
+  { id: "saturday-dinner-host", day: "saturday", service: "dinner", role: "host", required: 2 }
+];
+
+const initialTeamMembers: TeamMember[] = [
+  {
+    id: "camille",
+    firstName: "Camille",
+    lastName: "Moreau",
+    initials: "CM",
+    photoUrl: "",
+    phone: "06 12 34 56 10",
+    email: "camille@toquetop.local",
+    dashboardAccess: true,
+    accessRole: "manager",
+    temporaryPassword: "",
+    role: "manager",
+    status: "active",
+    skills: ["Management", "Salle", "Gestion VIP", "Encaissement"],
+    usualServices: ["lunch", "dinner"],
+    zones: ["Management", "Salle"],
+    experience: "Référent",
+    weeklyTargetHours: 39,
+    weeklySchedule: createWeeklySchedule("manager", "Management", "dinner"),
+    notes: "Référente service VIP et coordination salle."
+  },
+  {
+    id: "lea",
+    firstName: "Léa",
+    lastName: "Martin",
+    initials: "LM",
+    photoUrl: "",
+    phone: "06 12 34 56 11",
+    email: "lea@toquetop.local",
+    dashboardAccess: true,
+    accessRole: "host",
+    temporaryPassword: "",
+    role: "host",
+    status: "active",
+    skills: ["Accueil", "Langues", "Gestion VIP"],
+    usualServices: ["lunch", "dinner"],
+    zones: ["Accueil", "Salle"],
+    experience: "Confirmé",
+    weeklyTargetHours: 35,
+    weeklySchedule: createWeeklySchedule("host", "Accueil", "dinner"),
+    notes: "Très à l'aise sur les arrivées groupées."
+  },
+  {
+    id: "hugo",
+    firstName: "Hugo",
+    lastName: "Bernard",
+    initials: "HB",
+    photoUrl: "",
+    phone: "06 12 34 56 12",
+    email: "hugo@toquetop.local",
+    dashboardAccess: true,
+    accessRole: "host",
+    temporaryPassword: "",
+    role: "chef_de_rang",
+    status: "active",
+    skills: ["Salle", "Gestion VIP", "Encaissement"],
+    usualServices: ["lunch", "dinner"],
+    zones: ["Salle", "Terrasse"],
+    experience: "Référent",
+    weeklyTargetHours: 39,
+    weeklySchedule: createWeeklySchedule("chef_de_rang", "Salle", "dinner"),
+    notes: "À placer en priorité sur gros service."
+  },
+  {
+    id: "noura",
+    firstName: "Noura",
+    lastName: "Diallo",
+    initials: "ND",
+    photoUrl: "",
+    phone: "06 12 34 56 13",
+    email: "noura@toquetop.local",
+    dashboardAccess: false,
+    accessRole: "readonly",
+    temporaryPassword: "",
+    role: "server",
+    status: "extra",
+    skills: ["Salle", "Terrasse", "Langues"],
+    usualServices: ["dinner"],
+    zones: ["Terrasse", "Salle"],
+    experience: "Confirmé",
+    weeklyTargetHours: 20,
+    weeklySchedule: createWeeklySchedule("server", "Terrasse", "dinner"),
+    notes: "Disponible surtout le soir."
+  },
+  {
+    id: "maxime",
+    firstName: "Maxime",
+    lastName: "Petit",
+    initials: "MP",
+    photoUrl: "",
+    phone: "06 12 34 56 14",
+    email: "maxime@toquetop.local",
+    dashboardAccess: true,
+    accessRole: "host",
+    temporaryPassword: "",
+    role: "bar",
+    status: "active",
+    skills: ["Bar", "Encaissement"],
+    usualServices: ["lunch", "dinner"],
+    zones: ["Bar"],
+    experience: "Confirmé",
+    weeklyTargetHours: 35,
+    weeklySchedule: createWeeklySchedule("bar", "Bar", "dinner"),
+    notes: "Référent boissons et digestifs."
+  },
+  {
+    id: "clara",
+    firstName: "Clara",
+    lastName: "Roux",
+    initials: "CR",
+    photoUrl: "",
+    phone: "06 12 34 56 15",
+    email: "clara@toquetop.local",
+    dashboardAccess: true,
+    accessRole: "readonly",
+    temporaryPassword: "",
+    role: "kitchen",
+    status: "active",
+    skills: ["Cuisine"],
+    usualServices: ["morning", "lunch"],
+    zones: ["Cuisine"],
+    experience: "Référent",
+    weeklyTargetHours: 39,
+    weeklySchedule: createWeeklySchedule("kitchen", "Cuisine", "lunch"),
+    notes: "Coordination allergies côté cuisine."
+  }
+];
+
+const initialTeamAssignments: TeamAssignment[] = [
+  { id: "morning-manager", service: "morning", zone: "Management", role: "manager", memberId: "camille", status: "confirmed", startTime: "08:30", endTime: "12:00" },
+  { id: "morning-host", service: "morning", zone: "Accueil", role: "host", memberId: "lea", status: "planned", startTime: "09:00", endTime: "12:00" },
+  { id: "morning-kitchen", service: "morning", zone: "Cuisine", role: "kitchen", memberId: "clara", status: "confirmed", startTime: "08:00", endTime: "12:30" },
+  { id: "lunch-manager", service: "lunch", zone: "Management", role: "manager", memberId: "camille", status: "confirmed", startTime: "10:30", endTime: "15:30" },
+  { id: "lunch-host", service: "lunch", zone: "Accueil", role: "host", memberId: "lea", status: "confirmed", startTime: "11:00", endTime: "15:00" },
+  { id: "lunch-room", service: "lunch", zone: "Salle", role: "chef_de_rang", memberId: "hugo", status: "confirmed", startTime: "11:00", endTime: "15:30" },
+  { id: "lunch-terrace", service: "lunch", zone: "Terrasse", role: "server", memberId: null, status: "replacement", startTime: "11:30", endTime: "15:00" },
+  { id: "lunch-bar", service: "lunch", zone: "Bar", role: "bar", memberId: "maxime", status: "planned", startTime: "11:15", endTime: "15:15" },
+  { id: "lunch-kitchen", service: "lunch", zone: "Cuisine", role: "kitchen", memberId: "clara", status: "confirmed", startTime: "10:00", endTime: "15:30" },
+  { id: "dinner-manager", service: "dinner", zone: "Management", role: "manager", memberId: "camille", status: "confirmed", startTime: "17:30", endTime: "23:30" },
+  { id: "dinner-host", service: "dinner", zone: "Accueil", role: "host", memberId: "lea", status: "planned", startTime: "18:00", endTime: "23:00" },
+  { id: "dinner-room", service: "dinner", zone: "Salle", role: "chef_de_rang", memberId: "hugo", status: "confirmed", startTime: "18:00", endTime: "23:30" },
+  { id: "dinner-terrace", service: "dinner", zone: "Terrasse", role: "server", memberId: "noura", status: "planned", startTime: "18:30", endTime: "22:45" },
+  { id: "dinner-bar", service: "dinner", zone: "Bar", role: "bar", memberId: "maxime", status: "confirmed", startTime: "17:45", endTime: "23:30" },
+  { id: "dinner-kitchen", service: "dinner", zone: "Cuisine", role: "kitchen", memberId: null, status: "replacement", startTime: "16:30", endTime: "23:00" }
+];
+
+const initialTeamReplacementRequests: TeamReplacementRequest[] = [
+  {
+    id: "replacement-lunch-terrace",
+    assignmentId: "lunch-terrace",
+    date: today(),
+    service: "lunch",
+    zone: "Terrasse",
+    role: "server",
+    absentMemberId: null,
+    urgency: "normal",
+    status: "open"
+  },
+  {
+    id: "replacement-dinner-kitchen",
+    assignmentId: "dinner-kitchen",
+    date: today(),
+    service: "dinner",
+    zone: "Cuisine",
+    role: "kitchen",
+    absentMemberId: null,
+    urgency: "high",
+    status: "open"
+  }
+];
+
+const initialTeamAbsences: TeamAbsence[] = [
+  {
+    id: "absence-noura-lunch",
+    memberId: "noura",
+    type: "unavailable",
+    startDate: today(),
+    endDate: today(),
+    service: "lunch",
+    startTime: "11:30",
+    endTime: "15:00",
+    notes: "Indisponible sur le midi, disponible le soir."
+  }
+];
+
+const teamPermissionRows: Array<{ key: TeamPermissionKey; label: string }> = [
+  { key: "dashboardView", label: "Voir le Dashboard Live" },
+  { key: "reservationsEdit", label: "Modifier les réservations" },
+  { key: "crmView", label: "Voir le CRM" },
+  { key: "crmEdit", label: "Modifier le CRM" },
+  { key: "menusView", label: "Voir les menus" },
+  { key: "menusEdit", label: "Modifier les menus" },
+  { key: "giftCardsView", label: "Voir les cartes cadeaux" },
+  { key: "giftCardsEdit", label: "Modifier les cartes cadeaux" },
+  { key: "settingsView", label: "Voir les paramètres" },
+  { key: "settingsEdit", label: "Modifier les paramètres" },
+  { key: "teamView", label: "Voir l'espace Équipes" },
+  { key: "teamEdit", label: "Modifier l'espace Équipes" }
+];
+
+const teamPermissionRoleLabels: Record<TeamPermissionRole, string> = {
+  owner: "Propriétaire",
+  manager: "Manager",
+  host: "Hôte",
+  readonly: "Lecture seule"
+};
+
+const initialTeamPermissions: Record<TeamPermissionRole, Record<TeamPermissionKey, boolean>> = {
+  owner: {
+    dashboardView: true,
+    reservationsEdit: true,
+    crmView: true,
+    crmEdit: true,
+    menusView: true,
+    menusEdit: true,
+    giftCardsView: true,
+    giftCardsEdit: true,
+    settingsView: true,
+    settingsEdit: true,
+    teamView: true,
+    teamEdit: true
+  },
+  manager: {
+    dashboardView: true,
+    reservationsEdit: true,
+    crmView: true,
+    crmEdit: true,
+    menusView: true,
+    menusEdit: true,
+    giftCardsView: true,
+    giftCardsEdit: true,
+    settingsView: true,
+    settingsEdit: false,
+    teamView: true,
+    teamEdit: true
+  },
+  host: {
+    dashboardView: true,
+    reservationsEdit: true,
+    crmView: true,
+    crmEdit: false,
+    menusView: true,
+    menusEdit: false,
+    giftCardsView: true,
+    giftCardsEdit: false,
+    settingsView: false,
+    settingsEdit: false,
+    teamView: true,
+    teamEdit: false
+  },
+  readonly: {
+    dashboardView: true,
+    reservationsEdit: false,
+    crmView: true,
+    crmEdit: false,
+    menusView: true,
+    menusEdit: false,
+    giftCardsView: true,
+    giftCardsEdit: false,
+    settingsView: false,
+    settingsEdit: false,
+    teamView: true,
+    teamEdit: false
+  }
+};
+
+function teamServiceKindFromWindow(openMinutes: number): TeamServiceKind {
+  if (openMinutes < 11 * 60) {
+    return "morning";
+  }
+
+  if (openMinutes < 17 * 60) {
+    return "lunch";
+  }
+
+  return "dinner";
+}
+
+function teamMemberName(member?: TeamMember | null) {
+  return member ? `${member.firstName} ${member.lastName}` : "Poste ouvert";
+}
+
+function teamStatusClass(status: TeamAssignmentStatus | TeamMemberStatus | TeamReplacementRequest["status"]) {
+  if (status === "confirmed" || status === "active") {
+    return "bg-moss/10 text-moss";
+  }
+
+  if (status === "planned" || status === "extra" || status === "open") {
+    return "bg-amber-50 text-amber-700";
+  }
+
+  if (status === "archived" || status === "cancelled") {
+    return "bg-ink/10 text-ink/55";
+  }
+
+  return "bg-red-50 text-red-700";
+}
+
+function teamAssignmentSurfaceClass(status: TeamAssignmentStatus, unavailable = false) {
+  if (unavailable || status === "unavailable") {
+    return "border-red-100 bg-red-50/70 text-red-800";
+  }
+
+  if (status === "replacement") {
+    return "border-orange-100 bg-orange-50/80 text-orange-800";
+  }
+
+  if (status === "planned") {
+    return "border-amber-100 bg-amber-50/80 text-amber-800";
+  }
+
+  return "border-moss/15 bg-sage/70 text-moss";
+}
+
+function teamAssignmentDotClass(status: TeamAssignmentStatus, unavailable = false) {
+  if (unavailable || status === "unavailable") {
+    return "bg-red-500";
+  }
+
+  if (status === "replacement") {
+    return "bg-orange-400";
+  }
+
+  if (status === "planned") {
+    return "bg-amber-300";
+  }
+
+  return "bg-moss";
+}
+
+function reservationClientAllergies(reservation: Reservation, clientsById: Map<string, Client>) {
+  const clientId = reservation.client?.id;
+  return clientId ? clientsById.get(clientId)?.allergies ?? null : null;
+}
+
+function assignmentTimelineClass(status: TeamAssignmentStatus, unavailable: boolean) {
+  if (unavailable || status === "unavailable") {
+    return "border border-red-200 bg-red-100 text-red-800";
+  }
+
+  if (status === "replacement") {
+    return "border border-orange-200 bg-orange-100 text-orange-800";
+  }
+
+  if (status === "planned") {
+    return "border border-amber-200 bg-amber-100 text-amber-800";
+  }
+
+  return "border border-moss/20 bg-moss/10 text-moss";
+}
+
+function teamTimePercent(value: string, startMinutes: number, endMinutes: number) {
+  const total = Math.max(1, endMinutes - startMinutes);
+  return Math.min(100, Math.max(0, ((parseTimeToMinutes(value) - startMinutes) / total) * 100));
+}
+
+function teamTimeRangeLabel(startMinutes: number, endMinutes: number) {
+  return `${minutesToTime(startMinutes)} - ${minutesToTime(endMinutes)}`;
+}
+
+function teamShiftHours(startTime: string, endTime: string) {
+  return Math.max(0, (parseTimeToMinutes(endTime) - parseTimeToMinutes(startTime)) / 60);
+}
+
+function teamMemberWeeklyHours(member: TeamMember) {
+  return dayKeys.reduce((sum, day) => {
+    const shift = member.weeklySchedule[day];
+    return sum + (shift.active ? teamShiftHours(shift.startTime, shift.endTime) : 0);
+  }, 0);
+}
+
+function teamDateToIso(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function teamStartOfWeek(value: string) {
+  const parsed = parseDashboardDate(value) ?? new Date(`${today()}T12:00:00.000Z`);
+  const day = parsed.getUTCDay() || 7;
+  const start = new Date(parsed);
+  start.setUTCDate(parsed.getUTCDate() - day + 1);
+  return teamDateToIso(start);
+}
+
+function teamDateInPeriod(date: string, anchorDate: string, period: TeamReplacementPeriod) {
+  if (period === "date") {
+    return date === anchorDate;
+  }
+
+  if (period === "week") {
+    return teamStartOfWeek(date) === teamStartOfWeek(anchorDate);
+  }
+
+  return date.slice(0, 7) === anchorDate.slice(0, 7);
+}
+
+function teamAbsenceCalendarDates(anchorDate: string, view: TeamAbsenceCalendarView) {
+  const parsed = parseDashboardDate(anchorDate) ?? new Date(`${today()}T12:00:00.000Z`);
+  const start = new Date(parsed);
+
+  if (view === "week") {
+    const day = start.getUTCDay() || 7;
+    start.setUTCDate(start.getUTCDate() - day + 1);
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(start);
+      date.setUTCDate(start.getUTCDate() + index);
+      return teamDateToIso(date);
+    });
+  }
+
+  if (view === "year") {
+    return Array.from({ length: 12 }, (_, index) => `${parsed.getUTCFullYear()}-${String(index + 1).padStart(2, "0")}-01`);
+  }
+
+  start.setUTCDate(1);
+  const offset = start.getUTCDay() === 0 ? 6 : start.getUTCDay() - 1;
+  start.setUTCDate(start.getUTCDate() - offset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCDate(start.getUTCDate() + index);
+    return teamDateToIso(date);
+  });
+}
+
+function reservationTableSizeSummary(reservations: Reservation[], tables: FloorTable[]) {
+  const tablesById = new Map(tables.map((table) => [table.id, table]));
+  const reservedTables = reservations
+    .map((reservation) => reservation.table?.id ? tablesById.get(reservation.table.id) : null)
+    .filter(Boolean) as FloorTable[];
+
+  return {
+    two: reservedTables.filter((table) => table.capacity <= 2).length,
+    four: reservedTables.filter((table) => table.capacity > 2 && table.capacity <= 4).length,
+    sixPlus: reservedTables.filter((table) => table.capacity >= 6).length
+  };
+}
+
 function CrmPanel({
+  canEdit,
   clients,
   clientSearch,
   restaurantId,
   setClientSearch,
   onCreate
 }: {
+  canEdit: boolean;
   clients: Client[];
   clientSearch: string;
   restaurantId: string;
@@ -7459,10 +8235,12 @@ function CrmPanel({
           <h2 className="text-lg font-black">CRM clients</h2>
           <p className="text-sm font-semibold text-ink/55">Fiches clients, allergies, préférences, no-shows, annulations tardives et statut VIP.</p>
         </div>
-        <button className="primary-button" type="button" onClick={onCreate}>
-          <Plus className="h-4 w-4" />
-          Client
-        </button>
+        {canEdit ? (
+          <button className="primary-button" type="button" onClick={onCreate}>
+            <Plus className="h-4 w-4" />
+            Client
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -7591,9 +8369,11 @@ function CrmPanel({
                             <p className="mt-2 text-sm font-semibold text-ink/65">Allergies : {client.allergies || "Aucune"}</p>
                             <p className="text-sm font-semibold text-ink/65">Préférences : {client.preferences.length ? client.preferences.join(", ") : "Aucune"}</p>
                             <p className="mt-2 text-sm font-semibold text-ink/65">Notes : {client.internalNotes || "Aucune note interne"}</p>
-                            <button className="secondary-button mt-3 h-9 text-xs" type="button" onClick={() => setEditingClientId(client.id)}>
-                              Modifier la fiche
-                            </button>
+                            {canEdit ? (
+                              <button className="secondary-button mt-3 h-9 text-xs" type="button" onClick={() => setEditingClientId(client.id)}>
+                                Modifier la fiche
+                              </button>
+                            ) : null}
                           </div>
                           <div className="rounded-md bg-white p-3">
                             <h4 className="font-black">Dernières réservations</h4>
@@ -8312,6 +9092,1958 @@ function GiftCardsPanel({ clients }: { clients: Client[] }) {
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+function TeamPanel({
+  canEdit,
+  clients,
+  onDateChange,
+  restaurant,
+  reservations,
+  selectedDate,
+  tableBlocks,
+  tables,
+  waitlist
+}: {
+  canEdit: boolean;
+  clients: Client[];
+  onDateChange: (value: string) => void;
+  restaurant: Restaurant;
+  reservations: Reservation[];
+  selectedDate: string;
+  tableBlocks: TableBlock[];
+  tables: FloorTable[];
+  waitlist: WaitlistEntry[];
+}) {
+  const [activeTab, setActiveTab] = useState<TeamTab>("today");
+  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [members, setMembers] = useState<TeamMember[]>(initialTeamMembers);
+  const [assignments, setAssignments] = useState<TeamAssignment[]>(initialTeamAssignments);
+  const [absences, setAbsences] = useState<TeamAbsence[]>(initialTeamAbsences);
+  const [replacementRequests, setReplacementRequests] = useState<TeamReplacementRequest[]>(initialTeamReplacementRequests);
+  const [replacementSelections, setReplacementSelections] = useState<Record<string, string>>({});
+  const [planningView, setPlanningView] = useState<TeamPlanningView>("table");
+  const [planningRange, setPlanningRange] = useState<TeamPlanningRange>("day");
+  const [planningStatus, setPlanningStatus] = useState<TeamBriefStatus>("draft");
+  const [planningTemplate, setPlanningTemplate] = useState("Semaine normale");
+  const [replacementFilterDate, setReplacementFilterDate] = useState(selectedDate);
+  const [replacementFilterPeriod, setReplacementFilterPeriod] = useState<TeamReplacementPeriod>("date");
+  const [absenceCalendarView, setAbsenceCalendarView] = useState<TeamAbsenceCalendarView>("month");
+  const [absenceCalendarDate, setAbsenceCalendarDate] = useState(selectedDate);
+  const [briefRecipientRole, setBriefRecipientRole] = useState<TeamRole | "all">("all");
+  const [briefSendByEmail, setBriefSendByEmail] = useState<Record<TeamServiceKind, boolean>>({
+    morning: false,
+    lunch: true,
+    dinner: true
+  });
+  const [teamSettingZones, setTeamSettingZones] = useState<TeamZone[]>(teamZones);
+  const [teamNewZone, setTeamNewZone] = useState("");
+  const [teamCoverageNeeds, setTeamCoverageNeeds] = useState<TeamCoverageNeed[]>(initialTeamCoverageNeeds);
+  const [teamExtraRule, setTeamExtraRule] = useState({
+    occupancy: 85,
+    covers: 70,
+    role: "extra" as TeamRole
+  });
+  const [briefNotes, setBriefNotes] = useState<Record<TeamServiceKind, string>>({
+    morning: "",
+    lunch: "Vérifier les allergies en cuisine avant les premières arrivées.",
+    dinner: ""
+  });
+  const [briefStatuses, setBriefStatuses] = useState<Record<TeamServiceKind, TeamBriefStatus>>({
+    morning: "draft",
+    lunch: "published",
+    dinner: "draft"
+  });
+  const [quickNote, setQuickNote] = useState("");
+  const [memberFilter, setMemberFilter] = useState("all");
+  const [showMemberForm, setShowMemberForm] = useState(false);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState<TeamRole>("server");
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [timelineZoneFilter, setTimelineZoneFilter] = useState<TeamZone | "all">("all");
+  const [absenceDraft, setAbsenceDraft] = useState<TeamAbsence>({
+    id: "absence-draft",
+    memberId: initialTeamMembers[0]?.id ?? "",
+    type: "vacation",
+    startDate: selectedDate,
+    endDate: selectedDate,
+    service: "all",
+    startTime: "00:00",
+    endTime: "23:59",
+    notes: ""
+  });
+  const [teamMessage, setTeamMessage] = useState<string | null>(null);
+  const [permissionMatrix, setPermissionMatrix] = useState(initialTeamPermissions);
+  const visibleTeamTabs = teamTabs.filter((tab) => canEdit || !["permissions", "settings"].includes(tab.id));
+
+  const membersById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+  const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  const serviceSlots = useMemo<TeamServiceSlot[]>(() => {
+    const windows = normalizeServiceWindows(restaurant.openingHours[getDayKey(selectedDate)]);
+
+    return windows.map((window, index) => {
+      const kind = teamServiceKindFromWindow(window.openMinutes);
+      return {
+        id: `${kind}-${index}`,
+        kind,
+        label: serviceWindowLabel(window, index),
+        time: `${window.open} - ${window.close}`,
+        openMinutes: window.openMinutes,
+        closeMinutes: window.closeMinutes
+      };
+    });
+  }, [restaurant.openingHours, selectedDate]);
+  const selectedSlot = serviceSlots.find((slot) => slot.id === selectedServiceId) ?? serviceSlots[0] ?? null;
+  const selectedServiceKind = selectedSlot?.kind ?? "lunch";
+  const dayReservations = useMemo(
+    () => reservations.filter((reservation) => reservation.date.slice(0, 10) === selectedDate && reservation.status !== "CANCELLED"),
+    [reservations, selectedDate]
+  );
+  const dayAbsences = absences.filter((absence) => selectedDate >= absence.startDate && selectedDate <= absence.endDate);
+  const visibleAssignments = assignments.filter((assignment) => assignment.service === selectedServiceKind);
+  const timelineAssignments = visibleAssignments.filter((assignment) => timelineZoneFilter === "all" || assignment.zone === timelineZoneFilter);
+  const missingAssignments = visibleAssignments.filter(
+    (assignment) => !assignment.memberId || assignment.status === "unavailable" || assignment.status === "replacement" || assignmentHasActiveAbsence(assignment)
+  );
+  const coveredAssignments = visibleAssignments.length - missingAssignments.length;
+  const openReplacementRequests = replacementRequests.filter((request) => request.status === "open");
+  const dayOpenReplacementRequests = openReplacementRequests.filter((request) => request.date === selectedDate);
+  const filteredReplacementRequests = openReplacementRequests.filter((request) => teamDateInPeriod(request.date, replacementFilterDate, replacementFilterPeriod));
+  const selectedTeamDay = getDayKey(selectedDate) as TeamWeekDay;
+  const selectedServiceNeeds = teamCoverageNeeds.filter((need) => need.day === selectedTeamDay && need.service === selectedServiceKind);
+  const absenceCalendarDates = teamAbsenceCalendarDates(absenceCalendarDate, absenceCalendarView);
+  const filteredMembers = members.filter((member) => {
+    if (memberFilter === "all") return member.status !== "archived";
+    return member.status === memberFilter || member.role === memberFilter || member.skills.includes(memberFilter as TeamSkill);
+  });
+
+  useEffect(() => {
+    if (serviceSlots.length > 0 && !serviceSlots.some((slot) => slot.id === selectedServiceId)) {
+      setSelectedServiceId(serviceSlots[0].id);
+    }
+  }, [selectedServiceId, serviceSlots]);
+
+  useEffect(() => {
+    if (!canEdit && ["permissions", "settings"].includes(activeTab)) {
+      setActiveTab("today");
+    }
+  }, [activeTab, canEdit]);
+
+  useEffect(() => {
+    setAbsenceDraft((current) => ({
+      ...current,
+      startDate: current.startDate || selectedDate,
+      endDate: current.endDate || selectedDate
+    }));
+    setReplacementFilterDate((current) => current || selectedDate);
+    setAbsenceCalendarDate((current) => current || selectedDate);
+  }, [selectedDate]);
+
+  function assignmentHasActiveAbsence(assignment: TeamAssignment) {
+    if (!assignment.memberId) {
+      return false;
+    }
+
+    return dayAbsences.some((absence) => {
+      const serviceMatches = absence.service === "all" || absence.service === assignment.service;
+      const timeMatches =
+        absence.startTime === "00:00" && absence.endTime === "23:59"
+          ? true
+          : parseTimeToMinutes(absence.startTime) < parseTimeToMinutes(assignment.endTime) &&
+            parseTimeToMinutes(absence.endTime) > parseTimeToMinutes(assignment.startTime);
+
+      return absence.memberId === assignment.memberId && serviceMatches && timeMatches;
+    });
+  }
+
+  function memberHasServiceConflict(memberId: string, assignment: Pick<TeamAssignment, "id" | "service">) {
+    return assignments.some(
+      (currentAssignment) =>
+        currentAssignment.id !== assignment.id &&
+        currentAssignment.service === assignment.service &&
+        currentAssignment.memberId === memberId &&
+        currentAssignment.status !== "unavailable"
+    );
+  }
+
+  function pushHistory(label: string, detail: string) {
+    setTeamMessage(`${label} : ${detail}`);
+  }
+
+  function reservationsForSlot(slot: TeamServiceSlot) {
+    return dayReservations.filter((reservation) => {
+      const startMinutes = parseTimeToMinutes(reservation.startTime);
+      return startMinutes >= slot.openMinutes && startMinutes < slot.closeMinutes;
+    });
+  }
+
+  function waitlistForSlot(slot: TeamServiceSlot) {
+    return waitlist.filter((entry) => {
+      if (entry.status !== "WAITING" || entry.date.slice(0, 10) !== selectedDate) {
+        return false;
+      }
+
+      if (!entry.requestedTime) {
+        const service = waitlistEntryService(entry);
+        return service === null || (slot.kind === "lunch" && service === "lunch") || (slot.kind === "dinner" && service === "dinner");
+      }
+
+      const requestedMinutes = parseTimeToMinutes(entry.requestedTime);
+      return requestedMinutes >= slot.openMinutes && requestedMinutes < slot.closeMinutes;
+    });
+  }
+
+  function blocksForSlot(slot: TeamServiceSlot) {
+    return tableBlocks.filter((block) => {
+      if (block.date.slice(0, 10) !== selectedDate) {
+        return false;
+      }
+
+      return parseTimeToMinutes(block.startTime) < slot.closeMinutes && parseTimeToMinutes(block.endTime) > slot.openMinutes;
+    });
+  }
+
+  function specialRequestsForSlot(slot: TeamServiceSlot) {
+    return reservationsForSlot(slot).filter(
+      (reservation) => reservation.highChair || reservation.birthday || reservation.romanticDinner || Boolean(reservation.notes?.trim())
+    );
+  }
+
+  function allergyReservationsForSlot(slot: TeamServiceSlot) {
+    return reservationsForSlot(slot).filter((reservation) => {
+      const allergies = reservationClientAllergies(reservation, clientsById);
+      return Boolean(allergies?.trim()) || reservation.notes?.toLowerCase().includes("allerg");
+    });
+  }
+
+  const serviceSnapshots = serviceSlots.map((slot) => {
+    const slotReservations = reservationsForSlot(slot);
+    const slotAssignments = assignments.filter((assignment) => assignment.service === slot.kind);
+    const slotMissing = slotAssignments.filter(
+      (assignment) => !assignment.memberId || assignment.status === "unavailable" || assignment.status === "replacement" || assignmentHasActiveAbsence(assignment)
+    );
+
+    return {
+      slot,
+      assignments: slotAssignments,
+      missing: slotMissing,
+      reservations: slotReservations,
+      covers: slotReservations.reduce((sum, reservation) => sum + reservation.numberOfGuests, 0),
+      vip: slotReservations.filter((reservation) => reservation.client?.vip).length,
+      specialRequests: specialRequestsForSlot(slot).length,
+      allergies: allergyReservationsForSlot(slot).length,
+      waitlist: waitlistForSlot(slot).length,
+      tableBlocks: blocksForSlot(slot).length
+    };
+  });
+  const activeSlotReservations = selectedSlot ? reservationsForSlot(selectedSlot) : [];
+  const activeSlotWaitlist = selectedSlot ? waitlistForSlot(selectedSlot) : [];
+  const activeSlotBlocks = selectedSlot ? blocksForSlot(selectedSlot) : [];
+  const activeSlotSpecialRequests = selectedSlot ? specialRequestsForSlot(selectedSlot) : [];
+  const activeSlotAllergies = selectedSlot ? allergyReservationsForSlot(selectedSlot) : [];
+  const activeVipReservations = activeSlotReservations.filter((reservation) => reservation.client?.vip);
+  const expectedCovers = activeSlotReservations.reduce((sum, reservation) => sum + reservation.numberOfGuests, 0);
+  const activeServiceCapacity = tables.reduce((sum, table) => sum + table.capacity, 0);
+  const serviceFillRate = activeServiceCapacity > 0 ? Math.round((expectedCovers / activeServiceCapacity) * 100) : 0;
+  const extraSuggested = serviceFillRate >= teamExtraRule.occupancy || expectedCovers >= teamExtraRule.covers;
+  const activeSlotRush = rushForecast(activeSlotReservations);
+  const activeSlotTableSizes = reservationTableSizeSummary(activeSlotReservations, tables);
+  const activeSlotReservationsByHour = Array.from(
+    activeSlotReservations.reduce((map, reservation) => {
+      const hour = `${reservation.startTime.slice(0, 2)}:00`;
+      map.set(hour, (map.get(hour) ?? 0) + reservation.numberOfGuests);
+      return map;
+    }, new Map<string, number>())
+  ).sort((first, second) => first[0].localeCompare(second[0]));
+  const timelineStartMinutes = Math.max(
+    0,
+    Math.min(
+      selectedSlot?.openMinutes ?? 12 * 60,
+      ...timelineAssignments.map((assignment) => parseTimeToMinutes(assignment.startTime)),
+      ...activeSlotReservations.map((reservation) => parseTimeToMinutes(reservation.startTime))
+    ) - 30
+  );
+  const timelineEndMinutes = Math.min(
+    24 * 60,
+    Math.max(
+      selectedSlot?.closeMinutes ?? 15 * 60,
+      ...timelineAssignments.map((assignment) => parseTimeToMinutes(assignment.endTime)),
+      ...activeSlotReservations.map((reservation) => parseTimeToMinutes(reservation.endTime))
+    ) + 30
+  );
+  const timelineTicks = Array.from(
+    { length: Math.max(2, Math.floor((timelineEndMinutes - timelineStartMinutes) / 60) + 1) },
+    (_, index) => minutesToTime(Math.min(timelineEndMinutes, timelineStartMinutes + index * 60))
+  );
+  const teamSummaryRows = [
+    { label: "Collaborateurs", value: `${coveredAssignments}/${visibleAssignments.length || 0}`, detail: "postes couverts" },
+    { label: "Réservations", value: String(activeSlotReservations.length), detail: `${expectedCovers} couverts` },
+    { label: "Waitlist", value: String(activeSlotWaitlist.length), detail: "demandes" },
+    { label: "Tables bloquées", value: String(activeSlotBlocks.length), detail: "sur le service" },
+    { label: "Rush", value: activeSlotRush.peak?.time ?? "Aucun", detail: activeSlotRush.peak ? `${activeSlotRush.peak.guests} couverts` : "pic non détecté" }
+  ];
+  const operationalAlerts = [
+    missingAssignments.length > 0
+      ? {
+          id: "missing",
+          tone: "critical" as const,
+          title: `${missingAssignments.length} poste(s) à couvrir`,
+          detail: missingAssignments.map((assignment) => `${assignment.zone} · ${teamRoleLabels[assignment.role]}`).join(", ")
+        }
+      : null,
+    dayOpenReplacementRequests.length > 0
+      ? {
+          id: "replacements",
+          tone: "warning" as const,
+          title: `${dayOpenReplacementRequests.length} remplacement(s) ouvert(s)`,
+          detail: dayOpenReplacementRequests.map((request) => `${teamServiceLabels[request.service]} · ${request.zone}`).join(", ")
+        }
+      : null,
+    activeVipReservations.length > 0
+      ? {
+          id: "vip",
+          tone: "info" as const,
+          title: `${activeVipReservations.length} VIP attendu(s)`,
+          detail: activeVipReservations.map(reservationGuestName).slice(0, 3).join(", ")
+        }
+      : null,
+    activeSlotAllergies.length > 0
+      ? {
+          id: "allergies",
+          tone: "warning" as const,
+          title: `${activeSlotAllergies.length} allergie(s) à relayer`,
+          detail: activeSlotAllergies.map(reservationGuestName).slice(0, 3).join(", ")
+        }
+      : null,
+    activeSlotWaitlist.length > 0
+      ? {
+          id: "waitlist",
+          tone: "info" as const,
+          title: `${activeSlotWaitlist.length} demande(s) waitlist`,
+          detail: activeSlotWaitlist.map((entry) => `${entry.firstName} ${entry.lastName} · ${entry.numberOfGuests} couverts`).slice(0, 3).join(", ")
+        }
+      : null,
+    activeSlotBlocks.length > 0
+      ? {
+          id: "blocks",
+          tone: "warning" as const,
+          title: `${activeSlotBlocks.length} table(s) bloquée(s)`,
+          detail: activeSlotBlocks.map((block) => `${block.table.label} · ${block.startTime}`).join(", ")
+        }
+      : null,
+    dayAbsences.length > 0
+      ? {
+          id: "absences",
+          tone: "warning" as const,
+          title: `${dayAbsences.length} absence(s) planifiée(s)`,
+          detail: dayAbsences.map((absence) => `${teamMemberName(membersById.get(absence.memberId))} · ${teamAbsenceTypeLabels[absence.type]}`).slice(0, 3).join(", ")
+        }
+      : null
+  ].filter(Boolean) as Array<{ id: string; tone: "critical" | "warning" | "info"; title: string; detail: string }>;
+
+  function updateAssignment(assignmentId: string, patch: Partial<TeamAssignment>) {
+    setAssignments((current) => current.map((assignment) => (assignment.id === assignmentId ? { ...assignment, ...patch } : assignment)));
+  }
+
+  function updateAssignmentMember(assignment: TeamAssignment, memberId: string) {
+    const nextMemberId = memberId || null;
+
+    if (nextMemberId && memberHasServiceConflict(nextMemberId, assignment)) {
+      setTeamMessage("Ce collaborateur est déjà affecté sur ce service.");
+      return;
+    }
+
+    updateAssignment(assignment.id, {
+      memberId: nextMemberId,
+      status: nextMemberId ? "planned" : "replacement"
+    });
+    pushHistory(
+      "Planning modifié",
+      `${teamServiceLabels[assignment.service]} · ${assignment.zone} confié à ${teamMemberName(membersById.get(nextMemberId ?? ""))}.`
+    );
+  }
+
+  function requestReplacement(assignment: TeamAssignment) {
+    updateAssignment(assignment.id, { status: "replacement" });
+    setReplacementRequests((current) => {
+      const existing = current.find((request) => request.assignmentId === assignment.id && request.status === "open");
+      if (existing) {
+        return current;
+      }
+
+      return [
+        {
+          id: `replacement-${assignment.id}`,
+          assignmentId: assignment.id,
+          date: selectedDate,
+          service: assignment.service,
+          zone: assignment.zone,
+          role: assignment.role,
+          absentMemberId: assignment.memberId,
+          urgency: assignment.zone === "Cuisine" || assignment.zone === "Management" ? "high" : "normal",
+          status: "open"
+        },
+        ...current
+      ];
+    });
+    pushHistory("Remplacement demandé", `${teamServiceLabels[assignment.service]} · ${assignment.zone} · ${teamRoleLabels[assignment.role]}.`);
+  }
+
+  function compatibleMembersFor(assignment: Pick<TeamAssignment, "id" | "role" | "service" | "zone">) {
+    const expectedSkills = teamRoleSkills[assignment.role];
+    return members.filter((member) => {
+      if (!["active", "extra"].includes(member.status)) {
+        return false;
+      }
+
+      if (memberHasServiceConflict(member.id, assignment)) {
+        return false;
+      }
+
+      const hasSkill = expectedSkills.some((skill) => member.skills.includes(skill));
+      const knowsZone = member.zones.includes(assignment.zone);
+      const worksService = member.usualServices.includes(assignment.service);
+
+      return member.role === assignment.role || (hasSkill && (knowsZone || worksService));
+    });
+  }
+
+  function confirmReplacement(request: TeamReplacementRequest, memberId: string) {
+    if (!memberId) {
+      setTeamMessage("Sélectionnez un collaborateur compatible.");
+      return;
+    }
+
+    const member = membersById.get(memberId);
+    const targetAssignment = assignments.find((assignment) => assignment.id === request.assignmentId);
+
+    if (targetAssignment && memberHasServiceConflict(memberId, targetAssignment)) {
+      setTeamMessage("Ce collaborateur est déjà affecté sur ce service.");
+      return;
+    }
+
+    setAssignments((current) =>
+      current.map((assignment) =>
+        assignment.id === request.assignmentId
+          ? {
+              ...assignment,
+              memberId,
+              status: "confirmed"
+            }
+          : assignment
+      )
+    );
+    setReplacementRequests((current) =>
+      current.map((replacementRequest) =>
+        replacementRequest.id === request.id ? { ...replacementRequest, status: "confirmed" } : replacementRequest
+      )
+    );
+    pushHistory("Remplacement confirmé", `${teamMemberName(member)} couvre ${teamServiceLabels[request.service]} · ${request.zone}.`);
+    setTeamMessage("Remplacement confirmé.");
+  }
+
+  function addMember() {
+    const normalizedName = newMemberName.trim();
+
+    if (!normalizedName) {
+      setTeamMessage("Renseignez un nom pour ajouter un collaborateur.");
+      return;
+    }
+
+    const [firstName, ...lastNameParts] = normalizedName.split(/\s+/);
+    const lastName = lastNameParts.join(" ") || "Équipe";
+    const id = `member-${Date.now()}`;
+    const skills = teamRoleSkills[newMemberRole];
+    const nextMember: TeamMember = {
+      id,
+      firstName,
+      lastName,
+      initials: `${firstName[0] ?? "?"}${lastName[0] ?? ""}`.toUpperCase(),
+      photoUrl: "",
+      phone: "",
+      email: "",
+      dashboardAccess: false,
+      accessRole: "readonly",
+      temporaryPassword: "",
+      role: newMemberRole,
+      status: "active",
+      skills,
+      usualServices: ["lunch", "dinner"],
+      zones: newMemberRole === "bar" ? ["Bar"] : newMemberRole === "kitchen" ? ["Cuisine"] : ["Salle"],
+      experience: "Junior",
+      weeklyTargetHours: newMemberRole === "extra" ? 15 : 35,
+      weeklySchedule: createWeeklySchedule(newMemberRole, newMemberRole === "bar" ? "Bar" : newMemberRole === "kitchen" ? "Cuisine" : "Salle", "dinner"),
+      notes: ""
+    };
+
+    setMembers((current) => [...current, nextMember]);
+    setNewMemberName("");
+    setShowMemberForm(false);
+    pushHistory("Collaborateur ajouté", `${teamMemberName(nextMember)} · ${teamRoleLabels[nextMember.role]}.`);
+  }
+
+  function updateMemberStatus(member: TeamMember, status: TeamMemberStatus) {
+    setMembers((current) => current.map((item) => (item.id === member.id ? { ...item, status } : item)));
+    pushHistory("Fiche collaborateur modifiée", `${teamMemberName(member)} · statut ${teamMemberStatusLabels[status]}.`);
+  }
+
+  function updateMember(memberId: string, patch: Partial<TeamMember>) {
+    setMembers((current) =>
+      current.map((member) => {
+        if (member.id !== memberId) {
+          return member;
+        }
+
+        const nextMember = { ...member, ...patch };
+        return {
+          ...nextMember,
+          initials: `${nextMember.firstName[0] ?? "?"}${nextMember.lastName[0] ?? ""}`.toUpperCase()
+        };
+      })
+    );
+  }
+
+  function toggleMemberService(member: TeamMember, service: TeamServiceKind) {
+    const nextServices = member.usualServices.includes(service)
+      ? member.usualServices.filter((item) => item !== service)
+      : [...member.usualServices, service];
+    updateMember(member.id, { usualServices: nextServices });
+  }
+
+  function toggleMemberZone(member: TeamMember, zone: TeamZone) {
+    const nextZones = member.zones.includes(zone)
+      ? member.zones.filter((item) => item !== zone)
+      : [...member.zones, zone];
+    updateMember(member.id, { zones: nextZones });
+  }
+
+  function toggleMemberSkill(member: TeamMember, skill: TeamSkill) {
+    const nextSkills = member.skills.includes(skill)
+      ? member.skills.filter((item) => item !== skill)
+      : [...member.skills, skill];
+    updateMember(member.id, { skills: nextSkills });
+  }
+
+  function updateMemberWeeklyShift(member: TeamMember, day: TeamWeekDay, patch: Partial<TeamWeeklyShift>) {
+    updateMember(member.id, {
+      weeklySchedule: {
+        ...member.weeklySchedule,
+        [day]: {
+          ...member.weeklySchedule[day],
+          ...patch
+        }
+      }
+    });
+  }
+
+  function duplicatePreviousWeek() {
+    setPlanningStatus("draft");
+    setTeamMessage("Semaine précédente dupliquée en brouillon.");
+  }
+
+  function publishPlanning() {
+    setPlanningStatus("published");
+    setTeamMessage("Planning publié pour l'équipe.");
+  }
+
+  function addTeamZone() {
+    const nextZone = teamNewZone.trim() as TeamZone;
+
+    if (!nextZone || teamSettingZones.includes(nextZone)) {
+      setTeamMessage("Renseignez une nouvelle zone.");
+      return;
+    }
+
+    setTeamSettingZones((current) => [...current, nextZone]);
+    setTeamNewZone("");
+    setTeamMessage("Zone ajoutée aux réglages équipe.");
+  }
+
+  function updateCoverageNeed(needId: string, required: number) {
+    setTeamCoverageNeeds((current) =>
+      current.map((need) => (need.id === needId ? { ...need, required: Math.max(0, required) } : need))
+    );
+  }
+
+  function addAbsence() {
+    if (!absenceDraft.memberId || absenceDraft.endDate < absenceDraft.startDate) {
+      setTeamMessage("Vérifiez le collaborateur et la période d'absence.");
+      return;
+    }
+
+    const nextAbsence: TeamAbsence = {
+      ...absenceDraft,
+      id: `absence-${Date.now()}`
+    };
+    setAbsences((current) => [nextAbsence, ...current]);
+    setAbsenceDraft((current) => ({
+      ...current,
+      id: "absence-draft",
+      notes: ""
+    }));
+    pushHistory("Absence planifiée", `${teamMemberName(membersById.get(nextAbsence.memberId))} · ${teamAbsenceTypeLabels[nextAbsence.type]}.`);
+  }
+
+  function removeAbsence(absenceId: string) {
+    setAbsences((current) => current.filter((absence) => absence.id !== absenceId));
+    setTeamMessage("Absence retirée.");
+  }
+
+  function setBriefStatus(service: TeamServiceKind, status: TeamBriefStatus) {
+    setBriefStatuses((current) => ({ ...current, [service]: status }));
+    pushHistory(status === "published" ? "Brief publié" : "Brief repassé en brouillon", `${teamServiceLabels[service]} · ${formatDate(selectedDate)}.`);
+  }
+
+  function briefLinesForSlot(slot: TeamServiceSlot) {
+    const slotReservations = reservationsForSlot(slot);
+    const slotAssignments = assignments.filter((assignment) => assignment.service === slot.kind);
+    const slotVip = slotReservations.filter((reservation) => reservation.client?.vip);
+    const slotAllergies = allergyReservationsForSlot(slot);
+    const slotSpecialRequests = specialRequestsForSlot(slot);
+    const slotWaitlist = waitlistForSlot(slot);
+    const slotBlocks = blocksForSlot(slot);
+    const slotRush = rushForecast(slotReservations);
+    const slotTableSizes = reservationTableSizeSummary(slotReservations, tables);
+    const reservedTableLabels = slotReservations
+      .map((reservation) => reservation.table?.label)
+      .filter(Boolean)
+      .slice(0, 12);
+    const lines = [
+      `${slot.label} · ${slot.time}`,
+      `${slotReservations.length} réservation(s), ${slotReservations.reduce((sum, reservation) => sum + reservation.numberOfGuests, 0)} couvert(s).`,
+      `Équipe : ${slotAssignments.length} poste(s), ${slotAssignments.filter((assignment) => assignment.memberId && assignment.status !== "replacement").length} couvert(s).`,
+      `Tables : ${slotTableSizes.two} table(s) de 2, ${slotTableSizes.four} table(s) de 4, ${slotTableSizes.sixPlus} grande(s) table(s).`,
+      slotRush.peak ? `Rush prévu vers ${slotRush.peak.time} avec ${slotRush.peak.guests} couvert(s).` : "Aucun rush net détecté pour ce service."
+    ];
+
+    if (slotAssignments.length > 0) {
+      lines.push(
+        `Planning équipe : ${slotAssignments
+          .map((assignment) => {
+            const member = membersById.get(assignment.memberId ?? "");
+            return `${teamMemberName(member)} ${assignment.startTime}-${assignment.endTime} (${teamRoleLabels[assignment.role]}, ${assignment.zone})`;
+          })
+          .join("; ")}.`
+      );
+    }
+
+    if (reservedTableLabels.length > 0) {
+      lines.push(`Tables réservées : ${reservedTableLabels.join(", ")}.`);
+    }
+
+    if (slotVip.length > 0) {
+      lines.push(`VIP : ${slotVip.map(reservationGuestName).join(", ")}.`);
+    }
+
+    if (slotAllergies.length > 0) {
+      lines.push(`Allergies : ${slotAllergies.map(reservationGuestName).join(", ")}.`);
+    }
+
+    if (slotSpecialRequests.length > 0) {
+      lines.push(`Demandes : ${slotSpecialRequests.map((reservation) => `${reservationGuestName(reservation)} (${reservationRequestSummary(reservation)})`).join("; ")}.`);
+    }
+
+    if (slotWaitlist.length > 0) {
+      lines.push(`Waitlist : ${slotWaitlist.map((entry) => `${entry.firstName} ${entry.lastName} (${entry.numberOfGuests})`).slice(0, 5).join(", ")}.`);
+    }
+
+    if (slotBlocks.length > 0) {
+      lines.push(`Tables bloquées : ${slotBlocks.map((block) => block.table.label).join(", ")}.`);
+    }
+
+    const arrivals = slotReservations
+      .slice()
+      .sort((first, second) => first.startTime.localeCompare(second.startTime))
+      .slice(0, 8)
+      .map((reservation) => `${reservation.startTime} · ${reservationGuestName(reservation)} · ${reservation.numberOfGuests} couvert(s)${reservation.table?.label ? ` · table ${reservation.table.label}` : ""}`);
+
+    if (arrivals.length > 0) {
+      lines.push(`Arrivées clés : ${arrivals.join("; ")}.`);
+    }
+
+    return lines;
+  }
+
+  function briefRecipientsForSlot(slot: TeamServiceSlot) {
+    const memberIds = new Set(
+      assignments
+        .filter((assignment) => assignment.service === slot.kind && assignment.memberId)
+        .filter((assignment) => briefRecipientRole === "all" || assignment.role === briefRecipientRole)
+        .map((assignment) => assignment.memberId as string)
+    );
+
+    return members.filter((member) => memberIds.has(member.id) && Boolean(member.email));
+  }
+
+  async function copyBrief(slot: TeamServiceSlot) {
+    const note = briefNotes[slot.kind]?.trim();
+    const text = [...briefLinesForSlot(slot), note ? `Note manager : ${note}` : null].filter(Boolean).join("\n");
+
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      setTeamMessage("Brief copié.");
+    }
+  }
+
+  function togglePermission(role: TeamPermissionRole, permission: TeamPermissionKey) {
+    if (role === "owner") {
+      return;
+    }
+
+    setPermissionMatrix((current) => ({
+      ...current,
+      [role]: {
+        ...current[role],
+        [permission]: !current[role][permission]
+      }
+    }));
+    pushHistory("Permission modifiée", `${teamPermissionRoleLabels[role]} · ${teamPermissionRows.find((row) => row.key === permission)?.label ?? permission}.`);
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PanelHeader
+          title="Équipes"
+          description="Préparez le service du jour, organisez les postes, partagez les briefs et gérez les remplacements."
+        />
+        {activeTab === "today" ? (
+          <div className="flex flex-wrap items-end justify-end gap-2">
+            <div className="grid justify-items-center gap-1">
+              <span className="text-center text-xs font-black uppercase tracking-[0.12em] text-ink/45">Jour</span>
+              <div className="flex items-center gap-2">
+                <button
+                  className="grid h-10 w-10 place-items-center rounded-md border border-ink/10 bg-linen text-ink/70 transition hover:bg-sage"
+                  type="button"
+                  onClick={() => onDateChange(addDaysToDateString(selectedDate, -1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="sr-only">Jour précédent</span>
+                </button>
+                <input className="control h-10 w-40" type="date" value={selectedDate} onChange={(event) => onDateChange(event.target.value)} />
+                <button
+                  className="grid h-10 w-10 place-items-center rounded-md border border-ink/10 bg-linen text-ink/70 transition hover:bg-sage"
+                  type="button"
+                  onClick={() => onDateChange(addDaysToDateString(selectedDate, 1))}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="sr-only">Jour suivant</span>
+                </button>
+              </div>
+            </div>
+            {serviceSlots.length > 0 ? (
+              <div className="grid justify-items-center gap-1">
+                <span className="text-center text-xs font-black uppercase tracking-[0.12em] text-ink/45">Service</span>
+                <select className="control h-10 min-w-44" value={selectedSlot?.id ?? ""} onChange={(event) => setSelectedServiceId(event.target.value)}>
+                  {serviceSlots.map((slot) => (
+                    <option key={slot.id} value={slot.id}>{slot.label} · {slot.time}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {teamMessage ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-moss/15 bg-sage/70 p-3 text-sm font-bold text-moss">
+          <span>{teamMessage}</span>
+          <button className="rounded p-1 text-moss hover:bg-white" type="button" onClick={() => setTeamMessage(null)} aria-label="Fermer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2 rounded-lg border border-ink/10 bg-white p-2 shadow-soft">
+        {visibleTeamTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={clsx(
+              "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-black transition",
+              activeTab === tab.id ? "bg-moss text-white shadow-sm" : "text-ink/60 hover:bg-linen hover:text-ink"
+            )}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "today" ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-black">Synthèse du service</h3>
+              <span className="rounded-full bg-linen px-3 py-1 text-xs font-black text-ink/60">
+                {selectedSlot ? `${selectedSlot.label} · ${selectedSlot.time}` : "Aucun service"}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-5">
+              {teamSummaryRows.map((row) => (
+                <div key={row.label} className="rounded-md border border-ink/10 bg-linen p-3">
+                  <p className="text-xs font-black uppercase tracking-[0.12em] text-ink/45">{row.label}</p>
+                  <p className="mt-2 text-xl font-black text-ink">{row.value}</p>
+                  <p className="mt-1 text-xs font-bold text-ink/50">{row.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-black">Services du jour</h3>
+                  <p className="mt-1 text-sm font-semibold text-ink/55">{formatDate(selectedDate)}</p>
+                </div>
+                <span className="rounded-full bg-linen px-3 py-1 text-xs font-black text-ink/60">{tables.length} table(s) configurée(s)</span>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {serviceSnapshots.length > 0 ? serviceSnapshots.map((snapshot) => (
+                  <button
+                    key={snapshot.slot.id}
+                    className={clsx(
+                      "rounded-lg border p-3 text-left transition",
+                      selectedSlot?.id === snapshot.slot.id ? "border-moss bg-sage/70" : "border-ink/10 bg-white hover:bg-linen"
+                    )}
+                    type="button"
+                    onClick={() => setSelectedServiceId(snapshot.slot.id)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-black">{snapshot.slot.label}</p>
+                      <span className={clsx("whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-black", snapshot.missing.length ? "bg-red-50 text-red-700" : "bg-moss/10 text-moss")}>
+                        {snapshot.missing.length ? `${snapshot.missing.length} manque` : "Couvert"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-bold text-ink/50">{snapshot.slot.time}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-ink/60">
+                      <span>{snapshot.assignments.length - snapshot.missing.length}/{snapshot.assignments.length} équipe</span>
+                      <span>{snapshot.covers} couverts</span>
+                      <span>{snapshot.vip} VIP</span>
+                      <span>{snapshot.waitlist} waitlist</span>
+                    </div>
+                  </button>
+                )) : (
+                  <div className="rounded-lg border border-ink/10 bg-linen p-4 text-sm font-bold text-ink/60 md:col-span-3">
+                    Aucun service ouvert sur cette journée.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-moss" />
+                <h3 className="font-black">Alertes opérationnelles</h3>
+              </div>
+              <div className="mt-4 space-y-2">
+                {operationalAlerts.length > 0 ? operationalAlerts.map((alert) => (
+                  <article
+                    key={alert.id}
+                    className={clsx(
+                      "rounded-md border p-3",
+                      alert.tone === "critical" && "border-red-200 bg-red-50 text-red-800",
+                      alert.tone === "warning" && "border-amber-200 bg-amber-50 text-amber-800",
+                      alert.tone === "info" && "border-moss/15 bg-sage/70 text-moss"
+                    )}
+                  >
+                    <p className="text-sm font-black">{alert.title}</p>
+                    <p className="mt-1 text-xs font-semibold leading-5 opacity-80">{alert.detail}</p>
+                  </article>
+                )) : (
+                  <div className="rounded-md bg-sage/70 p-3 text-sm font-bold text-moss">Service prêt, aucune alerte prioritaire.</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <h3 className="font-black">Équipe prévue</h3>
+              <div className="mt-3 space-y-2">
+                {visibleAssignments.map((assignment) => {
+                  const member = membersById.get(assignment.memberId ?? "");
+                  return (
+                    <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink/10 bg-linen p-3">
+                      <div>
+                        <p className="text-sm font-black">{assignment.zone} · {teamRoleLabels[assignment.role]}</p>
+                        <p className="mt-1 text-xs font-bold text-ink/55">{teamMemberName(member)}</p>
+                      </div>
+                      <span className={clsx("rounded-full px-2 py-1 text-[10px] font-black", teamStatusClass(assignment.status))}>
+                        {teamAssignmentStatusLabels[assignment.status]}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <h3 className="font-black">Note rapide service</h3>
+              <textarea
+                className="control mt-3 min-h-24 w-full"
+                placeholder="Ex : prévenir la cuisine pour les allergies, surveiller la table 12, préparer terrasse..."
+                value={quickNote}
+                onChange={(event) => setQuickNote(event.target.value)}
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => {
+                    if (quickNote.trim()) {
+                      pushHistory("Note ajoutée", quickNote.trim());
+                      setTeamMessage("Note ajoutée à l'historique.");
+                      setQuickNote("");
+                    }
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Ajouter la note
+                </button>
+                <button className="secondary-button" type="button" onClick={() => setActiveTab("briefs")}>
+                  <FileText className="h-4 w-4" />
+                  Ouvrir le brief
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "planning" ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-black">Planning équipe</h3>
+                <p className="mt-1 text-sm font-semibold text-ink/55">
+                  {planningRange === "week" ? `Semaine du ${formatDate(teamStartOfWeek(selectedDate))}` : selectedSlot ? `${selectedSlot.label} · ${selectedSlot.time}` : "Aucun service ouvert"}
+                </p>
+              </div>
+              <span className={clsx("rounded-full px-3 py-1 text-xs font-black", planningStatus === "published" ? "bg-moss/10 text-moss" : "bg-amber-50 text-amber-700")}>
+                {planningStatus === "published" ? "Publié" : "Brouillon"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="text-sm font-bold">
+                  <span className="mb-1 block">Jour</span>
+                  <input className="control h-10 w-40" type="date" value={selectedDate} onChange={(event) => onDateChange(event.target.value)} />
+                </label>
+                {selectedSlot ? (
+                  <label className="text-sm font-bold">
+                    <span className="mb-1 block">Service</span>
+                    <select className="control h-10 min-w-44" value={selectedSlot.id} onChange={(event) => setSelectedServiceId(event.target.value)}>
+                      {serviceSlots.map((slot) => (
+                        <option key={slot.id} value={slot.id}>{slot.label} · {slot.time}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                <label className="text-sm font-bold">
+                  <span className="mb-1 block">Modèle</span>
+                  <select className="control h-10 min-w-44" value={planningTemplate} onChange={(event) => setPlanningTemplate(event.target.value)}>
+                    <option>Semaine normale</option>
+                    <option>Haute saison</option>
+                    <option>Vacances</option>
+                    <option>Événement</option>
+                  </select>
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Segmented
+                  options={[
+                    { value: "day", label: "Jour" },
+                    { value: "week", label: "Semaine" }
+                  ]}
+                  value={planningRange}
+                  onChange={(value) => setPlanningRange(value as TeamPlanningRange)}
+                />
+                <Segmented
+                  options={[
+                    { value: "table", label: "Tableau" },
+                    { value: "timeline", label: "Timeline" }
+                  ]}
+                  value={planningView}
+                  onChange={(value) => setPlanningView(value as TeamPlanningView)}
+                />
+                {canEdit ? (
+                  <>
+                    <button className="secondary-button h-10" type="button" onClick={duplicatePreviousWeek}>
+                      <Copy className="h-4 w-4" />
+                      Dupliquer
+                    </button>
+                    <button className="primary-button h-10" type="button" onClick={publishPlanning}>
+                      <Check className="h-4 w-4" />
+                      Publier
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-ink/45">Couverture équipe</p>
+              <p className="mt-2 text-xl font-black">{coveredAssignments}/{visibleAssignments.length || 0}</p>
+              <p className="mt-1 text-xs font-bold text-ink/50">postes couverts sur le service</p>
+            </div>
+            <div className={clsx("rounded-lg border p-4 shadow-soft", missingAssignments.length > 0 ? "border-red-100 bg-red-50 text-red-800" : "border-moss/15 bg-sage/70 text-moss")}>
+              <p className="text-xs font-black uppercase tracking-[0.12em] opacity-70">Besoins</p>
+              <p className="mt-2 text-xl font-black">{missingAssignments.length > 0 ? `${missingAssignments.length} manque` : "Complet"}</p>
+              <p className="mt-1 text-xs font-bold opacity-75">
+                {selectedServiceNeeds.length > 0 ? selectedServiceNeeds.map((need) => `${need.required} ${teamRoleLabels[need.role]}`).join(" · ") : "Aucun besoin type paramétré"}
+              </p>
+            </div>
+            <div className={clsx("rounded-lg border p-4 shadow-soft", extraSuggested ? "border-orange-100 bg-orange-50 text-orange-800" : "border-ink/10 bg-white text-ink")}>
+              <p className="text-xs font-black uppercase tracking-[0.12em] opacity-70">Extra conseillé</p>
+              <p className="mt-2 text-xl font-black">{extraSuggested ? "À prévoir" : "Non"}</p>
+              <p className="mt-1 text-xs font-bold opacity-75">{serviceFillRate}% remplissage · seuil {teamExtraRule.occupancy}%</p>
+            </div>
+          </div>
+
+          {planningView === "table" ? (
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <div className="hidden grid-cols-[1.25fr_0.8fr_0.8fr_0.55fr_0.55fr_1fr_0.9fr] gap-2 px-2 text-xs font-black uppercase tracking-[0.12em] text-ink/45 xl:grid">
+                <span>Collaborateur</span>
+                <span>Rôle</span>
+                <span>Zone</span>
+                <span>Début</span>
+                <span>Fin</span>
+                <span>Statut</span>
+                <span>Remplacement</span>
+              </div>
+              <div className="mt-2 space-y-2">
+                {visibleAssignments.map((assignment) => {
+                  const unavailable = assignmentHasActiveAbsence(assignment);
+                  return (
+                    <div
+                      key={assignment.id}
+                      className={clsx("grid gap-2 rounded-md border p-2 text-sm xl:grid-cols-[1.25fr_0.8fr_0.8fr_0.55fr_0.55fr_1fr_0.9fr] xl:items-center", teamAssignmentSurfaceClass(assignment.status, unavailable))}
+                    >
+                      <select
+                        className="control h-9 w-full bg-white/90"
+                        disabled={!canEdit}
+                        value={assignment.memberId ?? ""}
+                        onChange={(event) => updateAssignmentMember(assignment, event.target.value)}
+                      >
+                        <option value="">Poste ouvert</option>
+                        {compatibleMembersFor(assignment).map((member) => (
+                          <option key={member.id} value={member.id}>{teamMemberName(member)}</option>
+                        ))}
+                      </select>
+                      <select className="control h-9 w-full bg-white/90" disabled={!canEdit} value={assignment.role} onChange={(event) => updateAssignment(assignment.id, { role: event.target.value as TeamRole })}>
+                        {Object.entries(teamRoleLabels).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                      <select className="control h-9 w-full bg-white/90" disabled={!canEdit} value={assignment.zone} onChange={(event) => updateAssignment(assignment.id, { zone: event.target.value as TeamZone })}>
+                        {teamSettingZones.map((zone) => (
+                          <option key={zone} value={zone}>{zone}</option>
+                        ))}
+                      </select>
+                      <input className="control h-9 w-full bg-white/90" disabled={!canEdit} type="time" value={assignment.startTime} onChange={(event) => updateAssignment(assignment.id, { startTime: event.target.value })} />
+                      <input className="control h-9 w-full bg-white/90" disabled={!canEdit} type="time" value={assignment.endTime} onChange={(event) => updateAssignment(assignment.id, { endTime: event.target.value })} />
+                      <select className="control h-9 w-full bg-white/90" disabled={!canEdit} value={assignment.status} onChange={(event) => updateAssignment(assignment.id, { status: event.target.value as TeamAssignmentStatus })}>
+                        {Object.entries(teamAssignmentStatusLabels).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                      {canEdit ? (
+                        <button className="secondary-button h-9 justify-center bg-white/90" type="button" onClick={() => requestReplacement(assignment)}>
+                          <Repeat2 className="h-4 w-4" />
+                          Demander
+                        </button>
+                      ) : <span className="text-xs font-bold text-ink/45">Lecture seule</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded-lg border border-ink/10 bg-linen p-4 shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black">Timeline du planning</h3>
+                <p className="mt-1 text-sm font-semibold text-ink/55">
+                  {teamTimeRangeLabel(timelineStartMinutes, timelineEndMinutes)} · horaires, rush, réservations et tables bloquées.
+                </p>
+              </div>
+              <label className="text-sm font-bold">
+                <span className="mb-1 block">Zone</span>
+                <select className="control h-10 min-w-44" value={timelineZoneFilter} onChange={(event) => setTimelineZoneFilter(event.target.value as TeamZone | "all")}>
+                  <option value="all">Toutes les zones</option>
+                  {teamSettingZones.map((zone) => (
+                    <option key={zone} value={zone}>{zone}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-black text-ink/55">
+              {(["confirmed", "planned", "replacement", "unavailable"] as TeamAssignmentStatus[]).map((status) => (
+                <span key={status} className="inline-flex items-center gap-1">
+                  <span className={clsx("h-2.5 w-2.5 rounded-full", teamAssignmentDotClass(status))} />
+                  {teamAssignmentStatusLabels[status]}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="relative h-7 border-b border-ink/10">
+                {timelineTicks.map((tick) => (
+                  <span
+                    key={tick}
+                    className="absolute top-0 -translate-x-1/2 text-[10px] font-black text-ink/40"
+                    style={{ left: `${teamTimePercent(tick, timelineStartMinutes, timelineEndMinutes)}%` }}
+                  >
+                    {tick}
+                  </span>
+                ))}
+              </div>
+
+              {selectedSlot && activeSlotRush.peak ? (
+                <div className="relative h-7 rounded-md bg-white/80">
+                  <span
+                    className="absolute top-1 h-5 rounded-full bg-orange-100 px-2 text-[10px] font-black leading-5 text-orange-800"
+                    style={{ left: `${teamTimePercent(activeSlotRush.peak.time, timelineStartMinutes, timelineEndMinutes)}%` }}
+                  >
+                    Rush {activeSlotRush.peak.time}
+                  </span>
+                </div>
+              ) : null}
+
+              {timelineAssignments.map((assignment) => {
+                const unavailable = assignmentHasActiveAbsence(assignment);
+                const member = membersById.get(assignment.memberId ?? "");
+                const left = teamTimePercent(assignment.startTime, timelineStartMinutes, timelineEndMinutes);
+                const right = teamTimePercent(assignment.endTime, timelineStartMinutes, timelineEndMinutes);
+                const width = Math.max(4, right - left);
+
+                return (
+                  <div key={assignment.id} className="grid gap-2 rounded-md bg-white p-3 sm:grid-cols-[150px_1fr] sm:items-center">
+                    <div>
+                      <p className="text-sm font-black">{teamMemberName(member)}</p>
+                      <p className="mt-1 text-xs font-bold text-ink/55">{teamRoleLabels[assignment.role]} · {assignment.zone}</p>
+                    </div>
+                    <div className="relative h-9 rounded-full bg-linen">
+                      <div
+                        className={clsx("absolute top-1.5 h-6 overflow-hidden rounded-full px-3 text-[11px] font-black leading-6 shadow-sm", assignmentTimelineClass(assignment.status, unavailable))}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        title={`${assignment.startTime} - ${assignment.endTime}`}
+                      >
+                        <span className="whitespace-nowrap">{assignment.startTime} - {assignment.endTime}</span>
+                      </div>
+                      {activeSlotReservations.map((reservation) => (
+                        <span
+                          key={`${assignment.id}-${reservation.id}`}
+                          className="absolute top-0 h-9 w-0.5 bg-ink/25"
+                          style={{ left: `${teamTimePercent(reservation.startTime, timelineStartMinutes, timelineEndMinutes)}%` }}
+                          title={`${reservation.startTime} · ${reservationGuestName(reservation)} · ${reservation.numberOfGuests} couverts`}
+                        />
+                      ))}
+                      {activeSlotBlocks.map((block) => (
+                        <span
+                          key={`${assignment.id}-${block.id}`}
+                          className="absolute top-1 h-7 rounded-sm bg-red-100/80"
+                          style={{
+                            left: `${teamTimePercent(block.startTime, timelineStartMinutes, timelineEndMinutes)}%`,
+                            width: `${Math.max(1, teamTimePercent(block.endTime, timelineStartMinutes, timelineEndMinutes) - teamTimePercent(block.startTime, timelineStartMinutes, timelineEndMinutes))}%`
+                          }}
+                          title={`Table bloquée ${block.table.label}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "briefs" ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <div>
+              <h3 className="font-black">Briefs par rôle</h3>
+              <p className="mt-1 text-sm font-semibold text-ink/55">Le contenu inclut les réservations, le rush, les tables et les horaires équipe.</p>
+            </div>
+            <label className="text-sm font-bold">
+              <span className="mb-1 block">Destinataires</span>
+              <select className="control h-10 min-w-44" value={briefRecipientRole} onChange={(event) => setBriefRecipientRole(event.target.value as TeamRole | "all")}>
+                <option value="all">Tous les rôles</option>
+                {Object.entries(teamRoleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            {serviceSlots.length > 0 ? serviceSlots.map((slot) => {
+              const note = briefNotes[slot.kind] ?? "";
+              const recipients = briefRecipientsForSlot(slot);
+              return (
+                <article key={slot.id} className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-black">{slot.label}</h3>
+                      <p className="mt-1 text-xs font-bold text-ink/50">{slot.time}</p>
+                    </div>
+                    <span className={clsx("rounded-full px-2 py-1 text-[10px] font-black", briefStatuses[slot.kind] === "published" ? "bg-moss/10 text-moss" : "bg-amber-50 text-amber-700")}>
+                      {briefStatuses[slot.kind] === "published" ? "Publié" : "Brouillon"}
+                    </span>
+                  </div>
+                  <div className="mt-4 rounded-md bg-sage/70 p-3 text-xs font-bold text-moss">
+                    Destinataires : {recipients.length > 0 ? recipients.map(teamMemberName).join(", ") : "aucun email disponible"}
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {briefLinesForSlot(slot).map((line) => (
+                      <p key={line} className="rounded-md bg-linen p-2 text-xs font-semibold leading-5 text-ink/65">{line}</p>
+                    ))}
+                  </div>
+                  <label className="mt-4 block text-sm font-bold">
+                    Note manager
+                    <textarea
+                      className="control mt-1 min-h-24 w-full"
+                      disabled={!canEdit}
+                      value={note}
+                      onChange={(event) => setBriefNotes((current) => ({ ...current, [slot.kind]: event.target.value }))}
+                    />
+                  </label>
+                  <label className="mt-3 flex items-center gap-2 text-sm font-black">
+                    <input
+                      className="h-4 w-4 accent-moss"
+                      disabled={!canEdit}
+                      type="checkbox"
+                      checked={briefSendByEmail[slot.kind]}
+                      onChange={(event) => setBriefSendByEmail((current) => ({ ...current, [slot.kind]: event.target.checked }))}
+                    />
+                    Envoyer par mail
+                  </label>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {canEdit ? (
+                      <>
+                        <button className="primary-button" type="button" onClick={() => setBriefStatus(slot.kind, "published")}>
+                          <Check className="h-4 w-4" />
+                          Publier
+                        </button>
+                        <button className="secondary-button" type="button" onClick={() => setBriefStatus(slot.kind, "draft")}>
+                          <FileText className="h-4 w-4" />
+                          Brouillon
+                        </button>
+                      </>
+                    ) : null}
+                    <button className="secondary-button" type="button" onClick={() => void copyBrief(slot)}>
+                      <Copy className="h-4 w-4" />
+                      Copier
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => setTeamMessage("PDF prêt à éditer depuis le brief.")}>
+                      <Download className="h-4 w-4" />
+                      Éditer PDF
+                    </button>
+                    {canEdit ? (
+                      <button className="secondary-button" type="button" onClick={() => setTeamMessage(briefSendByEmail[slot.kind] ? `Brief prêt à envoyer à ${recipients.length} destinataire(s).` : "Cochez Envoyer par mail pour préparer l'envoi.")}>
+                        <Mail className="h-4 w-4" />
+                        Préparer l'envoi
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            }) : (
+              <div className="rounded-lg border border-ink/10 bg-white p-4 text-sm font-bold text-ink/60 shadow-soft xl:col-span-3">
+                Aucun brief à préparer sur cette journée fermée.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "members" ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <div>
+              <h3 className="font-black">Collaborateurs</h3>
+              <p className="mt-1 text-sm font-semibold text-ink/55">{members.filter((member) => member.status !== "archived").length} fiche(s) active(s)</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select className="control h-10 min-w-44" value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}>
+                <option value="all">Tous les actifs</option>
+                {Object.entries(teamMemberStatusLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+                {Object.entries(teamRoleLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+                {(["Salle", "Terrasse", "Bar", "Cuisine", "Accueil", "Langues", "Gestion VIP"] as TeamSkill[]).map((skill) => (
+                  <option key={skill} value={skill}>{skill}</option>
+                ))}
+              </select>
+              {canEdit ? (
+                <button className="primary-button" type="button" onClick={() => setShowMemberForm((current) => !current)}>
+                  <Plus className="h-4 w-4" />
+                  Ajouter
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {showMemberForm && canEdit ? (
+            <div className="grid gap-3 rounded-lg border border-ink/10 bg-white p-4 shadow-soft md:grid-cols-[1fr_220px_auto]">
+              <label className="text-sm font-bold">
+                Nom complet
+                <input className="control mt-1 w-full" value={newMemberName} onChange={(event) => setNewMemberName(event.target.value)} />
+              </label>
+              <label className="text-sm font-bold">
+                Rôle principal
+                <select className="control mt-1 w-full" value={newMemberRole} onChange={(event) => setNewMemberRole(event.target.value as TeamRole)}>
+                  {Object.entries(teamRoleLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button className="primary-button h-10" type="button" onClick={addMember}>
+                  <Check className="h-4 w-4" />
+                  Créer
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            {filteredMembers.map((member) => {
+              const plannedHours = teamMemberWeeklyHours(member);
+              const missingHours = Math.max(0, member.weeklyTargetHours - plannedHours);
+
+              return (
+              <article key={member.id} className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {member.photoUrl ? (
+                      <div
+                        className="h-11 w-11 rounded-full bg-cover bg-center"
+                        style={{ backgroundImage: `url(${member.photoUrl})` }}
+                        aria-label={teamMemberName(member)}
+                      />
+                    ) : (
+                      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-moss text-sm font-black text-white">{member.initials}</div>
+                    )}
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-black">{teamMemberName(member)}</h3>
+                        <span className={clsx("rounded-full px-2 py-1 text-[10px] font-black", teamStatusClass(member.status))}>{teamMemberStatusLabels[member.status]}</span>
+                        {member.dashboardAccess ? <span className="rounded-full bg-sage px-2 py-1 text-[10px] font-black text-moss">Accès</span> : null}
+                      </div>
+                      <p className="mt-1 text-sm font-semibold text-ink/55">{teamRoleLabels[member.role]} · {member.experience}</p>
+                    </div>
+                  </div>
+                  {canEdit ? (
+                    <button className="secondary-button h-9" type="button" onClick={() => setEditingMemberId(editingMemberId === member.id ? null : member.id)}>
+                      <Settings className="h-4 w-4" />
+                      {editingMemberId === member.id ? "Fermer" : "Modifier"}
+                    </button>
+                  ) : null}
+                </div>
+
+                {editingMemberId === member.id ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <InputField label="Prénom" name={`firstName-${member.id}`} value={member.firstName} onChange={(value) => updateMember(member.id, { firstName: value })} />
+                      <InputField label="Nom" name={`lastName-${member.id}`} value={member.lastName} onChange={(value) => updateMember(member.id, { lastName: value })} />
+                      <InputField label="Téléphone" name={`phone-${member.id}`} value={member.phone} onChange={(value) => updateMember(member.id, { phone: value })} />
+                      <InputField label="Email" name={`email-${member.id}`} type="email" value={member.email} onChange={(value) => updateMember(member.id, { email: value })} />
+                      <InputField label="Photo" name={`photo-${member.id}`} value={member.photoUrl} onChange={(value) => updateMember(member.id, { photoUrl: value })} />
+                      <label className="text-sm font-bold">
+                        Statut
+                        <select className="control mt-1 w-full" value={member.status} onChange={(event) => updateMemberStatus(member, event.target.value as TeamMemberStatus)}>
+                          {Object.entries(teamMemberStatusLabels).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold">
+                        Rôle principal
+                        <select className="control mt-1 w-full" value={member.role} onChange={(event) => updateMember(member.id, { role: event.target.value as TeamRole })}>
+                          {Object.entries(teamRoleLabels).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold">
+                        Niveau
+                        <select className="control mt-1 w-full" value={member.experience} onChange={(event) => updateMember(member.id, { experience: event.target.value as TeamExperience })}>
+                          {(["Junior", "Confirmé", "Référent"] as TeamExperience[]).map((experience) => (
+                            <option key={experience} value={experience}>{experience}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-md bg-linen p-3">
+                        <p className="text-sm font-black">Services habituels</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(["morning", "lunch", "dinner"] as TeamServiceKind[]).map((service) => (
+                            <button
+                              key={service}
+                              className={clsx("rounded-full px-3 py-1 text-xs font-black", member.usualServices.includes(service) ? "bg-moss text-white" : "bg-white text-ink/55")}
+                              type="button"
+                              onClick={() => toggleMemberService(member, service)}
+                            >
+                              {teamServiceLabels[service]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-md bg-linen p-3">
+                        <p className="text-sm font-black">Zones maîtrisées</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {teamSettingZones.map((zone) => (
+                            <button
+                              key={zone}
+                              className={clsx("rounded-full px-3 py-1 text-xs font-black", member.zones.includes(zone) ? "bg-moss text-white" : "bg-white text-ink/55")}
+                              type="button"
+                              onClick={() => toggleMemberZone(member, zone)}
+                            >
+                              {zone}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-md bg-linen p-3">
+                      <p className="text-sm font-black">Compétences</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(["Salle", "Terrasse", "Bar", "Cuisine", "Accueil", "Encaissement", "Langues", "Gestion VIP", "Management"] as TeamSkill[]).map((skill) => (
+                          <button
+                            key={skill}
+                            className={clsx("rounded-full px-3 py-1 text-xs font-black", member.skills.includes(skill) ? "bg-sage text-moss" : "bg-white text-ink/55")}
+                            type="button"
+                            onClick={() => toggleMemberSkill(member, skill)}
+                          >
+                            {skill}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 rounded-md border border-moss/15 bg-sage/70 p-3 md:grid-cols-3">
+                      <label className="flex items-center gap-2 text-sm font-black">
+                        <input
+                          className="h-4 w-4 accent-moss"
+                          type="checkbox"
+                          checked={member.dashboardAccess}
+                          onChange={(event) => updateMember(member.id, { dashboardAccess: event.target.checked })}
+                        />
+                        Accès
+                      </label>
+                      <label className="text-sm font-bold">
+                        Rôle accès
+                        <select className="control mt-1 w-full" value={member.accessRole} onChange={(event) => updateMember(member.id, { accessRole: event.target.value as TeamPermissionRole })}>
+                          {Object.entries(teamPermissionRoleLabels).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <InputField label="Mot de passe" name={`password-${member.id}`} type="password" value={member.temporaryPassword} onChange={(value) => updateMember(member.id, { temporaryPassword: value })} />
+                    </div>
+
+                    <div className="rounded-md border border-ink/10 bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black">Planning hebdomadaire</p>
+                          <p className="mt-1 text-xs font-bold text-ink/50">
+                            {plannedHours.toFixed(1)}h planifiées · {missingHours > 0 ? `${missingHours.toFixed(1)}h manquantes` : "objectif couvert"}
+                          </p>
+                        </div>
+                        <label className="text-xs font-black text-ink/55">
+                          Objectif
+                          <input
+                            className="control mt-1 h-9 w-24"
+                            min="0"
+                            step="0.5"
+                            type="number"
+                            value={member.weeklyTargetHours}
+                            onChange={(event) => updateMember(member.id, { weeklyTargetHours: Number(event.target.value) })}
+                          />
+                        </label>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {teamWeekDayItems.map((day) => {
+                          const shift = member.weeklySchedule[day.id];
+                          return (
+                            <div key={day.id} className="grid gap-2 rounded-md bg-linen p-2 md:grid-cols-[70px_90px_1fr_1fr_1fr_1fr] md:items-center">
+                              <label className="flex items-center gap-2 text-xs font-black">
+                                <input
+                                  className="h-4 w-4 accent-moss"
+                                  type="checkbox"
+                                  checked={shift.active}
+                                  onChange={(event) => updateMemberWeeklyShift(member, day.id, { active: event.target.checked })}
+                                />
+                                {day.label}
+                              </label>
+                              <select className="control h-9 w-full" value={shift.service} onChange={(event) => updateMemberWeeklyShift(member, day.id, { service: event.target.value as TeamServiceKind })}>
+                                {teamServices.map((service) => (
+                                  <option key={service} value={service}>{teamServiceLabels[service]}</option>
+                                ))}
+                              </select>
+                              <input className="control h-9 w-full" type="time" value={shift.startTime} onChange={(event) => updateMemberWeeklyShift(member, day.id, { startTime: event.target.value })} />
+                              <input className="control h-9 w-full" type="time" value={shift.endTime} onChange={(event) => updateMemberWeeklyShift(member, day.id, { endTime: event.target.value })} />
+                              <select className="control h-9 w-full" value={shift.role} onChange={(event) => updateMemberWeeklyShift(member, day.id, { role: event.target.value as TeamRole })}>
+                                {Object.entries(teamRoleLabels).map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                              </select>
+                              <select className="control h-9 w-full" value={shift.zone} onChange={(event) => updateMemberWeeklyShift(member, day.id, { zone: event.target.value as TeamZone })}>
+                                {teamSettingZones.map((zone) => (
+                                  <option key={zone} value={zone}>{zone}</option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <label className="block text-sm font-bold">
+                      Notes internes
+                      <textarea className="control mt-1 min-h-20 w-full" value={member.notes} onChange={(event) => updateMember(member.id, { notes: event.target.value })} />
+                    </label>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-md bg-linen p-3 text-sm font-semibold text-ink/65">
+                        <p className="font-black text-ink">Contact</p>
+                        <p className="mt-1 flex items-center gap-2"><Phone className="h-3.5 w-3.5" /> {member.phone || "À renseigner"}</p>
+                        <p className="mt-1 flex items-center gap-2"><Mail className="h-3.5 w-3.5" /> {member.email || "À renseigner"}</p>
+                      </div>
+                      <div className="rounded-md bg-linen p-3 text-sm font-semibold text-ink/65">
+                        <p className="font-black text-ink">Services habituels</p>
+                        <p className="mt-1">{member.usualServices.map((service) => teamServiceLabels[service]).join(", ")}</p>
+                        <p className="mt-1">Zones : {member.zones.join(", ")}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-md border border-ink/10 bg-linen p-3 text-sm font-semibold text-ink/65">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-black text-ink">Planning semaine</p>
+                        <span className={clsx("rounded-full px-2 py-1 text-[10px] font-black", missingHours > 0 ? "bg-amber-50 text-amber-700" : "bg-moss/10 text-moss")}>
+                          {plannedHours.toFixed(1)}h / {member.weeklyTargetHours}h
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs font-bold text-ink/50">{missingHours > 0 ? `${missingHours.toFixed(1)}h manquantes` : "objectif couvert"}</p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {member.skills.map((skill) => (
+                        <span key={skill} className="rounded-full bg-sage px-2 py-1 text-[10px] font-black text-moss">{skill}</span>
+                      ))}
+                    </div>
+                    {member.notes ? <p className="mt-3 text-sm font-semibold leading-6 text-ink/60">{member.notes}</p> : null}
+                  </>
+                )}
+              </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "absences" ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black">Congés et absences</h3>
+                <p className="mt-1 text-sm font-semibold text-ink/55">Planifiez une absence sur une période, un service ou une plage horaire précise.</p>
+              </div>
+              <span className="rounded-full bg-linen px-3 py-1 text-xs font-black text-ink/60">{dayAbsences.length} absence(s) ce jour</span>
+            </div>
+
+            {canEdit ? (
+            <>
+            <div className="mt-4 grid gap-3 lg:grid-cols-4">
+              <label className="text-sm font-bold">
+                Collaborateur
+                <select className="control mt-1 w-full" value={absenceDraft.memberId} onChange={(event) => setAbsenceDraft((current) => ({ ...current, memberId: event.target.value }))}>
+                  {members.filter((member) => member.status !== "archived").map((member) => (
+                    <option key={member.id} value={member.id}>{teamMemberName(member)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm font-bold">
+                Type
+                <select className="control mt-1 w-full" value={absenceDraft.type} onChange={(event) => setAbsenceDraft((current) => ({ ...current, type: event.target.value as TeamAbsenceType }))}>
+                  {Object.entries(teamAbsenceTypeLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <InputField label="Début" name="absenceStartDate" type="date" value={absenceDraft.startDate} onChange={(value) => setAbsenceDraft((current) => ({ ...current, startDate: value }))} />
+              <InputField label="Fin" name="absenceEndDate" type="date" value={absenceDraft.endDate} onChange={(value) => setAbsenceDraft((current) => ({ ...current, endDate: value }))} />
+              <label className="text-sm font-bold">
+                Service
+                <select className="control mt-1 w-full" value={absenceDraft.service} onChange={(event) => setAbsenceDraft((current) => ({ ...current, service: event.target.value as TeamAbsence["service"] }))}>
+                  <option value="all">Toute la journée</option>
+                  <option value="morning">Matin</option>
+                  <option value="lunch">Midi</option>
+                  <option value="dinner">Soir</option>
+                </select>
+              </label>
+              <InputField label="Heure début" name="absenceStartTime" type="time" value={absenceDraft.startTime} onChange={(value) => setAbsenceDraft((current) => ({ ...current, startTime: value }))} />
+              <InputField label="Heure fin" name="absenceEndTime" type="time" value={absenceDraft.endTime} onChange={(value) => setAbsenceDraft((current) => ({ ...current, endTime: value }))} />
+              <div className="flex items-end">
+                <button className="primary-button h-10" type="button" onClick={addAbsence}>
+                  <Plus className="h-4 w-4" />
+                  Planifier
+                </button>
+              </div>
+            </div>
+            <label className="mt-3 block text-sm font-bold">
+              Note
+              <textarea className="control mt-1 min-h-16 w-full" value={absenceDraft.notes} onChange={(event) => setAbsenceDraft((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            </>
+            ) : (
+              <p className="mt-4 rounded-md bg-linen p-3 text-sm font-bold text-ink/60">
+                Accès lecture seule : les absences sont visibles, mais leur planification est réservée aux profils autorisés.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <h3 className="font-black">Absences programmées</h3>
+            <div className="mt-4 space-y-3">
+              {absences.length > 0 ? absences.map((absence) => (
+                <article key={absence.id} className="grid gap-3 rounded-md border border-ink/10 bg-linen p-3 md:grid-cols-[1fr_auto] md:items-center">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-black">{teamMemberName(membersById.get(absence.memberId))}</p>
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-ink/60">{teamAbsenceTypeLabels[absence.type]}</span>
+                    </div>
+                    <p className="mt-1 text-sm font-semibold text-ink/60">
+                      {formatDate(absence.startDate)} - {formatDate(absence.endDate)} · {absence.service === "all" ? "Toute la journée" : teamServiceLabels[absence.service]} · {absence.startTime} - {absence.endTime}
+                    </p>
+                    {absence.notes ? <p className="mt-1 text-sm font-semibold text-ink/50">{absence.notes}</p> : null}
+                  </div>
+                  {canEdit ? (
+                    <button className="secondary-button h-9" type="button" onClick={() => removeAbsence(absence.id)}>
+                      <Trash2 className="h-4 w-4" />
+                      Retirer
+                    </button>
+                  ) : null}
+                </article>
+              )) : (
+                <div className="rounded-md bg-sage/70 p-3 text-sm font-bold text-moss">Aucune absence programmée.</div>
+              )}
+            </div>
+
+            <div className="mt-5 rounded-md border border-ink/10 bg-linen p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 className="font-black">Calendrier des absences</h4>
+                  <p className="mt-1 text-xs font-bold text-ink/50">Vue globale semaine, mois ou année.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input className="control h-10 w-40 bg-white" type="date" value={absenceCalendarDate} onChange={(event) => setAbsenceCalendarDate(event.target.value)} />
+                  <Segmented
+                    options={[
+                      { value: "week", label: "Semaine" },
+                      { value: "month", label: "Mois" },
+                      { value: "year", label: "Année" }
+                    ]}
+                    value={absenceCalendarView}
+                    onChange={(value) => setAbsenceCalendarView(value as TeamAbsenceCalendarView)}
+                  />
+                </div>
+              </div>
+              <div className={clsx("mt-4 grid gap-2", absenceCalendarView === "year" ? "md:grid-cols-4" : "grid-cols-2 md:grid-cols-7")}>
+                {absenceCalendarDates.map((date) => {
+                  const dayItems = absences.filter((absence) => {
+                    if (absenceCalendarView === "year") {
+                      return absence.startDate.slice(0, 7) <= date.slice(0, 7) && absence.endDate.slice(0, 7) >= date.slice(0, 7);
+                    }
+
+                    return date >= absence.startDate && date <= absence.endDate;
+                  });
+                  return (
+                    <button
+                      key={date}
+                      className={clsx(
+                        "min-h-20 rounded-md border p-2 text-left transition",
+                        dayItems.length > 0 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-ink/10 bg-white text-ink/55"
+                      )}
+                      type="button"
+                      onClick={() => setAbsenceCalendarDate(date)}
+                    >
+                      <p className="text-xs font-black">{absenceCalendarView === "year" ? formatDate(date).replace(/^... /, "") : formatDate(date)}</p>
+                      <p className="mt-2 text-[11px] font-bold">
+                        {dayItems.length > 0 ? dayItems.map((absence) => teamMemberName(membersById.get(absence.memberId))).slice(0, 2).join(", ") : "Libre"}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "replacements" ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black">Remplacements ouverts</h3>
+                <p className="mt-1 text-sm font-semibold text-ink/55">Filtrez par date, semaine ou mois sans dépendre du service affiché ailleurs.</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="text-sm font-bold">
+                  <span className="mb-1 block">Date</span>
+                  <input className="control h-10 w-40" type="date" value={replacementFilterDate} onChange={(event) => setReplacementFilterDate(event.target.value)} />
+                </label>
+                <Segmented
+                  options={[
+                    { value: "date", label: "Jour" },
+                    { value: "week", label: "Semaine" },
+                    { value: "month", label: "Mois" }
+                  ]}
+                  value={replacementFilterPeriod}
+                  onChange={(value) => setReplacementFilterPeriod(value as TeamReplacementPeriod)}
+                />
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {filteredReplacementRequests.length > 0 ? filteredReplacementRequests.map((request) => {
+                const targetAssignment = assignments.find((assignment) => assignment.id === request.assignmentId);
+                const compatibleMembers = targetAssignment ? compatibleMembersFor(targetAssignment) : compatibleMembersFor({ id: request.assignmentId, role: request.role, service: request.service, zone: request.zone });
+                const selectedMemberId = replacementSelections[request.id] || compatibleMembers[0]?.id || "";
+                return (
+                  <article key={request.id} className="grid gap-3 rounded-md border border-ink/10 bg-linen p-3 lg:grid-cols-[1fr_240px_auto] lg:items-center">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-black">{teamServiceLabels[request.service]} · {request.zone}</p>
+                        <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-ink/55">{formatDate(request.date)}</span>
+                        <span className={clsx("rounded-full px-2 py-1 text-[10px] font-black", request.urgency === "high" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>
+                          {request.urgency === "high" ? "Urgent" : "Normal"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm font-semibold text-ink/55">{teamRoleLabels[request.role]} · {compatibleMembers.length} profil(s) compatible(s)</p>
+                    </div>
+                    <select
+                      className="control h-10 w-full"
+                      value={selectedMemberId}
+                      onChange={(event) => setReplacementSelections((current) => ({ ...current, [request.id]: event.target.value }))}
+                    >
+                      {compatibleMembers.length > 0 ? compatibleMembers.map((member) => (
+                        <option key={member.id} value={member.id}>{teamMemberName(member)}</option>
+                      )) : <option value="">Aucun profil compatible</option>}
+                    </select>
+                    {canEdit ? (
+                      <button className="primary-button h-10" type="button" onClick={() => confirmReplacement(request, selectedMemberId)} disabled={!selectedMemberId}>
+                        <Check className="h-4 w-4" />
+                        Confirmer
+                      </button>
+                    ) : <span className="text-sm font-bold text-ink/45">Lecture seule</span>}
+                  </article>
+                );
+              }) : (
+                <div className="rounded-md bg-sage/70 p-3 text-sm font-bold text-moss">Aucun remplacement ouvert sur cette période.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+            <h3 className="font-black">Postes à surveiller</h3>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {missingAssignments.map((assignment) => (
+                <article key={assignment.id} className="rounded-md border border-red-100 bg-red-50 p-3 text-red-800">
+                  <p className="font-black">{assignment.zone} · {teamRoleLabels[assignment.role]}</p>
+                  <p className="mt-1 text-sm font-semibold opacity-80">{teamServiceLabels[assignment.service]} · {teamAssignmentStatusLabels[assignment.status]}</p>
+                  {canEdit ? (
+                    <button className="mt-3 secondary-button bg-white" type="button" onClick={() => requestReplacement(assignment)}>
+                      <Repeat2 className="h-4 w-4" />
+                      Proposer un remplaçant
+                    </button>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "permissions" ? (
+        <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-moss" />
+            <h3 className="font-black">Droits d'accès</h3>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs font-black uppercase tracking-[0.12em] text-ink/45">
+                <tr>
+                  <th className="px-3 py-2">Permission</th>
+                  {(Object.keys(teamPermissionRoleLabels) as TeamPermissionRole[]).map((role) => (
+                    <th key={role} className="px-3 py-2 text-center">{teamPermissionRoleLabels[role]}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink/10">
+                {teamPermissionRows.map((permission) => (
+                  <tr key={permission.key}>
+                    <td className="px-3 py-3 font-bold">{permission.label}</td>
+                    {(Object.keys(teamPermissionRoleLabels) as TeamPermissionRole[]).map((role) => (
+                      <td key={`${role}-${permission.key}`} className="px-3 py-3 text-center">
+                        <button
+                          className={clsx(
+                            "inline-flex h-8 w-8 items-center justify-center rounded-full border transition",
+                            permissionMatrix[role][permission.key] ? "border-moss/20 bg-moss text-white" : "border-ink/10 bg-linen text-ink/35",
+                            role === "owner" && "cursor-not-allowed opacity-70"
+                          )}
+                          disabled={role === "owner"}
+                          type="button"
+                          onClick={() => togglePermission(role, permission.key)}
+                          aria-label={`${teamPermissionRoleLabels[role]} · ${permission.label}`}
+                        >
+                          {permissionMatrix[role][permission.key] ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                        </button>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "settings" ? (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <div className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-moss" />
+                <h3 className="font-black">Zones et rôles</h3>
+              </div>
+              <div className="mt-4 rounded-md bg-linen p-3">
+                <p className="text-sm font-black">Zones</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {teamSettingZones.map((zone) => (
+                    <span key={zone} className="rounded-full bg-white px-3 py-1 text-xs font-black text-ink/60">{zone}</span>
+                  ))}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <input className="control h-10 min-w-0 flex-1 bg-white" placeholder="Nouvelle zone" value={teamNewZone} onChange={(event) => setTeamNewZone(event.target.value)} />
+                  <button className="primary-button h-10" type="button" onClick={addTeamZone}>
+                    <Plus className="h-4 w-4" />
+                    Ajouter
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 rounded-md bg-linen p-3">
+                <p className="text-sm font-black">Rôles disponibles</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {Object.entries(teamRoleLabels).map(([value, label]) => (
+                    <span key={value} className="rounded-full bg-white px-3 py-1 text-xs font-black text-ink/60">{label}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-3 rounded-md bg-sage/70 p-3 text-sm font-bold text-moss">
+                Règle conflit active : un collaborateur ne peut pas être affecté à deux postes sur le même service.
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <h3 className="font-black">Besoins par service</h3>
+              <p className="mt-1 text-sm font-semibold text-ink/55">Définissez les besoins par jour de semaine, avec possibilité de dupliquer puis d'ajuster une date précise dans le planning.</p>
+              <div className="mt-4 space-y-2">
+                {teamCoverageNeeds.map((need) => (
+                  <div key={need.id} className="grid gap-2 rounded-md bg-linen p-2 md:grid-cols-[1fr_1fr_1fr_110px] md:items-center">
+                    <span className="text-sm font-black">{dayLabels[need.day]}</span>
+                    <span className="text-sm font-semibold text-ink/60">{teamServiceLabels[need.service]}</span>
+                    <span className="text-sm font-semibold text-ink/60">{teamRoleLabels[need.role]}</span>
+                    <input
+                      className="control h-9 bg-white"
+                      min="0"
+                      type="number"
+                      value={need.required}
+                      onChange={(event) => updateCoverageNeed(need.id, Number(event.target.value))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <h3 className="font-black">Modèles de semaine</h3>
+              <div className="mt-3 space-y-2 text-sm font-semibold text-ink/65">
+                {["Semaine normale", "Haute saison", "Vacances", "Événement"].map((template) => (
+                  <button
+                    key={template}
+                    className={clsx("flex w-full items-center justify-between rounded-md border p-3 text-left", planningTemplate === template ? "border-moss bg-sage/70 text-moss" : "border-ink/10 bg-linen")}
+                    type="button"
+                    onClick={() => setPlanningTemplate(template)}
+                  >
+                    <span className="font-black">{template}</span>
+                    {planningTemplate === template ? <Check className="h-4 w-4" /> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <h3 className="font-black">Règles d'extra</h3>
+              <div className="mt-4 grid gap-3">
+                <label className="text-sm font-bold">
+                  Seuil remplissage
+                  <input className="control mt-1 w-full" min="0" max="100" type="number" value={teamExtraRule.occupancy} onChange={(event) => setTeamExtraRule((current) => ({ ...current, occupancy: Number(event.target.value) }))} />
+                </label>
+                <label className="text-sm font-bold">
+                  Couverts prévus
+                  <input className="control mt-1 w-full" min="0" type="number" value={teamExtraRule.covers} onChange={(event) => setTeamExtraRule((current) => ({ ...current, covers: Number(event.target.value) }))} />
+                </label>
+                <label className="text-sm font-bold">
+                  Rôle suggéré
+                  <select className="control mt-1 w-full" value={teamExtraRule.role} onChange={(event) => setTeamExtraRule((current) => ({ ...current, role: event.target.value as TeamRole }))}>
+                    {Object.entries(teamRoleLabels).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-soft">
+              <h3 className="font-black">Briefs par rôle</h3>
+              <div className="mt-3 space-y-2">
+                {Object.entries(teamRoleLabels).map(([value, label]) => (
+                  <div key={value} className="rounded-md bg-linen p-3 text-sm font-semibold text-ink/65">
+                    <p className="font-black text-ink">{label}</p>
+                    <p className="mt-1 text-xs font-bold text-ink/50">
+                      {value === "manager" ? "Brief complet avec équipe, rush et alertes." : value === "kitchen" ? "Allergies, horaires cuisine et arrivées clés." : "Réservations, horaires, zone et consignes du service."}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
     </section>
   );
 }

@@ -6,7 +6,7 @@ import { requireSession } from "@/server/auth/guards";
 import { sendReservationConfirmation } from "@/server/email";
 import { apiError, created, ok } from "@/server/http";
 import { assertRateLimit, rateLimitKey } from "@/server/rate-limit";
-import { requireRestaurantAccess } from "@/server/services/restaurant-access-service";
+import { getRestaurantAccessRole, requireRestaurantAccess } from "@/server/services/restaurant-access-service";
 import {
   createReservation,
   listRestaurantReservations
@@ -98,11 +98,14 @@ export async function POST(request: Request, context: Context) {
     const session = await getServerSession(authOptions);
 	    const { restaurantId } = await context.params;
 	    const payload = await request.json();
-	    const isRestaurantStaff = session?.user.role === "ADMIN" || session?.user.role === "STAFF";
-	    const isAdminReservation = isRestaurantStaff && (typeof payload.userId === "string" || typeof payload.status === "string");
+      const restaurantAccessRole = session ? await getRestaurantAccessRole(session, restaurantId) : null;
+	    const isRestaurantStaff = Boolean(restaurantAccessRole) || session?.user.role === "ADMIN" || session?.user.role === "STAFF";
+	    const isAdminReservation = isRestaurantStaff && (typeof payload.userId === "string" || typeof payload.status === "string" || payload.sendConfirmationSms === true);
       const sendConfirmationSmsForStaff = payload.sendConfirmationSms === true;
 
-	    if (isAdminReservation) {
+	    if (restaurantAccessRole && session) {
+	      await requireRestaurantAccess(session, restaurantId, "HOST");
+	    } else if (isAdminReservation && session) {
 	      await requireRestaurantAccess(session, restaurantId, "HOST");
 	    }
 

@@ -12,7 +12,9 @@ type Context = {
 
 export async function GET(_: Request, context: Context) {
   try {
+    const session = await requireSession();
     const { restaurantId } = await context.params;
+    await requireRestaurantAccess(session, restaurantId, "READ_ONLY");
     const tables = await listTables(restaurantId);
     return ok({ tables });
   } catch (error) {

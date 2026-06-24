@@ -49,3 +49,27 @@ export async function requireRestaurantAccess(
     role: effectiveRole
   };
 }
+
+export async function getRestaurantAccessRole(session: Session, restaurantId: string) {
+  const restaurant = await prisma.restaurant.findUnique({
+    where: {
+      id: restaurantId
+    },
+    select: {
+      ownerId: true,
+      staff: {
+        where: {
+          userId: session.user.id
+        },
+        select: {
+          role: true
+        },
+        take: 1
+      }
+    }
+  });
+
+  return restaurant?.ownerId === session.user.id
+    ? "OWNER"
+    : restaurant?.staff[0]?.role ?? null;
+}

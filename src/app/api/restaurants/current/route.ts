@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { RestaurantAccessRole } from "@/lib/restaurant-permissions";
 import { requireSession } from "@/server/auth/guards";
 import { apiError, ok } from "@/server/http";
 
@@ -47,13 +48,27 @@ export async function GET(request: Request) {
         name: "asc"
       },
       include: {
+        staff: {
+          where: {
+            userId: session.user.id
+          },
+          select: {
+            role: true
+          },
+          take: 1
+        },
         tables: {
           orderBy: [{ zone: "asc" }, { label: "asc" }]
         }
       }
     });
 
-    return ok({ restaurants });
+    const restaurantsWithAccess = restaurants.map(({ staff, ...restaurant }) => ({
+      ...restaurant,
+      accessRole: (restaurant.ownerId === session.user.id ? "OWNER" : staff[0]?.role ?? "READ_ONLY") satisfies RestaurantAccessRole
+    }));
+
+    return ok({ restaurants: restaurantsWithAccess });
   } catch (error) {
     return apiError(error);
   }
